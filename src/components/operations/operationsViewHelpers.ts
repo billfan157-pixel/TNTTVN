@@ -1,4 +1,6 @@
 import type { OperationEvent, OperationTask, OperationsCreationOptions } from '../../lib/api/operations'
+import { EVENT_TYPE_OPTIONS } from './operationsLabels'
+export * from './operationsLabels'
 
 /** Shared pure view helpers for the Operations workspace (page + extracted forms). */
 export function toIso(value: string) {
@@ -128,16 +130,6 @@ export function canUseFieldTasks(input: { unitId: string | null | undefined; fie
   return Boolean(input.unitId && input.fieldUnitIds.has(input.unitId))
 }
 
-/** Select options for OperationEvent.eventType, shared by create/edit forms (A4' audit 2026-09-12). */
-export const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'FEAST_DAY', label: 'Lễ / Bổn mạng' },
-  { value: 'CAMP', label: 'Trại / Sa mạc' },
-  { value: 'TRAINING', label: 'Huấn luyện' },
-  { value: 'SACRAMENT', label: 'Bí tích' },
-  { value: 'RETREAT', label: 'Tĩnh tâm' },
-  { value: 'MEETING', label: 'Họp' },
-  { value: 'OTHER', label: 'Khác' },
-]
 
 /** VI label for an event type; unknown codes read as the "Khác" bucket instead of a raw code. */
 export function eventTypeLabel(value: string | null | undefined) {

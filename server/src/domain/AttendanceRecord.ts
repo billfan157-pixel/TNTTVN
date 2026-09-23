@@ -33,6 +33,9 @@ export class AttendanceRecord {
     if (!props.id || !props.studentId || !props.date) {
       throw new Error('AttendanceRecord requires id, studentId, and date.')
     }
+    if (!Number.isInteger(props.version) || props.version < 1) {
+      throw new Error('Persisted AttendanceRecord version must be a positive integer.')
+    }
     this.id = props.id
     this.studentId = props.studentId
     this.parishId = props.parishId || 'gia-ton'
@@ -40,7 +43,7 @@ export class AttendanceRecord {
     this.type = props.type
     this._status = props.status
     this._note = props.note ?? null
-    this._version = props.version || 1
+    this._version = props.version
     this._createdAt = props.createdAt || new Date().toISOString()
     this._updatedAt = props.updatedAt || new Date().toISOString()
     this._updatedBy = props.updatedBy ?? null

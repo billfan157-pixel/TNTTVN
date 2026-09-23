@@ -6,7 +6,6 @@ import { useClassStore } from '../../stores/classStore'
 
 import { Columns3, TrendingUp, TrendingDown, Minus, BarChart3, type LucideProps } from 'lucide-react'
 import { EmptyState } from '../common/StateFeedback'
-import { PageHeader } from '../common/PageHeader'
 import { StudentName } from '../common/StudentName'
 
 const TrendIcon = ({ trend }: { trend: string } & LucideProps) => {
@@ -65,12 +64,20 @@ export const DesktopGradeComparison: React.FC = () => {
 
   return (
     <div className="product-view flex flex-col gap-6">
-      {/* Header */}
-      <PageHeader
-        icon={<Columns3 size={20} />}
-        title="So Sánh Học Kỳ I vs Học Kỳ II"
-        description={`${comparisonData.length} thiếu nhi được so sánh`}
-      />
+      {/* Subtab Header Strip */}
+      <div className="flex items-center justify-between gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+            <Columns3 size={16} />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-text-primary">So Sánh Học Kỳ I vs Học Kỳ II</h2>
+            <p className="text-xs text-text-muted">
+              {comparisonData.length} thiếu nhi được so sánh
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* Trend Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

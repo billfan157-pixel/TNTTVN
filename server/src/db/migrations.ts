@@ -2650,4 +2650,48 @@ CREATE TRIGGER check_operation_reminder_target_insert BEFORE INSERT ON operation
   SELECT CASE WHEN NEW.event_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM operation_events e WHERE e.parish_id = NEW.parish_id AND e.id = NEW.event_id AND e.deleted_at IS NULL) THEN RAISE(ABORT, 'INVALID_OPERATION_REMINDER_EVENT') END;
 END;
 ` },
+  { version: '20260922-265', sql: `
+CREATE TABLE IF NOT EXISTS external_entity_links (
+  parish_id TEXT NOT NULL, id TEXT NOT NULL, provider TEXT NOT NULL,
+  entity_kind TEXT NOT NULL CHECK(entity_kind IN ('student','class')),
+  external_scope TEXT NOT NULL DEFAULT '', external_id TEXT NOT NULL,
+  target_id TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0),
+  reviewed_by TEXT NOT NULL, review_reason TEXT NOT NULL,
+  retired_at TEXT, retired_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  PRIMARY KEY(parish_id,id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_links_active_source
+  ON external_entity_links(parish_id,provider,entity_kind,external_scope,external_id)
+  WHERE retired_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_links_active_target
+  ON external_entity_links(parish_id,provider,entity_kind,external_scope,target_id)
+  WHERE retired_at IS NULL;
+CREATE TABLE IF NOT EXISTS external_import_runs (
+  parish_id TEXT NOT NULL, id TEXT NOT NULL, provider TEXT NOT NULL,
+  file_hash TEXT NOT NULL, schema_version INTEGER NOT NULL,
+  normalization_version INTEGER NOT NULL, actor_id TEXT NOT NULL,
+  source_year TEXT, source_class_id TEXT, preview_digest TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PREVIEW' CHECK(status IN ('PREVIEW','COMMITTED')),
+  created_at TEXT NOT NULL, committed_at TEXT,
+  PRIMARY KEY(parish_id,id)
+);
+CREATE INDEX IF NOT EXISTS idx_external_import_runs_actor
+  ON external_import_runs(parish_id,actor_id,created_at);
+CREATE INDEX IF NOT EXISTS idx_external_import_runs_hash
+  ON external_import_runs(parish_id,provider,file_hash);
+CREATE TABLE IF NOT EXISTS external_import_items (
+  parish_id TEXT NOT NULL, id TEXT NOT NULL, run_id TEXT NOT NULL,
+  item_index INTEGER NOT NULL, observation_hash TEXT NOT NULL,
+  external_student_id TEXT, date TEXT, target_type TEXT, target_status TEXT,
+  target_student_id TEXT, target_class_id TEXT, mapping_version INTEGER, class_mapping_version INTEGER, expected_version INTEGER,
+  classification TEXT NOT NULL, receipt TEXT, attendance_id TEXT,
+  created_at TEXT NOT NULL, committed_at TEXT,
+  PRIMARY KEY(parish_id,id),
+  FOREIGN KEY(parish_id,run_id) REFERENCES external_import_runs(parish_id,id) ON DELETE RESTRICT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_import_items_run_index
+  ON external_import_items(parish_id,run_id,item_index);
+CREATE INDEX IF NOT EXISTS idx_external_import_items_target
+  ON external_import_items(parish_id,target_student_id,date);
+` },
 ]

@@ -1818,3 +1818,82 @@ export const parishRecordAssets = sqliteTable('parish_record_assets', {
   }).onDelete('restrict'),
   index('idx_parish_record_assets_asset').on(table.parishId, table.assetId),
 ])
+
+// Reviewed provider identities. Source names/phones are deliberately excluded.
+export const externalEntityLinks = sqliteTable('external_entity_links', {
+  parishId: text('parish_id').notNull(),
+  id: text('id').notNull(),
+  provider: text('provider').notNull(),
+  entityKind: text('entity_kind', { enum: ['student', 'class'] }).notNull(),
+  externalScope: text('external_scope').notNull().default(''),
+  externalId: text('external_id').notNull(),
+  targetId: text('target_id').notNull(),
+  version: integer('version').notNull().default(1),
+  reviewedBy: text('reviewed_by').notNull(),
+  reviewReason: text('review_reason').notNull(),
+  retiredAt: text('retired_at'),
+  retiredBy: text('retired_by'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  uniqueIndex('idx_external_links_active_source')
+    .on(table.parishId, table.provider, table.entityKind, table.externalScope, table.externalId)
+    .where(sql`${table.retiredAt} IS NULL`),
+  uniqueIndex('idx_external_links_active_target')
+    .on(table.parishId, table.provider, table.entityKind, table.externalScope, table.targetId)
+    .where(sql`${table.retiredAt} IS NULL`),
+  check('external_links_version_positive', sql`${table.version} > 0`),
+])
+
+// The uploaded file is re-sent for confirmation; runs keep hashes and compact
+// receipts, never the raw source page or a student/parent profile snapshot.
+export const externalImportRuns = sqliteTable('external_import_runs', {
+  parishId: text('parish_id').notNull(),
+  id: text('id').notNull(),
+  provider: text('provider').notNull(),
+  fileHash: text('file_hash').notNull(),
+  schemaVersion: integer('schema_version').notNull(),
+  normalizationVersion: integer('normalization_version').notNull(),
+  actorId: text('actor_id').notNull(),
+  sourceYear: text('source_year'),
+  sourceClassId: text('source_class_id'),
+  previewDigest: text('preview_digest').notNull(),
+  status: text('status', { enum: ['PREVIEW', 'COMMITTED'] }).notNull().default('PREVIEW'),
+  createdAt: text('created_at').notNull(),
+  committedAt: text('committed_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  index('idx_external_import_runs_actor').on(table.parishId, table.actorId, table.createdAt),
+  index('idx_external_import_runs_hash').on(table.parishId, table.provider, table.fileHash),
+])
+
+export const externalImportItems = sqliteTable('external_import_items', {
+  parishId: text('parish_id').notNull(),
+  id: text('id').notNull(),
+  runId: text('run_id').notNull(),
+  itemIndex: integer('item_index').notNull(),
+  observationHash: text('observation_hash').notNull(),
+  externalStudentId: text('external_student_id'),
+  date: text('date'),
+  targetType: text('target_type'),
+  targetStatus: text('target_status'),
+  targetStudentId: text('target_student_id'),
+  targetClassId: text('target_class_id'),
+  mappingVersion: integer('mapping_version'),
+  classMappingVersion: integer('class_mapping_version'),
+  expectedVersion: integer('expected_version'),
+  classification: text('classification').notNull(),
+  receipt: text('receipt'),
+  attendanceId: text('attendance_id'),
+  createdAt: text('created_at').notNull(),
+  committedAt: text('committed_at'),
+}, (table) => [
+  primaryKey({ columns: [table.parishId, table.id] }),
+  foreignKey({
+    columns: [table.parishId, table.runId],
+    foreignColumns: [externalImportRuns.parishId, externalImportRuns.id],
+  }).onDelete('restrict'),
+  uniqueIndex('idx_external_import_items_run_index').on(table.parishId, table.runId, table.itemIndex),
+  index('idx_external_import_items_target').on(table.parishId, table.targetStudentId, table.date),
+])

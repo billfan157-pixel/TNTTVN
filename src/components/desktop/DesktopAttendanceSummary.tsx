@@ -32,7 +32,6 @@ import {
   type AttendanceRangeFilter,
 } from '../../services/attendanceAnalyticsService'
 import { AttendanceHistoryModal } from './AttendanceHistoryModal'
-import { PageHeader } from '../common/PageHeader'
 import { NoResultState } from '../common/StateFeedback'
 import { Badge, Button, FilterChips, SegmentedControl, Select, TextInput } from '../common/ui'
 import { StudentName } from '../common/StudentName'
@@ -172,81 +171,90 @@ export const DesktopAttendanceSummary: React.FC = () => {
         summary={selectedStudentSummary}
       />
 
-      {/* Header & Controls Toolbar */}
-      <PageHeader
-        icon={<BarChart2 size={22} />}
-        title="Tổng Hợp Chuyên Cần & Phân Tích Số Liệu"
-        description={`Thống kê chi tiết Thánh Lễ, Giáo Lý, Chầu Thánh Thể và cảnh báo chuyên cần học sinh (${selectedClassName})`}
-        actions={
-          <div className="flex items-center gap-2.5 flex-wrap">
-            {/* Chọn Lớp */}
-            <Select
-              aria-label="Lớp cần xem thống kê chuyên cần"
-              value={selectedClassId}
-              onChange={(e) => setSelectedClassId(e.target.value)}
-              className="text-sm font-bold h-10 min-w-0 w-auto sm:min-w-[170px] max-w-full"
-            >
-              <option value="all">Tất cả các lớp</option>
-              {classList.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-
-            {/* Chọn Kỳ / Thời gian */}
-            <SegmentedControl
-              id="attendance-summary-range"
-              ariaLabel="Khoảng thời gian thống kê"
-              value={timeFilterType}
-              onValueChange={setTimeFilterType}
-              items={[
-                { value: 'year', label: 'Cả Năm' },
-                { value: 'sem1', label: 'Học Kỳ 1' },
-                { value: 'sem2', label: 'Học Kỳ 2' },
-                { value: 'custom', label: 'Tùy Chọn' },
-              ]}
-              className="max-w-full"
-            />
-
-            {/* Nút Xuất Excel */}
-            <Button
-              onClick={handleExportExcel}
-              disabled={filteredSummaries.length === 0}
-              variant="primary"
-              leadingIcon={<FileSpreadsheet aria-hidden="true" size={16} />}
-              className="text-xs font-bold h-10 shadow-xs"
-            >
-              Xuất Excel
-            </Button>
+      {/* Subtab Controls Command Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+            <BarChart2 size={16} />
           </div>
-        }
-      />
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-text-primary truncate">
+              Tổng Hợp Chuyên Cần & Phân Tích Số Liệu
+            </h2>
+            <p className="text-xs text-text-muted truncate hidden xl:block">
+              {`Thống kê Thánh Lễ, Giáo Lý, Chầu & cảnh báo (${selectedClassName})`}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Chọn Lớp */}
+          <Select
+            aria-label="Lớp cần xem thống kê chuyên cần"
+            value={selectedClassId}
+            onChange={(e) => setSelectedClassId(e.target.value)}
+            className="text-xs font-bold h-8.5 min-w-0 w-auto sm:min-w-[140px] max-w-full"
+          >
+            <option value="all">Tất cả các lớp</option>
+            {classList.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+
+          {/* Chọn Kỳ / Thời gian */}
+          <SegmentedControl
+            id="attendance-summary-range"
+            ariaLabel="Khoảng thời gian thống kê"
+            value={timeFilterType}
+            onValueChange={setTimeFilterType}
+            items={[
+              { value: 'year', label: 'Cả Năm' },
+              { value: 'sem1', label: 'Học Kỳ 1' },
+              { value: 'sem2', label: 'Học Kỳ 2' },
+              { value: 'custom', label: 'Tùy Chọn' },
+            ]}
+            className="max-w-full"
+          />
+
+          {/* Nút Xuất Excel */}
+          <Button
+            onClick={handleExportExcel}
+            disabled={filteredSummaries.length === 0}
+            variant="primary"
+            leadingIcon={<FileSpreadsheet aria-hidden="true" size={14} />}
+            className="text-xs font-bold h-8.5 shadow-xs"
+          >
+            Xuất Excel
+          </Button>
+        </div>
+      </div>
 
       {/* Khung nhập ngày tùy chọn */}
       {timeFilterType === 'custom' && (
-        <div className="view-toolbar text-xs">
-          <span className="font-bold text-text-secondary flex items-center gap-1">
+        <div className="flex items-center gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs text-xs">
+          <span className="font-bold text-text-secondary flex items-center gap-1.5">
             <Calendar size={14} /> Khoảng ngày:
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <span className="text-text-muted">Từ</span>
             <input
               type="date"
               aria-label="Ngày bắt đầu"
               value={customStartDate}
               onChange={(e) => setCustomStartDate(e.target.value)}
-              className="form-input text-xs font-bold h-8"
+              className="form-input text-xs font-bold h-7.5 px-2"
             />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <span className="text-text-muted">Đến</span>
             <input
               type="date"
               aria-label="Ngày kết thúc"
               value={customEndDate}
               onChange={(e) => setCustomEndDate(e.target.value)}
-              className="form-input text-xs font-bold h-8"
+              className="form-input text-xs font-bold h-7.5 px-2"
             />
           </div>
         </div>

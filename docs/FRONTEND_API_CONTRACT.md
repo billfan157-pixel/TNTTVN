@@ -1,5 +1,16 @@
 # FRONTEND API CONTRACT & INTEGRATION SPECIFICATION - PARISH LMS v2.0
 
+## TINI attendance file import — 2026-09-23
+
+`/api/tini-attendance-import/*` requires an authenticated `admin` in the deployment parish. The browser extension reads only the visible `/glv` attendance table after a user click and produces a local JSON file; Catevia does not call TINI. The client sends that file as `sourceFile` to Catevia for preview and commit. Schema v3 binds student name, class name and visible birth date to each observation SHA-256 fingerprint; v1/v2 remain accepted with reduced profile comparison. The fingerprint detects file changes between preview and commit, but does not authenticate TINI as the issuer.
+
+- `POST /preview` with `{sourceFile}` returns `runId`, item classifications, profile differences and identity link suggestions. Each candidate has a `score` from 0 to 100 and evidence labels. The student score combines normalized name similarity (60 points), exact/mismatched/missing birth date (+25/-25/0), and class similarity (15 points), capped at 0–100. Student recommendations require score ≥70, name similarity ≥0.72 and a 10-point lead; class recommendations require similarity ≥80 and a 10-point lead. `high_confidence` is reserved for an exact normalized name, birth date and class match. Scores are heuristic rankings, not probabilities or identity proof; admins must inspect and select each link. A preview records the file hash and per-item comparison evidence; commit records per-item receipts. The raw file is not stored. Suggested profile corrections are read-only.
+- `GET /candidates?year=YYYY-YYYY` and `GET /links` provide same-parish candidate rosters and active reviewed links. `POST /links` and `POST /links/:id/retire` require a reason and expected version; student links use a global external scope, class links use the TINI year ID as scope.
+- `POST /links/bulk` with `{runId,sourceFile,selected:[{entityKind,externalId,targetId}],reason}` approves only the selected current suggestions in one transaction. The client never selects a suggestion automatically; an admin checks and selects each link. Ambiguous matches require the manual link workflow. A repeated identical batch returns existing links.
+- After a new preview reflects approved links, `POST /commit` with `{runId,sourceFile,selectedIndexes}` accepts only new or identical observations from that preview. It rechecks hash, mapping versions, attendance version, date and semester locks, class membership and actor authority. New attendance goes through `AttendanceApplicationService`; conflicting or stale rows are not silently overwritten. Receipts support replay without duplicate attendance or audit mutation.
+
+The JSON contains student data, including birth date in v3. The server does not persist the raw file. Preview and reviewed link actions are audited; the attendance writer records import provenance. No endpoint in this contract updates student or parent profiles automatically.
+
 ## Academic organization projection — 2026-09-10
 
 `POST /parish-profile/organization/refresh` cho staff đã xác thực, không nhận

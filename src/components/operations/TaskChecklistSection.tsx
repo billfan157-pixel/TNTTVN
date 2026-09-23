@@ -83,8 +83,8 @@ export function TaskChecklistSection() {
         <Button variant="ghost" size="sm" onClick={() => void selectTask(null)}>Đóng checklist</Button>
       </div>
       {selectedTask.task.description && <p className="whitespace-pre-wrap text-sm text-text-main">{selectedTask.task.description}</p>}
-      {/* W4.2b: read-only "waiting on" list — no add/remove UI by design. */}
-      <TaskDependenciesPanel detail={selectedTask} />
+      {/* Wave A: Task dependencies with add/remove capability */}
+      <TaskDependenciesPanel key={`deps-${selectedTask.task.id}-${selectedTask.task.version}`} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
       <div className="mt-3 divide-y divide-surface-border rounded-lg border border-surface-border">
         {selectedTask.checklist.length === 0 && <EmptyState icon={ListChecks} title="Chưa có mục checklist." description="Thêm mục cần kiểm tra ở biểu mẫu bên dưới." className="py-5" />}
         {selectedTask.checklist.map(item => {

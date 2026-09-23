@@ -20,7 +20,6 @@ import { useFilterStore } from '../../stores/filterStore';
 import { useAuth } from '../../hooks/useAuth';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
-import { PageHeader } from '../common/PageHeader';
 import { compareClassHierarchy } from '../../utils/classSort';
 import type { Student } from '../../types';
 import { Button, IconButton } from '../common/ui/Button';
@@ -281,140 +280,143 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
 
   return (
     <div className="product-view flex flex-col gap-6">
-      {/* Header card */}
-      <PageHeader
-        icon={<Users className="text-parish-primary" size={24} />}
-        title="Danh Sách Thiếu Nhi"
-        description={
-          selectedClassId !== 'all' ? (
-            <span className="inline-flex flex-wrap items-center gap-1.5">
-              <button onClick={handleBackToClasses} className="inline-flex items-center gap-1 text-parish-primary hover:underline font-bold">
-                <ChevronLeft size={14} /> Tất cả lớp
-              </button>
-              <span className="text-text-muted">/</span>
-              <span className="font-bold text-parish-primary">{classes.find(c => c.id === selectedClassId)?.name || 'Lớp'}</span>
-              <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0 ml-1"></span>
-              <span>{totalFiltered} em</span>
-            </span>
-          ) : (
-            <span className="inline-flex flex-wrap items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-sky-500 animate-pulse shrink-0"></span>
-              <span>Hiển thị <span className="text-parish-primary font-bold">{start + 1}-{Math.min(start + pageSize, totalFiltered)}</span> trên tổng số <span className="text-parish-primary font-bold">{totalFiltered}</span> em</span>
-            </span>
-          )
-        }
-        actions={
-          <div className="flex flex-wrap items-center gap-2 justify-end w-full lg:w-auto">
-            {/* Quick Search — flex-1 để co giãn, không đẩy vỡ layout */}
-            <div className="relative flex-1 min-w-[180px] max-w-[260px]">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
-              <TextInput
-                density="sm"
-                type="text"
-                placeholder="Tìm theo tên, mã thiếu nhi..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full h-9 text-xs font-medium rounded-xl !pl-9 !pr-8 bg-surface-hover text-text-main placeholder:text-text-placeholder focus:bg-surface-card transition-colors shadow-inner"
-              />
-              {searchQuery && (
-                <IconButton
-                  onClick={() => setSearchQuery('')}
-                  label="Xóa tìm kiếm"
-                  icon={<X aria-hidden="true" size={14} />}
-                  variant="quiet"
-                  size="sm"
-                  className="absolute right-0.5 top-1/2 -translate-y-1/2"
-                />
+      {/* Subtab Controls Command Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+            <Users size={16} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-text-primary truncate">
+              Danh Sách Thiếu Nhi
+            </h2>
+            <div className="text-xs text-text-muted truncate hidden xl:block">
+              {selectedClassId !== 'all' ? (
+                <span className="inline-flex items-center gap-1">
+                  <button onClick={handleBackToClasses} className="text-parish-primary hover:underline font-bold">
+                    Tất cả lớp
+                  </button>
+                  <span>/</span>
+                  <span className="font-bold text-parish-primary">{classes.find(c => c.id === selectedClassId)?.name || 'Lớp'}</span>
+                  <span>({totalFiltered} em)</span>
+                </span>
+              ) : (
+                <span>
+                  Hiển thị <strong className="text-parish-primary">{start + 1}-{Math.min(start + pageSize, totalFiltered)}</strong> / {totalFiltered} em
+                </span>
               )}
             </div>
+          </div>
+        </div>
 
-            <div className="flex items-center gap-2 bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner shrink-0">
-              <span className="text-[10px] font-black text-text-secondary uppercase px-2 whitespace-nowrap">Xem:</span>
-              <Select
-                aria-label="Số dòng mỗi trang"
-                value={pageSize}
-                onChange={(e) => {
-                  const val = e.target.value
-                  handlePageSizeChange(val === 'all' ? totalFiltered : Number(val))
-                }}
-                className="text-xs font-bold !border-none bg-transparent outline-none cursor-pointer pr-2"
-              >
-                <option value="50">50 / trang</option>
-                <option value="100">100 / trang</option>
-                <option value="200">200 / trang</option>
-                <option value="all">Tất cả</option>
-              </Select>
-            </div>
-
-            {/* Nút Sắp Xếp Cấp Bậc Lớp — gọn hơn trên desktop hẹp */}
-            <div className="flex items-center bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner gap-1 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  if (sorting[0]?.id === 'classId' && !sorting[0]?.desc) {
-                    setSorting([])
-                  } else {
-                    setSorting([{ id: 'classId', desc: false }])
-                  }
-                }}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-                  sorting[0]?.id === 'classId' && !sorting[0]?.desc
-                    ? 'bg-parish-primary text-text-inverse shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
-                }`}
-                title="Sắp xếp danh sách học sinh theo lớp từ thấp đến cao (Chiên -> Ấu 1A -> Ấu 1B...)"
-              >
-                <ArrowDownAZ size={14} />
-                <span className="hidden xl:inline">Lớp: Thấp → Cao</span>
-                <span className="xl:hidden">Thấp → Cao</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (sorting[0]?.id === 'classId' && sorting[0]?.desc) {
-                    setSorting([])
-                  } else {
-                    setSorting([{ id: 'classId', desc: true }])
-                  }
-                }}
-                className={`px-2.5 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-                  sorting[0]?.id === 'classId' && sorting[0]?.desc
-                    ? 'bg-parish-primary text-text-inverse shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
-                }`}
-                title="Sắp xếp danh sách học sinh theo lớp từ cao đến thấp (Hiệp 2 -> ... -> Chiên)"
-              >
-                <ArrowDownZA size={14} />
-                <span className="hidden xl:inline">Lớp: Cao → Thấp</span>
-                <span className="xl:hidden">Cao → Thấp</span>
-              </button>
-            </div>
-            
-            {isAdmin && onImportStudents && onOpenAddStudent && (
-              <div className="flex gap-2 shrink-0">
-                <Button
-                  onClick={onImportStudents}
-                  variant="secondary"
-                  size="sm"
-                  leadingIcon={<Upload aria-hidden="true" size={14} />}
-                  className="h-9 rounded-xl shadow-sm whitespace-nowrap"
-                >
-                  Import Excel
-                </Button>
-                <Button
-                  onClick={onOpenAddStudent}
-                  variant="primary"
-                  size="sm"
-                  leadingIcon={<UserPlus aria-hidden="true" size={14} />}
-                  className="h-9 rounded-xl shadow-md whitespace-nowrap"
-                >
-                  Thêm Mới
-                </Button>
-              </div>
+        <div className="flex flex-wrap items-center gap-2 justify-end">
+          {/* Quick Search */}
+          <div className="relative min-w-[160px] max-w-[220px]">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
+            <TextInput
+              density="sm"
+              type="text"
+              placeholder="Tìm tên, mã số..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-8 text-xs font-medium rounded-xl !pl-8 !pr-7 bg-surface-hover text-text-main placeholder:text-text-placeholder focus:bg-surface-card transition-colors shadow-inner"
+            />
+            {searchQuery && (
+              <IconButton
+                onClick={() => setSearchQuery('')}
+                label="Xóa tìm kiếm"
+                icon={<X aria-hidden="true" size={13} />}
+                variant="quiet"
+                size="sm"
+                className="absolute right-0.5 top-1/2 -translate-y-1/2"
+              />
             )}
           </div>
-        }
-      />
+
+          <div className="flex items-center gap-1.5 bg-surface-hover px-2 py-0.5 rounded-lg border border-surface-border shadow-inner shrink-0">
+            <span className="text-[10px] font-black text-text-secondary uppercase whitespace-nowrap">Xem:</span>
+            <Select
+              aria-label="Số dòng mỗi trang"
+              value={pageSize}
+              onChange={(e) => {
+                const val = e.target.value
+                handlePageSizeChange(val === 'all' ? totalFiltered : Number(val))
+              }}
+              className="text-xs font-bold !border-none bg-transparent outline-none cursor-pointer pr-1 h-7"
+            >
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="all">Tất cả</option>
+            </Select>
+          </div>
+
+          {/* Nút Sắp Xếp Cấp Bậc Lớp */}
+          <div className="flex items-center bg-surface-hover p-0.5 rounded-lg border border-surface-border shadow-inner gap-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (sorting[0]?.id === 'classId' && !sorting[0]?.desc) {
+                  setSorting([])
+                } else {
+                  setSorting([{ id: 'classId', desc: false }])
+                }
+              }}
+              className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
+                sorting[0]?.id === 'classId' && !sorting[0]?.desc
+                  ? 'bg-parish-primary text-text-inverse shadow-xs'
+                  : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
+              }`}
+              title="Sắp xếp lớp từ thấp đến cao"
+            >
+              <ArrowDownAZ size={13} />
+              <span className="hidden 2xl:inline">Thấp → Cao</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (sorting[0]?.id === 'classId' && sorting[0]?.desc) {
+                  setSorting([])
+                } else {
+                  setSorting([{ id: 'classId', desc: true }])
+                }
+              }}
+              className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
+                sorting[0]?.id === 'classId' && sorting[0]?.desc
+                  ? 'bg-parish-primary text-text-inverse shadow-xs'
+                  : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
+              }`}
+              title="Sắp xếp lớp từ cao đến thấp"
+            >
+              <ArrowDownZA size={13} />
+              <span className="hidden 2xl:inline">Cao → Thấp</span>
+            </button>
+          </div>
+
+          {isAdmin && onImportStudents && onOpenAddStudent && (
+            <div className="flex gap-1.5 shrink-0">
+              <Button
+                onClick={onImportStudents}
+                variant="secondary"
+                size="sm"
+                leadingIcon={<Upload aria-hidden="true" size={13} />}
+                className="h-8 px-2.5 text-xs font-bold rounded-xl shadow-xs whitespace-nowrap"
+              >
+                Import
+              </Button>
+              <Button
+                onClick={onOpenAddStudent}
+                variant="primary"
+                size="sm"
+                leadingIcon={<UserPlus aria-hidden="true" size={13} />}
+                className="h-8 px-2.5 text-xs font-bold rounded-xl shadow-xs whitespace-nowrap"
+              >
+                Thêm Mới
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Một index duy nhất: catalog/CRUD lớp ở cấp đầu, roster khi drill-down. */}
       {selectedClassId === 'all' && (

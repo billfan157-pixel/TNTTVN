@@ -276,4 +276,60 @@ describe('ParishProfilePage', () => {
     const orgTab = screen.getByRole('tab', { name: /Cơ Cấu/i })
     expect(orgTab).toHaveAttribute('aria-selected', 'true')
   })
+
+  it('mở modal In / Xuất Hồ Sơ Xứ đoàn và kích hoạt lệnh in ấn', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {})
+    render(<ParishProfilePage />)
+    await screen.findByText('Xứ Đoàn Đức Mẹ Fatima')
+
+    const printBtn = screen.getByRole('button', { name: /In \/ Xuất Hồ Sơ/i })
+    expect(printBtn).toBeTruthy()
+    fireEvent.click(printBtn)
+
+    // Modal opens
+    expect(await screen.findByRole('dialog', { name: /In \/ Xuất Hồ Sơ Xứ Đoàn/i })).toBeTruthy()
+    expect(screen.getByText('HỒ SƠ CĂN TÍNH & TỔ CHỨC XỨ ĐOÀN')).toBeTruthy()
+    expect(screen.getByText(/GIÁO XỨ GIA TÔN — XỨ ĐOÀN THIẾU NHI THÁNH THỂ ĐỨC MẸ FATIMA/i)).toBeTruthy()
+    expect(screen.getAllByText(/Cầu nguyện – Rước lễ – Hy sinh – Làm tông đồ/).length).toBeGreaterThanOrEqual(2)
+
+    // Trigger print
+    const confirmPrintBtn = screen.getByRole('button', { name: /In Hồ Sơ Ngay/i })
+    fireEvent.click(confirmPrintBtn)
+    expect(printSpy).toHaveBeenCalled()
+
+    // Close modal
+    const closeBtn = screen.getAllByRole('button', { name: /^Đóng$/i })[0]
+    fireEvent.click(closeBtn)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /In \/ Xuất Hồ Sơ Xứ Đoàn/i })).toBeNull()
+    })
+  })
+
+  it('mở modal Thông Tin Giáo Xứ Gia Tôn và hiển thị thông tin Giáo phận Xuân Lộc', async () => {
+    render(<ParishProfilePage />)
+    await screen.findByText('Xứ Đoàn Đức Mẹ Fatima')
+
+    const parishInfoBtn = screen.getByRole('button', { name: /Thông Tin Giáo Xứ/i })
+    expect(parishInfoBtn).toBeTruthy()
+    fireEvent.click(parishInfoBtn)
+
+    // Modal opens
+    expect(await screen.findByRole('dialog', { name: /Thông Tin Giáo Xứ Gia Tôn/i })).toBeTruthy()
+    expect(screen.getByText('Cha Đaminh Nguyễn Khắc Tuyên')).toBeTruthy()
+    expect(screen.getByText('Thánh Giuse')).toBeTruthy()
+
+    // Switch to priests tab
+    const priestsTabBtn = screen.getByRole('button', { name: /Các Đời Cha Xứ/i })
+    fireEvent.click(priestsTabBtn)
+    expect(screen.getByText('Gioan Bt.')).toBeTruthy()
+    expect(screen.getByText('Philipphê')).toBeTruthy()
+
+    // Close modal
+    const closeBtn = screen.getAllByRole('button', { name: /^Đóng$/i })[0]
+    fireEvent.click(closeBtn)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /Thông Tin Giáo Xứ Gia Tôn/i })).toBeNull()
+    })
+  })
 })
+

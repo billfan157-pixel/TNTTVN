@@ -27,8 +27,21 @@ describe('TaskDependenciesPanel (W4.2b)', () => {
     expect(screen.getByText('Nhiệm vụ đã xóa')).toBeInTheDocument()
     expect(screen.getByText('ĐÃ XÓA')).toBeInTheDocument()
     expect(screen.getByText(/không thể hoàn tất hoặc mở chặn/)).toBeInTheDocument()
-    // The decision: no add/remove affordances exist anywhere in the panel.
+    // The decision: no add/remove affordances exist anywhere in the panel without manage permission.
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('renders remove button when user has manage permission and enabled is true', () => {
+    const detail = {
+      task: { id: 't', parishId: 'p', title: 'Trang trí', status: 'TODO', version: 1 },
+      dependencies: [
+        { taskId: 't', dependsOnTaskId: 'x', dependencyType: 'BLOCKED_BY', dependsOnTitle: 'Mua vật tư', dependsOnStatus: 'IN_PROGRESS' },
+      ],
+      permissions: { 'operations.task.manage': true },
+    } as unknown as OperationTaskDetail
+
+    render(<TaskDependenciesPanel detail={detail} enabled />)
+    expect(screen.getByRole('button', { name: /Gỡ phụ thuộc Mua vật tư/i })).toBeInTheDocument()
   })
 })

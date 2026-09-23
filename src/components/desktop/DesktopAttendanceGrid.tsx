@@ -7,7 +7,7 @@ import { useFilterStore } from '../../stores/filterStore';
 import { getFilteredClassList, scopeClassesForAssignedWrites, useClassStore } from '../../stores/classStore';
 import {
   CheckSquare, Save, CheckCircle2,
-  XCircle, AlertTriangle, CalendarClock, ArrowRight, BarChart2
+  XCircle, AlertTriangle, CalendarClock, ArrowRight, BarChart2, FileSpreadsheet
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { getDefaultDate } from '../../utils/getDefaultDate';
@@ -26,7 +26,11 @@ import { SegmentedControl, TabPanel, Tabs } from '../common/ui/SelectionControls
 
 type AttendanceSubTab = 'summary' | 'attendance' | 'leave-requests';
 
-export const DesktopAttendanceGrid: React.FC = () => {
+export interface DesktopAttendanceGridProps {
+  onOpenTiniImport?: () => void;
+}
+
+export const DesktopAttendanceGrid: React.FC<DesktopAttendanceGridProps> = ({ onOpenTiniImport }) => {
   const navigate = useNavigate();
   const search = useSearch({ from: '/attendance' });
   const { can, role } = useAuth();
@@ -156,7 +160,7 @@ export const DesktopAttendanceGrid: React.FC = () => {
         <>
           <span>Duyệt Nghỉ Phép</span>
           {pendingCount > 0 && (
-            <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${activeSubTab === 'leave-requests' ? 'bg-white text-parish-primary' : 'bg-parish-danger text-white'}`}>
+            <span className={`text-xs font-extrabold px-1.5 py-0.5 rounded-full ${activeSubTab === 'leave-requests' ? 'bg-white text-parish-primary' : 'bg-parish-danger text-white'}`}>
               {pendingCount}
             </span>
           )}
@@ -203,23 +207,42 @@ export const DesktopAttendanceGrid: React.FC = () => {
         icon={<CheckSquare className="text-parish-primary" size={24} />}
         title="Điểm Danh & Chuyên Cần"
         description="Theo dõi chuyên cần theo ngày, tổng hợp tỷ lệ tham dự Thánh Lễ - Giáo Lý và duyệt đơn nghỉ phép"
+        actions={
+          onOpenTiniImport ? (
+            <button
+              type="button"
+              onClick={onOpenTiniImport}
+              className="group inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-parish-primary/10 hover:bg-parish-primary/15 border border-parish-primary/25 text-parish-primary font-semibold text-xs shadow-xs hover:shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-parish-primary/30"
+              title="Nhập dữ liệu điểm danh trích xuất từ tiện ích TINI DOM Export (CCAMS Xuân Lộc)"
+            >
+              <FileSpreadsheet size={16} className="text-parish-primary shrink-0" />
+              <span>Nhập Điểm Danh TINI</span>
+              <span className="px-1.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-parish-primary text-white shrink-0">
+                Extension
+              </span>
+            </button>
+          ) : undefined
+        }
       />
       {/* Top Main Tab Navigation */}
-      <div className="view-toolbar">
+      {/* Top Main Tab Navigation */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <Tabs
           id="desktop-attendance-tabs"
           ariaLabel="Chức năng điểm danh"
           items={subTabItems}
           value={activeSubTab}
           onValueChange={setActiveSubTab}
+          className="w-fit shadow-xs"
         />
 
         {activeSubTab !== 'leave-requests' && pendingCount > 0 && (
           <Button
             onClick={() => setActiveSubTab('leave-requests')}
             variant="plain"
-            trailingIcon={<ArrowRight aria-hidden="true" size={14} />}
-            className="gap-1.5 text-xs font-bold text-parish-primary hover:underline bg-parish-primary/10 px-3 py-1.5 rounded-lg border border-parish-primary/20"
+            size="sm"
+            trailingIcon={<ArrowRight aria-hidden="true" size={13} />}
+            className="gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/15 px-3 py-1.5 rounded-xl border border-amber-500/25 shadow-xs transition-colors"
           >
             <span>💡 Có <strong>{pendingCount}</strong> đơn xin nghỉ chờ duyệt</span>
           </Button>
@@ -227,78 +250,96 @@ export const DesktopAttendanceGrid: React.FC = () => {
       </div>
 
       <TabPanel tabsId="desktop-attendance-tabs" value="leave-requests" activeValue={activeSubTab}>
-        <DesktopLeaveRequests />
+        <DesktopLeaveRequests embedded />
       </TabPanel>
       <TabPanel tabsId="desktop-attendance-tabs" value="summary" activeValue={activeSubTab}>
         <DesktopAttendanceSummary />
       </TabPanel>
       <TabPanel tabsId="desktop-attendance-tabs" value="attendance" activeValue={activeSubTab}>
         <>
-          {/* Controls Bar */}
-          <div className="view-toolbar flex flex-wrap items-center justify-between gap-3 bg-surface-card p-3 rounded-2xl border border-surface-border">
-            <div className="text-xs font-semibold text-text-secondary">
-              Có mặt: <strong className="text-parish-success">{presentCount}</strong> •{' '}
-              Vắng có phép: <strong className="text-parish-warning">{excusedCount}</strong> •{' '}
-              Vắng không phép: <strong className="text-parish-danger">{unexcusedCount}</strong>
+          {/* Controls Bar - Streamlined Compact Command Strip */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 bg-surface-card px-3.5 py-1.5 rounded-xl border border-surface-border shadow-xs">
+            {/* Left: Compact Stats Badges */}
+            <div className="flex items-center gap-1.5 text-xs shrink-0">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-parish-success/10 text-parish-success font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-parish-success shrink-0" />
+                <span>{presentCount}</span>
+                <span className="font-medium text-text-secondary hidden xl:inline">có mặt</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                <span>{excusedCount}</span>
+                <span className="font-medium text-text-secondary hidden xl:inline">có phép</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-300 font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                <span>{unexcusedCount}</span>
+                <span className="font-medium text-text-secondary hidden xl:inline">vắng</span>
+              </span>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <Select
-                  value={selectedClassId}
-                  onChange={e => setSelectedClassId(e.target.value)}
-                  className="text-sm font-bold h-10"
-                >
-                  <option value="all">Tất cả các lớp</option>
-                  {writableClassList.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </Select>
 
-                <div className="flex items-center gap-2">
-                  <TextInput
-                    type="date"
-                    value={date}
-                    onChange={e => setDate(e.target.value)}
-                    className="text-sm font-bold h-10"
-                  />
-                  {(() => {
-                    const ld = getLiturgicalDay(date);
-                    const cm = LITURGICAL_COLORS[ld.color] || LITURGICAL_COLORS.GREEN;
-                    return (
-                      <div
-                        className={`hidden xl:flex items-center gap-1.5 px-3 h-10 rounded-xl border text-xs font-extrabold max-w-[220px] truncate ${cm.bgClass} ${cm.textClass} ${cm.borderClass}`}
-                        title={`${ld.title} (${ld.seasonName} • ${ld.colorName})`}
-                      >
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: cm.hex }} />
-                        <span className="truncate">{ld.title}</span>
-                      </div>
-                    );
-                  })()}
-                </div>
+            {/* Right: Compact Controls Inline */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select
+                aria-label="Chọn lớp điểm danh"
+                value={selectedClassId}
+                onChange={e => setSelectedClassId(e.target.value)}
+                className="text-xs font-bold h-8.5 min-w-[130px]"
+              >
+                <option value="all">Tất cả các lớp</option>
+                {writableClassList.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </Select>
 
-                <SegmentedControl
-                  id="desktop-attendance-session"
-                  ariaLabel="Loại buổi điểm danh"
-                  items={[
-                    { value: 'SundayMass', label: 'Thánh Lễ' },
-                    { value: 'CatechismClass', label: 'Giáo Lý' },
-                    { value: 'EucharisticAdoration', label: 'Chầu' },
-                  ]}
-                  value={type}
-                  onValueChange={setType}
+              <div className="flex items-center gap-1.5">
+                <TextInput
+                  type="date"
+                  aria-label="Ngày điểm danh"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                  className="text-xs font-bold h-8.5"
                 />
+                {(() => {
+                  const ld = getLiturgicalDay(date);
+                  const cm = LITURGICAL_COLORS[ld.color] || LITURGICAL_COLORS.GREEN;
+                  return (
+                    <div
+                      className={`hidden lg:flex items-center gap-1 px-2 h-8.5 rounded-lg border text-xs font-bold max-w-[145px] truncate ${cm.bgClass} ${cm.textClass} ${cm.borderClass}`}
+                      title={`${ld.title} (${ld.seasonName} • ${ld.colorName})`}
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: cm.hex }} />
+                      <span className="truncate">{ld.title}</span>
+                    </div>
+                  );
+                })()}
+              </div>
 
-                {canEditAttendance && (
-                  <Button
-                    onClick={handleSave}
-                    loading={isSaving}
-                    loadingLabel="Đang lưu..."
-                    leadingIcon={isSaved ? <CheckCircle2 aria-hidden="true" size={16} /> : <Save aria-hidden="true" size={16} />}
-                    variant="plain"
-                    className={`${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white disabled:opacity-60`}
-                  >
-                    {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
-                  </Button>
-                )}
+              <SegmentedControl
+                id="desktop-attendance-session"
+                ariaLabel="Loại buổi điểm danh"
+                items={[
+                  { value: 'SundayMass', label: 'Thánh Lễ' },
+                  { value: 'CatechismClass', label: 'Giáo Lý' },
+                  { value: 'EucharisticAdoration', label: 'Chầu' },
+                ]}
+                value={type}
+                onValueChange={setType}
+              />
+
+              {canEditAttendance && (
+                <Button
+                  onClick={handleSave}
+                  loading={isSaving}
+                  loadingLabel="Đang lưu..."
+                  size="sm"
+                  leadingIcon={isSaved ? <CheckCircle2 aria-hidden="true" size={14} /> : <Save aria-hidden="true" size={14} />}
+                  variant="plain"
+                  className={`h-8.5 px-3 text-xs font-bold rounded-lg shadow-xs ${isSaved ? 'bg-parish-success' : 'bg-parish-primary'} text-white disabled:opacity-60 whitespace-nowrap`}
+                >
+                  {isSaved ? 'Đã Lưu!' : 'Lưu Điểm Danh'}
+                </Button>
+              )}
             </div>
           </div>
 

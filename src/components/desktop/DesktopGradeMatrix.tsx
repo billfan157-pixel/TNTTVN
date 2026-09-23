@@ -25,7 +25,6 @@ import { exportOfficialGradebook } from '../../services/reportExporter';
 import { useToastStore } from '../../stores/toastStore';
 import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
-import { PageHeader } from '../common/PageHeader';
 import { Button, IconButton, SegmentedControl } from '../common/ui';
 
 interface RowData {
@@ -534,89 +533,96 @@ export const DesktopGradeMatrix: React.FC = () => {
         {srAnnouncement}
       </div>
 
-      {/* Modern Header */}
-      <PageHeader
-        icon={<FileSpreadsheet size={22} />}
-        title="Ma Trận Nhập Điểm"
-        description={
-          <span>
-            Lớp: <span className="text-parish-primary font-bold">{currentClassName}</span> • Học Kỳ {selectedSemester}
-          </span>
-        }
-        actions={
-          <>
-            {/* Class Select */}
-            <div className="flex items-center gap-2 bg-surface-hover p-1 rounded-xl border border-surface-border shadow-inner">
-              <span className="text-[10px] font-black text-text-secondary uppercase px-2">Lớp:</span>
-              <select
-                aria-label="Chọn lớp cho ma trận điểm"
-                value={selectedClassId}
-                onChange={e => setSelectedClassId(e.target.value)}
-                className="text-xs font-bold border-none bg-transparent outline-none cursor-pointer pr-2"
-              >
-                <option value="all">Tất cả lớp</option>
-                {classList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
+      {/* Subtab Controls Command Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+            <FileSpreadsheet size={16} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-text-primary truncate">
+              Ma Trận Nhập Điểm
+            </h2>
+            <p className="text-xs text-text-muted truncate hidden xl:block">
+              <span>
+                Lớp: <span className="text-parish-primary font-bold">{currentClassName}</span> • Học Kỳ {selectedSemester}
+              </span>
+            </p>
+          </div>
+        </div>
 
-            {/* Semester Switcher */}
-            <SegmentedControl
-              id="grade-matrix-semester"
-              ariaLabel="Học kỳ của bảng điểm"
-              value={String(selectedSemester) as '1' | '2'}
-              onValueChange={(value) => setSelectedSemester(Number(value) as 1 | 2)}
-              items={[
-                { value: '1', label: 'HK I' },
-                { value: '2', label: 'HK II' },
-              ]}
-            />
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Class Select */}
+          <div className="flex items-center gap-1.5 bg-surface-hover px-2 py-0.5 rounded-lg border border-surface-border shadow-inner">
+            <span className="text-[10px] font-black text-text-secondary uppercase">Lớp:</span>
+            <select
+              aria-label="Chọn lớp cho ma trận điểm"
+              value={selectedClassId}
+              onChange={e => setSelectedClassId(e.target.value)}
+              className="text-xs font-bold border-none bg-transparent outline-none cursor-pointer pr-1 h-7"
+            >
+              <option value="all">Tất cả lớp</option>
+              {classList.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
 
-            {/* Action Buttons */}
-            <div className="flex gap-2">
-              {isAdmin && (
-                <IconButton
-                  onClick={() => setShowFormulaModal(true)}
-                  label="Cấu hình hệ số điểm"
-                  icon={<Settings2 aria-hidden="true" size={18} />}
-                  variant="secondary"
-                  className="rounded-xl shadow-sm"
-                  title="Cấu hình hệ số"
-                />
-              )}
-              {isAdmin && (
-                <Button
-                  onClick={() => setIsOverrideModeEnabled(!isOverrideModeEnabled)}
-                  variant="plain"
-                  size="sm"
-                  leadingIcon={<Calculator aria-hidden="true" size={14} />}
-                  className={`px-4 font-bold text-xs rounded-xl shadow-sm ${isOverrideModeEnabled ? 'bg-parish-warning-bg text-parish-warning-hover border border-parish-warning/30' : 'bg-surface-card border border-surface-border text-text-main hover:bg-surface-hover'}`}
-                >
-                  {isOverrideModeEnabled ? 'Đang Điều Chỉnh' : 'Chế Độ Điều Chỉnh'}
-                </Button>
-              )}
+          {/* Semester Switcher */}
+          <SegmentedControl
+            id="grade-matrix-semester"
+            ariaLabel="Học kỳ của bảng điểm"
+            value={String(selectedSemester) as '1' | '2'}
+            onValueChange={(value) => setSelectedSemester(Number(value) as 1 | 2)}
+            items={[
+              { value: '1', label: 'HK I' },
+              { value: '2', label: 'HK II' },
+            ]}
+          />
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-1.5">
+            {isAdmin && (
+              <IconButton
+                onClick={() => setShowFormulaModal(true)}
+                label="Cấu hình hệ số điểm"
+                icon={<Settings2 aria-hidden="true" size={15} />}
+                variant="secondary"
+                className="h-8.5 w-8.5 rounded-xl shadow-xs"
+                title="Cấu hình hệ số"
+              />
+            )}
+            {isAdmin && (
               <Button
-                onClick={() => setShowImportModal(true)}
-                variant="primary"
-                size="sm"
-                leadingIcon={<Upload aria-hidden="true" size={14} />}
-                className="px-4 font-bold text-xs rounded-xl shadow-md"
-              >
-                Import
-              </Button>
-              <Button
-                onClick={() => { void handleExportExcel() }}
-                disabled={isExporting}
+                onClick={() => setIsOverrideModeEnabled(!isOverrideModeEnabled)}
                 variant="plain"
                 size="sm"
-                leadingIcon={<Download aria-hidden="true" size={14} />}
-                className="px-4 bg-parish-success text-text-inverse font-bold text-xs rounded-xl shadow-md hover:bg-parish-success-hover"
+                leadingIcon={<Calculator aria-hidden="true" size={13} />}
+                className={`px-2.5 h-8.5 font-bold text-xs rounded-xl shadow-xs ${isOverrideModeEnabled ? 'bg-parish-warning-bg text-parish-warning-hover border border-parish-warning/30' : 'bg-surface-card border border-surface-border text-text-main hover:bg-surface-hover'}`}
               >
-                {isExporting ? 'Đang xuất…' : 'Export'}
+                {isOverrideModeEnabled ? 'Đang Sửa' : 'Chế Độ Sửa'}
               </Button>
-            </div>
-          </>
-        }
-      />
+            )}
+            <Button
+              onClick={() => setShowImportModal(true)}
+              variant="secondary"
+              size="sm"
+              leadingIcon={<Upload aria-hidden="true" size={13} />}
+              className="px-2.5 h-8.5 font-bold text-xs rounded-xl shadow-xs"
+            >
+              Nhập Excel
+            </Button>
+            <Button
+              onClick={() => { void handleExportExcel() }}
+              disabled={isExporting}
+              variant="primary"
+              size="sm"
+              leadingIcon={<Download aria-hidden="true" size={13} />}
+              className="px-2.5 h-8.5 font-bold text-xs rounded-xl shadow-xs"
+            >
+              {isExporting ? 'Đang xuất…' : 'Xuất Excel'}
+            </Button>
+          </div>
+        </div>
+      </div>
 
       {/* Sync Status Banner */}
       <div className="view-toolbar animate-in fade-in duration-500">

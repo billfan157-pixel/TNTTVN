@@ -20,7 +20,11 @@ const SESSION_MAP: Record<string, { label: string; icon: React.ComponentType<{ s
   EucharisticAdoration: { label: 'Chầu', icon: Flame },
 }
 
-export function DesktopLeaveRequests() {
+interface DesktopLeaveRequestsProps {
+  embedded?: boolean
+}
+
+export function DesktopLeaveRequests({ embedded = false }: DesktopLeaveRequestsProps) {
   const { role } = useAuth()
   const canReview = role === 'admin' || role === 'chunhiem' || role === 'phuta'
 
@@ -86,28 +90,59 @@ export function DesktopLeaveRequests() {
   return (
     <div className="product-view flex flex-col gap-6">
       {/* Header */}
-      <PageHeader
-        icon={<Calendar size={20} />}
-        title="Duyệt Đơn Xin Nghỉ Phép"
-        description="Quản lý đơn xin phép nghỉ Thánh Lễ, Giáo Lý và Chầu Thánh Thể do phụ huynh gửi trực tuyến."
-        actions={
-          <>
+      {embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+              <Calendar size={16} />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-text-primary">Duyệt Đơn Xin Nghỉ Phép</h2>
+              <p className="text-xs text-text-muted hidden xl:block">
+                Quản lý đơn xin nghỉ Thánh Lễ, Giáo Lý và Chầu Thánh Thể do phụ huynh gửi
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
             {pendingCount > 0 && (
-              <span className="badge badge-warning flex items-center gap-1.5 px-3 py-1 text-xs">
-                <Clock size={13} className="animate-pulse" /> {pendingCount} đơn chờ duyệt
+              <span className="badge badge-warning flex items-center gap-1.5 px-2.5 py-1 text-xs">
+                <Clock size={13} className="animate-pulse" /> {pendingCount} chờ duyệt
               </span>
             )}
             <button
               onClick={() => fetchRequests()}
-              className="btn btn-secondary btn-sm flex items-center gap-1.5"
+              className="btn btn-secondary btn-sm h-8.5 flex items-center gap-1.5 text-xs font-bold"
               disabled={loading}
             >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               Làm mới
             </button>
-          </>
-        }
-      />
+          </div>
+        </div>
+      ) : (
+        <PageHeader
+          icon={<Calendar size={20} />}
+          title="Duyệt Đơn Xin Nghỉ Phép"
+          description="Quản lý đơn xin phép nghỉ Thánh Lễ, Giáo Lý và Chầu Thánh Thể do phụ huynh gửi trực tuyến."
+          actions={
+            <>
+              {pendingCount > 0 && (
+                <span className="badge badge-warning flex items-center gap-1.5 px-3 py-1 text-xs">
+                  <Clock size={13} className="animate-pulse" /> {pendingCount} đơn chờ duyệt
+                </span>
+              )}
+              <button
+                onClick={() => fetchRequests()}
+                className="btn btn-secondary btn-sm flex items-center gap-1.5"
+                disabled={loading}
+              >
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                Làm mới
+              </button>
+            </>
+          }
+        />
+      )}
 
       {/* Controls & Filters */}
       <div className="view-toolbar">

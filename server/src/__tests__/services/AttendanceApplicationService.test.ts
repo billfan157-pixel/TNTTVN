@@ -106,6 +106,7 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
       type: 'CatechismClass',
       status: 'AbsentExcused',
       note: 'Có đơn phép',
+      version: 1,
       userId: teacherUserId,
       parishId: testParish,
       academicYear,
@@ -177,6 +178,7 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
       date: '2025-10-05',
       type: 'CatechismClass',
       status: 'Present',
+      version: 1,
       userId: teacherUserId,
       parishId: testParish,
       academicYear,
@@ -184,6 +186,7 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
     })
 
     expect(rec2.version).toBe(1)
+    expect(await db.select().from(auditLogs).where(eq(auditLogs.parishId, testParish))).toHaveLength(1)
   })
 
   it('6. markAttendance for future date fails with 400 Bad Request', async () => {
@@ -217,7 +220,7 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
     ).rejects.toThrow('Bạn không có quyền điểm danh thiếu nhi này')
   })
 
-  it('8. ATT-01 race: 2 thiết bị cùng ghi 1 slot → UNIQUE insert hội tụ qua update, không 500', async () => {
+  it('8. ATT-01 create race conflicts without overwriting the winner', async () => {
     // Thiết bị A ghi trước (v1)
     const a = await attendanceApplicationService.markAttendance({
       studentId,
@@ -240,15 +243,15 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
       status: 'AbsentUnexcused',
       version: 2,
     })
-    await expect(drizzleAttendanceRepository.save(bRecord, teacherUserId, testParish)).resolves.toBeUndefined()
+    await expect(drizzleAttendanceRepository.save(bRecord, teacherUserId, testParish)).rejects.toThrow(/đã được tạo/)
 
     const merged = await drizzleAttendanceRepository.findByStudentAndSession(studentId, '2025-10-07', 'CatechismClass', testParish)
     expect(merged?.id).toBe(a.id)
-    expect(merged?.status).toBe('AbsentUnexcused')
-    expect(merged?.version).toBe(2)
+    expect(merged?.status).toBe('Present')
+    expect(merged?.version).toBe(1)
   })
 
-  it('9. ATT-01 idempotent: dòng đối thủ cùng version → skip, không ghi đè', async () => {
+  it('9. ATT-01 create race conflicts even when versions match', async () => {
     await attendanceApplicationService.markAttendance({
       studentId,
       date: '2025-10-08',
@@ -269,12 +272,45 @@ describe('Attendance Application Service Micro-Step A1.2 Integration Tests', () 
       status: 'AbsentExcused',
       version: 1,
     })
-    await drizzleAttendanceRepository.save(bRecord, teacherUserId, testParish)
+    await expect(drizzleAttendanceRepository.save(bRecord, teacherUserId, testParish)).rejects.toThrow(/đã được tạo/)
 
     const merged = await drizzleAttendanceRepository.findByStudentAndSession(studentId, '2025-10-08', 'CatechismClass', testParish)
     expect(merged?.id).not.toBe(bRecord.id)
     expect(merged?.status).toBe('Present')
     expect(merged?.version).toBe(1)
+  })
+
+  it('expected absence permits create and rejects a delayed duplicate', async () => {
+    const cmd = {
+      studentId, date: '2025-10-10', type: 'CatechismClass' as const,
+      status: 'Present' as const, version: 0, userId: teacherUserId,
+      parishId: testParish, academicYear, semester: 1,
+    }
+    const first = await attendanceApplicationService.markAttendance(cmd)
+    expect(first.version).toBe(1)
+    await expect(attendanceApplicationService.markAttendance({ ...cmd, status: 'AbsentUnexcused' }))
+      .rejects.toThrow(/đã bị thay đổi/)
+    const persisted = await drizzleAttendanceRepository.findByStudentAndSession(studentId, cmd.date, cmd.type, testParish)
+    expect(persisted?.status).toBe('Present')
+    expect(persisted?.version).toBe(1)
+  })
+
+  it('a versionless delayed edit cannot overwrite an existing row', async () => {
+    const cmd = {
+      studentId, date: '2025-10-11', type: 'SundayMass' as const,
+      status: 'Present' as const, version: 0, userId: teacherUserId,
+      parishId: testParish, academicYear, semester: 1,
+    }
+    await attendanceApplicationService.markAttendance(cmd)
+    await expect(attendanceApplicationService.markAttendance({ ...cmd, status: 'AbsentExcused', version: undefined }))
+      .rejects.toThrow(/đã bị thay đổi/)
+  })
+
+  it('a positive expected version cannot create an absent row', async () => {
+    await expect(attendanceApplicationService.markAttendance({
+      studentId, date: '2025-10-12', type: 'SundayMass', status: 'Present',
+      version: 1, userId: teacherUserId, parishId: testParish, academicYear, semester: 1,
+    })).rejects.toThrow(/dự kiến đã thay đổi/)
   })
 
   it('10. ATT-03: thiết bị khác giáo xứ không thể cập nhật dòng attendance (WHERE parish_id)', async () => {

@@ -10,7 +10,6 @@ import {
   Calculator, Plus, Trash2,
   CheckCircle2, BarChart3
 } from 'lucide-react'
-import { PageHeader } from '../common/PageHeader'
 import { useAuth } from '../../hooks/useAuth'
 import { useSemesterAccess } from '../../hooks/useSemesterAccess'
 import { useToastStore } from '../../stores/toastStore'
@@ -208,49 +207,58 @@ export const DesktopDailyGradeEntry: React.FC = () => {
         {srAnnouncement}
       </div>
 
-      {/* Header with Explicit Semester Selector */}
-      <PageHeader
-        icon={<Calculator size={20} />}
-        title="Nhập Điểm Hằng Ngày"
-        description={
-          <span>
-            Nhập nhiều lần cho mỗi cột điểm — Đang nhập cho <strong className="text-parish-primary font-bold">Học Kỳ {selectedSemester}</strong>
-          </span>
-        }
-        actions={
-          <div className="flex items-center gap-1.5 bg-surface-hover p-1.5 rounded-xl border border-surface-border">
-            <span className="text-xs font-bold text-text-muted px-2 hidden sm:inline">Học Kỳ:</span>
-            {semesterRestricted ? (
-              <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-parish-primary text-white shadow-xs">
-                Học Kỳ {openSemester === 2 ? 'II' : 'I'}
-              </span>
-            ) : (
-              <>
-                <button
-                  onClick={() => { setSelectedSemester(1); hapticFeedback.light(); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    selectedSemester === 1
-                      ? 'bg-parish-primary text-white shadow-xs'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-                  }`}
-                >
-                  Học Kỳ I
-                </button>
-                <button
-                  onClick={() => { setSelectedSemester(2); hapticFeedback.light(); }}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    selectedSemester === 2
-                      ? 'bg-parish-primary text-white shadow-xs'
-                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
-                  }`}
-                >
-                  Học Kỳ II
-                </button>
-              </>
-            )}
+      {/* Subtab Header Strip with Explicit Semester Selector */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+            <Calculator size={16} />
           </div>
-        }
-      />
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-text-primary truncate">
+              Nhập Điểm Hằng Ngày
+            </h2>
+            <p className="text-xs text-text-muted truncate hidden xl:block">
+              <span>
+                Nhập nhiều lần theo cột điểm — Đang nhập cho <strong className="text-parish-primary font-bold">Học Kỳ {selectedSemester}</strong>
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 bg-surface-hover p-1 rounded-xl border border-surface-border">
+          <span className="text-xs font-bold text-text-muted px-2 hidden sm:inline">Học Kỳ:</span>
+          {semesterRestricted ? (
+            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-parish-primary text-white shadow-xs">
+              Học Kỳ {openSemester === 2 ? 'II' : 'I'}
+            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => { setSelectedSemester(1); hapticFeedback.light(); }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                  selectedSemester === 1
+                    ? 'bg-parish-primary text-white shadow-xs'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                }`}
+              >
+                Học Kỳ I
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSelectedSemester(2); hapticFeedback.light(); }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
+                  selectedSemester === 2
+                    ? 'bg-parish-primary text-white shadow-xs'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                }`}
+              >
+                Học Kỳ II
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Score Type Tabs */}
       <div className="view-tabs">

@@ -452,3 +452,70 @@ export async function disablePushSubscription(userInitiated = false): Promise<vo
     localStorage.removeItem(PUSH_FLAG_KEY)
   } catch {}
 }
+
+export interface WebPushStatus {
+  supported: boolean
+  permission: NotificationPermission | 'unsupported'
+  vapidConfigured: boolean
+  active: boolean
+  isStandalonePwa: boolean
+  isIos: boolean
+}
+
+export async function getWebPushStatus(): Promise<WebPushStatus> {
+  const isIos = typeof navigator !== 'undefined'
+    && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
+  const isStandalonePwa = typeof window !== 'undefined'
+    && (window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone === true)
+
+  if (!isSupported()) {
+    return {
+      supported: false,
+      permission: typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
+      vapidConfigured: false,
+      active: false,
+      isStandalonePwa,
+      isIos,
+    }
+  }
+
+  let vapidConfigured = false
+  try {
+    const res: any = await api.getVapidPublicKey()
+    vapidConfigured = Boolean(res?.configured && res?.publicKey)
+  } catch {
+    vapidConfigured = false
+  }
+
+  let active = false
+  if (Notification.permission === 'granted') {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration(SW_PATH)
+      const sub = await reg?.pushManager.getSubscription()
+      active = Boolean(sub && localStorage.getItem(PUSH_FLAG_KEY) === '1')
+    } catch {
+      active = false
+    }
+  }
+
+  return {
+    supported: true,
+    permission: Notification.permission,
+    vapidConfigured,
+    active,
+    isStandalonePwa,
+    isIos,
+  }
+}
+
+export async function enableWebPushNotifications(): Promise<void> {
+  if (!isSupported()) throw new Error('Trình duyệt hoặc thiết bị này không hỗ trợ Web Push')
+  if (Notification.permission === 'denied') {
+    throw new Error('Quyền thông báo đang bị chặn. Hãy mở Cài đặt trình duyệt để cấp quyền.')
+  }
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') {
+    throw new Error('Bạn chưa cấp quyền thông báo')
+  }
+  await initPushSubscription()
+}

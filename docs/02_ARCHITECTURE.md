@@ -4,6 +4,16 @@
 
 ---
 
+### TINI attendance import boundary — 2026-09-23
+
+The optional browser extension reads the currently rendered TINI `/glv` attendance table only when the user requests an export. It neither calls TINI endpoints nor reads cookies or tokens. The local JSON file is imported through Catevia's admin-only `/api/tini-attendance-import` routes. Preview proposes class/student links using visible names, birth dates and current class, while an admin must select and review each link with a reason. Active links are parish-scoped and uniquely map source IDs to Catevia IDs; class links are additionally scoped to the TINI academic year.
+
+The backend stores file and observation hashes, reviewed links, audit entries and commit receipts rather than the raw export. Commit revalidates the preview, tenant, authority, identity mapping, class membership, attendance conflicts and locks before using `AttendanceApplicationService` as the sole Attendance writer. Profile differences are shown for review and use existing Student correction workflows; import does not write Student or parent data.
+
+### Desktop sub-tab command strip boundary & anti-bloat standardization — 2026-09-23
+
+In Desktop mode, nested views inside `TabPanel` (such as `DesktopAttendanceGrid`, `DesktopAttendanceSummary`, `DesktopGradeMatrix`, `DesktopGradeCards`, `DesktopGradeComparison`, `DesktopDailyGradeEntry`, `DesktopStudentList`) adhere strictly to the Single-Row Compact Command Strip contract (DS Pattern A §4.5). To avoid 250px–350px vertical bloat and visual duplication under `DesktopAppShell`'s primary `PageHeader` and navigation `Tabs`, sub-views must never instantiate a second top-level `PageHeader` card. All sub-tab toolbars are unified to compact `h-8.5` controls with semantic `<h2>` titles and micro status pills.
+
 ## 1. Current Architecture
 
 ### Layer Diagram
@@ -12,7 +22,7 @@
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 26 source page modules                                    │
-│  Components: 145 (auth: 5, common: 35, desktop: 24, exam: 15,     │
+│  Components: 153 (audit: 5, auth: 5, common: 35, desktop: 24, exam: 15,     │
 │  finance: 4, landing: 4, mobile: 17, operations: 30, parish: 11)  │
 │  Router: TanStack Router (27 policy paths, 6 public + 21 protected)│
 │  State: 25 Zustand stores (12 persist, 13 in-memory)               │
@@ -27,12 +37,12 @@
 ┌────────────────────────────▼─────────────────────────────────────┐
 │              BACKEND (Hono + @libsql/client)                       │
 │  Auth: JWT (access 15m, refresh 7d), bcrypt, RBAC enforced       │
-│  Routes: 32 route modules under server/src/routes/                │
+│  Routes: 33 route modules under server/src/routes/                │
 │  Repositories: 6 (2 projection read models + 4 Drizzle write)    │
-│  Services: 59 under server/src/services/                          │
+│  Services: 60 under server/src/services/                          │
 │  Domain: 13 under server/src/domain/                              │
 │  Middleware: 4 (auth, security, logger, metrics)                  │
-│  DB: SQLite/Turso via @libsql/client, Drizzle ORM (73 tables)    │
+│  DB: SQLite/Turso via @libsql/client, Drizzle ORM (76 tables)    │
 │     (WAL mode local; TURSO_URL → managed libSQL, ADR-041)        │
 └──────────────────────────────────────────────────────────────────┘
 ```

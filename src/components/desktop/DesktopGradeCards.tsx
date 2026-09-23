@@ -4,7 +4,6 @@ import { useFilterStore } from '../../stores/filterStore'
 import { useClassStore } from '../../stores/classStore'
 import type { Student } from '../../types'
 import { FileSpreadsheet, Eye, Printer } from 'lucide-react'
-import { PageHeader } from '../common/PageHeader'
 import { StudentName } from '../common/StudentName'
 
 interface DesktopGradeCardsProps {
@@ -37,11 +36,20 @@ export const DesktopGradeCards: React.FC<DesktopGradeCardsProps> = ({ onViewRepo
 
   return (
     <div className="product-view flex flex-col gap-6">
-      <PageHeader
-        icon={<FileSpreadsheet size={20} />}
-        title="Thẻ Điểm Cá Nhân"
-        description={`Học Kỳ ${selectedSemester} • ${filteredStudents.length} thiếu nhi`}
-      />
+      {/* Subtab Header Strip */}
+      <div className="flex items-center justify-between gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+            <FileSpreadsheet size={16} />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-text-primary">Thẻ Điểm Cá Nhân</h2>
+            <p className="text-xs text-text-muted">
+              Học Kỳ {selectedSemester} • {filteredStudents.length} thiếu nhi
+            </p>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filteredStudents.length === 0 ? (

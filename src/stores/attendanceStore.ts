@@ -156,7 +156,7 @@ export const useAttendanceStore = create<AttendanceState>()(
         // ADR-016 (S21): Kèm version hiện tại (nếu có) — server từ chối nếu ai đó
         // đã sửa bản ghi này ở máy khác, thay vì ghi đè im lặng.
         const existing = get().attendance.find(a => a.studentId === studentId && a.date === date && a.type === type)
-        const version = existing?.version
+        const version = existing?.version ?? 0
 
         const isOffline = typeof navigator !== 'undefined' && !navigator.onLine
         if (isOffline) {
@@ -208,6 +208,14 @@ export const useAttendanceStore = create<AttendanceState>()(
 
       batchSaveAttendance: async (records, date, type) => {
         set({ isSubmitting: true, error: null, lockError: null, batchResult: null })
+        // Snapshot the expected version before any optimistic local projection.
+        // An absent row is an explicit expectation, including offline replay.
+        const currentAttMap = new Map<string, AttendanceRecord>()
+        for (const a of get().attendance) currentAttMap.set(attendanceNaturalKey(a), a)
+        const withVersion = records.map(r => {
+          const key = attendanceNaturalKey({ studentId: r.studentId, date, type })
+          return { ...r, version: currentAttMap.get(key)?.version ?? 0 }
+        })
 
         // ADR-016 (offline-sync audit #9): trước đây không có nhánh offline/network —
         // toàn bộ sheet điểm danh bị mất khi offline (trả null, không enqueue).
@@ -215,7 +223,7 @@ export const useAttendanceStore = create<AttendanceState>()(
         // nhật local read model và phát receipt cho UI.
         const queueOffline = async (): Promise<BatchAttendanceSaveReceipt | null> => {
           try {
-            await syncService.syncBatchSaveAttendance(date, type, records)
+            await syncService.syncBatchSaveAttendance(date, type, withVersion)
           } catch (err) {
             Sentry.captureException(err)
             set({
@@ -273,16 +281,6 @@ export const useAttendanceStore = create<AttendanceState>()(
         try {
           // ADR-016 (S21): Kèm version hiện tại từng record (nếu có) để server
           // phát hiện xung đột multi-device; server-wins khi conflict.
-          const currentAttMap = new Map<string, AttendanceRecord>()
-          for (const a of get().attendance) {
-            currentAttMap.set(attendanceNaturalKey(a), a)
-          }
-
-          const withVersion = records.map(r => {
-            const key = attendanceNaturalKey({ studentId: r.studentId, date, type })
-            const existing = currentAttMap.get(key)
-            return existing?.version !== undefined ? { ...r, version: existing.version } : r
-          })
           const serverResult = await attendanceApiClient.batchMarkAttendance(withVersion, date, type)
           const result: BatchAttendanceSaveReceipt = { ...serverResult, acknowledgement: 'server' }
           set((state) => {

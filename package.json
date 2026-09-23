@@ -41,6 +41,7 @@
     "audit:sunday-readiness": "npm --prefix server run notifications:audit:sunday-readiness",
     "lint:architecture-inventory": "node scripts/check-architecture-inventory.mjs",
     "lint:ds": "node scripts/design-system-lint.mjs",
+    "package:tini-extension": "node scripts/package-tini-extension.mjs",
     "prepare": "node -e \"try{require('child_process').execSync('git config core.hooksPath .githooks',{stdio:'ignore'})}catch(e){}\""
   },
   "dependencies": {

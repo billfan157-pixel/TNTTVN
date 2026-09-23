@@ -470,8 +470,18 @@ flex h-screen flex-col
    * Cấp 1: `DesktopAppShell` bao bọc toàn trang.
    * Cấp 2: `PageHeader` ổn định trên đỉnh (Title, Description, Icon, Actions chính).
    * Cấp 3: Thanh điều hướng `Tabs` ngay dưới Header.
-   * Cấp 4: Nội dung con bên trong từng `TabPanel`. Các công cụ lọc, tìm kiếm con chỉ được dùng `view-toolbar` hoặc `app-panel`, **tuyệt đối cấm tạo thêm `PageHeader` cấp 2** gây lặp tiêu đề và layout shift.
-3. **Chuẩn hóa Header Mobile:**
+   * Cấp 4: Nội dung con bên trong từng `TabPanel`. **Tuyệt đối cấm tạo thêm `PageHeader` cấp 2** gây lặp tiêu đề và lãng phí 150px–250px không gian dọc màn hình desktop. Mọi thanh tác vụ con/bộ lọc bên trong subtab phải tuân thủ quy chuẩn **Single-Row Compact Command Strip** (chi tiết tại mục 4 dưới đây).
+3. **Quy chuẩn Thanh Tác Vụ Con (Single-Row Compact Command Strip — Chuẩn hóa 2026-09-23):**
+   * Định dạng container: `flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs`.
+   * Vùng Định danh bên trái (Identity): Icon semantic 16px đặt trong hộp bo góc `h-8 w-8 rounded-lg bg-primary-subtle text-primary` + Tiêu đề ngữ nghĩa `<h2>` (`text-sm font-bold text-text-primary`) + Phụ đề/breadcrumb tóm tắt ngắn (`text-xs text-text-muted`).
+   * Vùng Điều khiển bên phải (Controls): Mọi control (Select, Date, SegmentedControl, Button) đồng mức chiều cao **`h-8.5` (~34px)** với font chữ `text-xs font-bold`.
+   * Trạng thái & Chỉ số (Micro Status Indicators): Thay thế văn bản thống kê dài dằng dặc bằng các huy hiệu nhỏ có chấm màu trạng thái (`● {count} có mặt`, `● {count} phép`, `● {count} vắng`).
+   * Không bọc thêm khung thẻ card `.view-toolbar` to xung quanh thanh điều hướng `Tabs` chính.
+   * **Các views đã chuẩn hóa 100%**:
+     - Phân hệ Điểm Danh: `DesktopAttendanceGrid`, `DesktopAttendanceSummary`, `DesktopLeaveRequests` (`embedded={true}`).
+     - Phân hệ Sổ Điểm & Khảo Thí: `DesktopGradeMatrix`, `DesktopGradeCards`, `DesktopGradeComparison`, `DesktopDailyGradeEntry`.
+     - Phân hệ Thiếu Nhi: `DesktopStudentList`.
+4. **Chuẩn hóa Header Mobile:**
    * Tuyệt đối không dùng banner xanh thương hiệu `.mobile-page-header--brand` trên các màn hình có Tabs hoặc subviews đa tầng (như Reports, Notices).
    * 100% các subviews / subtabs mobile đồng bộ về chuẩn component `<SubpageHeader>` (DS §23).
 

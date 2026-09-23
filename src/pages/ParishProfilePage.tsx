@@ -6,6 +6,7 @@ import {
   ArrowUpDown,
   Award,
   Building2,
+  Calendar,
   ChevronLeft,
   Download,
   ExternalLink,
@@ -17,8 +18,10 @@ import {
   Image as ImageIcon,
   Landmark,
   Loader2,
+  MapPin,
   Pencil,
   Plus,
+  Printer,
   Search,
   Sparkles,
   Trash2,
@@ -40,6 +43,9 @@ import { ParishPersonDetailModal } from '../components/parish/ParishPersonDetail
 import { ParishOrgChart } from '../components/parish/ParishOrgChart'
 import { ParishBulkImportModal } from '../components/parish/ParishBulkImportModal'
 import { ParishLogoModal } from '../components/parish/ParishLogoModal'
+import { ParishProfilePrintModal } from '../components/parish/ParishProfilePrintModal'
+import { ParishInfoModal } from '../components/parish/ParishInfoModal'
+import { GIA_TON_PARISH_INFO } from '../constants/parishInfo'
 import { PARISH_LOGO_MEANING } from '../constants/parishLogoMeaning'
 import parishLogo from '../assets/logo-gia-ton.png'
 import { useConfirmDialog } from '../hooks/useConfirmDialog'
@@ -164,6 +170,8 @@ export default function ParishProfilePage() {
   const [viewingAsset, setViewingAsset] = useState<ParishArchiveAsset | null>(null)
   const [showBulkImport, setShowBulkImport] = useState(false)
   const [showLogoModal, setShowLogoModal] = useState(false)
+  const [showPrintModal, setShowPrintModal] = useState(false)
+  const [showParishInfoModal, setShowParishInfoModal] = useState(false)
   const [orgViewMode, setOrgViewMode] = useState<'grid' | 'tree'>('grid')
 
   // Bộ lọc Tab Nhân sự
@@ -329,6 +337,20 @@ export default function ParishProfilePage() {
     })
   }, [snapshot, assetTypeFilter, assetQuery, assetSort])
 
+  const activePeopleCount = useMemo(() => snapshot?.people.filter(p => p.serviceStatus === 'ACTIVE').length ?? 0, [snapshot?.people])
+  const imageCount = useMemo(() => snapshot?.assets.filter(a => a.assetType === 'IMAGE' || a.assetType === 'POSTER').length ?? 0, [snapshot?.assets])
+  const foundedYears = useMemo(() => {
+    if (!snapshot?.profile.foundedDate) return null
+    try {
+      const year = new Date(snapshot.profile.foundedDate).getFullYear()
+      const current = new Date().getFullYear()
+      const diff = current - year
+      return diff > 0 ? diff : null
+    } catch {
+      return null
+    }
+  }, [snapshot?.profile.foundedDate])
+
   if (isLoading && !snapshot) {
     return <DesktopAppShell width="wide"><SkeletonCardGrid count={6} /></DesktopAppShell>
   }
@@ -373,6 +395,22 @@ export default function ParishProfilePage() {
             <Button
               size="sm"
               variant="secondary"
+              leadingIcon={<Landmark aria-hidden="true" className="h-4 w-4 text-parish-primary" />}
+              onClick={() => setShowParishInfoModal(true)}
+            >
+              Thông Tin Giáo Xứ
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              leadingIcon={<Printer aria-hidden="true" className="h-4 w-4 text-parish-primary" />}
+              onClick={() => setShowPrintModal(true)}
+            >
+              In / Xuất Hồ Sơ
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
               leadingIcon={<Sparkles aria-hidden="true" className="h-4 w-4 text-parish-secondary" />}
               onClick={() => setShowLogoModal(true)}
             >
@@ -402,16 +440,70 @@ export default function ParishProfilePage() {
       )}
 
       <section aria-label="Tổng quan Xứ đoàn" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Thành lập" value={snapshot.profile.foundedDate ? formatDate(snapshot.profile.foundedDate) : 'Chưa cập nhật'} />
-        <StatCard label="Nhân sự" value={`${personnelCount} ${snapshot.people.length > 0 ? 'hồ sơ' : 'tài khoản'}`} />
-        <StatCard label="Đơn vị" value={`${snapshot.units.filter(item => item.isActive).length} đang hoạt động`} />
-        <StatCard label="Tư liệu" value={`${snapshot.assets.length} mục`} />
+        <StatCard
+          label="Thành lập"
+          value={snapshot.profile.foundedDate ? formatDate(snapshot.profile.foundedDate) : 'Chưa cập nhật'}
+          icon={<Calendar aria-hidden="true" className="h-4 w-4" />}
+          hint={foundedYears ? `${foundedYears} năm đồng hành` : undefined}
+        />
+        <StatCard
+          label="Nhân sự"
+          value={`${personnelCount} ${snapshot.people.length > 0 ? 'hồ sơ' : 'tài khoản'}`}
+          icon={<UserRound aria-hidden="true" className="h-4 w-4" />}
+          hint={activePeopleCount > 0 ? `${activePeopleCount} đang phục vụ` : undefined}
+        />
+        <StatCard
+          label="Đơn vị"
+          value={`${snapshot.units.filter(item => item.isActive).length} đang hoạt động`}
+          icon={<Building2 aria-hidden="true" className="h-4 w-4" />}
+          hint={`${snapshot.units.length} phân cấp tổ chức`}
+        />
+        <StatCard
+          label="Tư liệu"
+          value={`${snapshot.assets.length} mục`}
+          icon={<Archive aria-hidden="true" className="h-4 w-4" />}
+          hint={imageCount > 0 ? `${imageCount} hình ảnh & video` : undefined}
+        />
       </section>
 
-      {(snapshot.profile.motto || snapshot.profile.description) && (
+      {(snapshot.profile.motto || snapshot.profile.description || snapshot.profile.patronName) && (
         <Surface as="section" variant="panel" className="p-4 sm:p-5" aria-label="Giới thiệu Xứ đoàn">
-          {snapshot.profile.motto && <p className="text-base font-extrabold text-parish-primary">“{snapshot.profile.motto}”</p>}
-          {snapshot.profile.description && <p className="mt-2 whitespace-pre-wrap typography-body text-text-secondary">{snapshot.profile.description}</p>}
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+            <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border border-surface-border bg-surface-card p-2 shadow-sm">
+              <img
+                src={parishLogo}
+                alt="Logo Xứ Đoàn"
+                className="h-full w-full object-contain"
+              />
+            </div>
+            <div className="flex-1 min-w-0 text-center sm:text-left space-y-1.5">
+              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                <span className="badge badge-primary font-bold">
+                  Thiếu Nhi Thánh Thể
+                </span>
+                {snapshot.profile.patronName && (
+                  <span className="badge badge-info">
+                    Bổn mạng: {snapshot.profile.patronName}
+                  </span>
+                )}
+                {foundedYears && (
+                  <span className="badge badge-neutral">
+                    {foundedYears} năm phát triển
+                  </span>
+                )}
+              </div>
+              {snapshot.profile.motto && (
+                <p className="text-base font-extrabold text-parish-primary tracking-tight m-0">
+                  “{snapshot.profile.motto}”
+                </p>
+              )}
+              {snapshot.profile.description && (
+                <p className="whitespace-pre-wrap typography-body text-text-secondary m-0">
+                  {snapshot.profile.description}
+                </p>
+              )}
+            </div>
+          </div>
         </Surface>
       )}
 
@@ -420,6 +512,83 @@ export default function ParishProfilePage() {
       </div>
 
       <TabPanel tabsId="parish-profile-tabs" value="history" activeValue={activeTab}>
+        {/* Khối Thông Tin Chính Thức Giáo Xứ Gia Tôn (Giáo phận Xuân Lộc) */}
+        <Surface variant="card" className="p-4 sm:p-5 mb-4 border border-surface-border bg-surface-card space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-surface-border pb-3">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="badge badge-primary font-bold">{GIA_TON_PARISH_INFO.diocese}</span>
+                <span className="badge badge-info">{GIA_TON_PARISH_INFO.deanery}</span>
+                <span className="badge badge-neutral">Thành lập 2007</span>
+              </div>
+              <h3 className="text-base font-extrabold text-text-main m-0">
+                {GIA_TON_PARISH_INFO.name} — Thông Tin Mục Vụ Sở Tại
+              </h3>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              leadingIcon={<Landmark size={14} className="text-parish-primary" />}
+              onClick={() => setShowParishInfoModal(true)}
+            >
+              Lịch sử & Các đời Cha xứ
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+            <div className="p-2.5 rounded-xl bg-surface-app space-y-1">
+              <span className="text-text-muted font-bold block">Cha Chánh Xứ:</span>
+              <strong className="text-text-main text-sm block">
+                Cha {GIA_TON_PARISH_INFO.currentPastor.holyName} {GIA_TON_PARISH_INFO.currentPastor.fullName}
+              </strong>
+              <span className="text-text-secondary typography-caption block">{GIA_TON_PARISH_INFO.currentPastor.period}</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-surface-app space-y-1">
+              <span className="text-text-muted font-bold block">Bổn Mạng Giáo Xứ:</span>
+              <strong className="text-text-main text-sm block">{GIA_TON_PARISH_INFO.patronSaint.name}</strong>
+              <span className="text-text-secondary typography-caption block">Kính ngày {GIA_TON_PARISH_INFO.patronSaint.feastDay} (Chầu lượt trước 19/03)</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-surface-app space-y-1">
+              <span className="text-text-muted font-bold block">Giờ Thánh Lễ:</span>
+              <strong className="text-text-main text-sm block">04:30 & 17:00</strong>
+              <span className="text-text-secondary typography-caption block">Hằng ngày & Chúa Nhật</span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-surface-app space-y-1">
+              <span className="text-text-muted font-bold block">Quy Mô & Địa Dư:</span>
+              <strong className="text-text-main text-sm block">2.435 giáo dân · 650 hộ</strong>
+              <span className="text-text-secondary typography-caption block">Diện tích 49 km² · {GIA_TON_PARISH_INFO.religiousOrder.name}</span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-text-muted border-t border-surface-border">
+            <span className="flex items-center gap-1.5 truncate">
+              <MapPin size={13} className="text-parish-primary shrink-0" aria-hidden="true" />
+              <span>{GIA_TON_PARISH_INFO.address}</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <a
+                href={GIA_TON_PARISH_INFO.googleMapsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-parish-primary hover:underline inline-flex items-center gap-1"
+              >
+                <span>Google Maps</span>
+                <ExternalLink size={11} aria-hidden="true" />
+              </a>
+              <span className="text-surface-border">·</span>
+              <a
+                href={GIA_TON_PARISH_INFO.officialSourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-bold text-text-secondary hover:text-parish-primary inline-flex items-center gap-1"
+              >
+                <span>Trang Giáo phận</span>
+                <ExternalLink size={11} aria-hidden="true" />
+              </a>
+            </div>
+          </div>
+        </Surface>
+
         {/* Khối Tôn Vinh Căn Tính: Logo & Ý Nghĩa Logo Xứ Đoàn */}
         <Surface variant="card" className="p-4 sm:p-5 mb-4 border border-surface-border flex flex-col sm:flex-row items-center gap-4 sm:gap-5 bg-surface-app/50">
           <div className="flex h-24 w-24 sm:h-28 sm:w-28 shrink-0 items-center justify-center rounded-2xl border border-surface-border bg-surface-card p-2 shadow-card">
@@ -831,13 +1000,24 @@ export default function ParishProfilePage() {
       )}
       {showBulkImport && <ParishBulkImportModal onClose={() => setShowBulkImport(false)} />}
       <ParishLogoModal isOpen={showLogoModal} onClose={() => setShowLogoModal(false)} />
+      <ParishProfilePrintModal isOpen={showPrintModal} onClose={() => setShowPrintModal(false)} snapshot={snapshot} />
+      <ParishInfoModal isOpen={showParishInfoModal} onClose={() => setShowParishInfoModal(false)} />
       {dialog}
     </DesktopAppShell>
   )
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return <Surface variant="card" className="p-3 sm:p-4"><div className="text-xs font-bold uppercase tracking-wide text-text-muted">{label}</div><div className="mt-1 text-sm font-extrabold text-text-main sm:text-base">{value}</div></Surface>
+function StatCard({ label, value, icon, hint }: { label: string; value: string; icon?: React.ReactNode; hint?: string }) {
+  return (
+    <Surface variant="card" className="p-3 sm:p-4">
+      <div className="flex items-center justify-between gap-1.5">
+        <div className="text-xs font-bold uppercase tracking-wide text-text-muted">{label}</div>
+        {icon && <div className="text-text-muted">{icon}</div>}
+      </div>
+      <div className="mt-1 text-sm font-extrabold text-text-main sm:text-base">{value}</div>
+      {hint && <div className="mt-0.5 typography-caption text-text-muted">{hint}</div>}
+    </Surface>
+  )
 }
 
 function SectionHeading({ title, description, action, actionLabel = 'Thêm bản ghi', secondaryAction, secondaryLabel, extraActions }: { title: string; description: string; action?: () => void; actionLabel?: string; secondaryAction?: (() => void) | false; secondaryLabel?: string; extraActions?: React.ReactNode }) {

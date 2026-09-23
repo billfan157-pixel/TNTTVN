@@ -384,7 +384,7 @@ export const DesktopCalendarView: React.FC = () => {
                           {role !== 'phuhuynh' && (
                             <button
                               type="button"
-                              onClick={() => navigate({ to: '/operations' })}
+                              onClick={() => navigate({ to: '/operations', search: { calendarEvent: ev.id } })}
                               className="p-1 rounded-md text-text-muted hover:text-parish-primary hover:bg-surface-card transition-colors border border-transparent hover:border-surface-border cursor-pointer"
                               title="Tổ chức & điều phối công việc cho sự kiện này"
                             >

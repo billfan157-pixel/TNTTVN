@@ -161,6 +161,11 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
                       </button>
                     )}
                   </div>
+                  {c.entity === 'attendance' && !c.resolved && (
+                    <p className="mb-3 text-xs text-text-muted">
+                      Lượt điểm danh này đã dừng đồng bộ để bạn đối chiếu hai phiên bản. Hệ thống chưa tự ghi đè dữ liệu trên máy chủ.
+                    </p>
+                  )}
                   
                   <div className="grid grid-cols-2 gap-3 text-[10px]">
                     <div className="space-y-1">
@@ -173,7 +178,7 @@ export const ConflictInboxModal: React.FC<ConflictInboxModalProps> = ({ isOpen, 
                     <div className="space-y-1">
                       <div className="text-text-muted font-bold flex items-center gap-1">
                         <ChevronRight className="w-3 h-3 text-[var(--color-parish-success)]" />
-                        PHIÊN BẢN MÁY CHỦ DÙNG LÀM NỀN
+                        {c.entity === 'attendance' ? 'PHIÊN BẢN MÁY CHỦ KHI XUNG ĐỘT' : 'PHIÊN BẢN MÁY CHỦ DÙNG LÀM NỀN'}
                       </div>
                       <ConflictValue value={c.serverValue} tone="server" />
                     </div>

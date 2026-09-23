@@ -31,6 +31,7 @@ export const representativeProtectedRoutes = [
   '/finances',
   '/parish',
   '/parish-profile',
+  '/operations',
 ] as const
 
 export type RepresentativeProtectedRoute = (typeof representativeProtectedRoutes)[number]

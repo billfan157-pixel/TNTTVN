@@ -61,6 +61,13 @@ services:
         value: com.tnttvn.app
       - key: APNS_ENVIRONMENT
         value: production
+      # ─── Web push (VAPID): Browser PWA Push Notifications ───
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: mailto:admin@giaoly.com
       # ─── Backup Turso độc lập, mã hóa phía ứng dụng (ADR-059) ───
       - key: AUTO_BACKUP_ENABLED
         value: true

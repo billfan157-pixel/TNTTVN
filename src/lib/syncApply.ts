@@ -72,6 +72,26 @@ export async function resolveConflictWithMerge(op: SyncQueueItem, serverRecord: 
   }
   requireSyncOwner(op, expectedOwner)
 
+  if (entity === 'attendance') {
+    // An external import or another device may have created/changed this key.
+    // Retain the original intent for review; never retry it with the server
+    // version as an automatic local-wins correction.
+    await store.addConflict({
+      entity,
+      entityId: op.entityId,
+      operation: 'UPDATE',
+      localValue: op.payload,
+      serverValue: JSON.stringify(serverRecord ?? null),
+    })
+    requireSyncOwner(op, expectedOwner)
+    await store.updateOp(op.id, {
+      status: 'failed',
+      serverAcknowledgement: undefined,
+      lastError: 'Client error 409: Attendance conflict requires review; original intent retained.',
+    })
+    return false
+  }
+
   if (entity === 'grade' && localPayload._syncGradePatch !== true) {
     // Legacy full snapshots cannot tell us which fields were actually edited.
     // Keep both evidence and command; do not manufacture new manual authority.
@@ -505,8 +525,8 @@ export async function flushAttendanceBatchWithIsolation(
           if (item.record) await applyServerResultAsync(op, item.record, expectedOwner)
           requireSyncOwner(op, expectedOwner)
           await store.removeOp(op.id)
-        } else if (item.status === 'conflict' && item.record) {
-          if (await resolveConflictWithMerge(op, item.record, expectedOwner)) state.mergedConflictCount++
+        } else if (item.status === 'conflict') {
+          if (await resolveConflictWithMerge(op, item.record ?? null, expectedOwner)) state.mergedConflictCount++
         } else {
           const rc = (op.retryCount || 0) + 1
           await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: item.reason || item.status })
@@ -542,6 +562,10 @@ export async function flushAttendanceBatchWithIsolation(
             requireSyncOwner(op, expectedOwner)
             await store.removeOp(op.id)
           } catch (e2) {
+            if (e2 instanceof ApiError && e2.status === 409) {
+              await resolveConflictWithMerge(op, null, expectedBatchOwner)
+              continue
+            }
             const rc = (op.retryCount || 0) + 1
             const msg = e2 instanceof ApiError ? `Client error ${e2.status}: ${e2.message}` : String(e2)
             await store.updateOp(op.id, { status: rc >= 5 ? 'failed' : 'retrying', retryCount: rc, lastError: msg })

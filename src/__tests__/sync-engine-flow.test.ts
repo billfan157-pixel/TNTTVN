@@ -460,7 +460,7 @@ describe('Sync Engine — conflict field-level merge (audit F9)', () => {
     expect(payload).not.toHaveProperty('scoreOral')
   })
 
-  it('attendance conflict → merge status local + re-queue, không server-wins', async () => {
+  it('attendance conflict retains intent for review without automatic overwrite', async () => {
     useAttendanceStore.getState().setAttendance([
       mkAttendance({ id: 'AT-CONF', studentId: 'ST-10', status: 'AbsentUnexcused', version: 1 } as any),
     ])
@@ -474,17 +474,15 @@ describe('Sync Engine — conflict field-level merge (audit F9)', () => {
 
     await runSyncFlow()
 
-    const after = useAttendanceStore.getState().attendance.find(a => a.studentId === 'ST-10')
-    // Natural key (studentId+date+type) giữ row local; id được đổi khi pull về.
-    expect(after?.status).toBe('AbsentUnexcused')
-    expect(after?.version).toBe(4)
-
     const pending = await useSyncStore.getState().getPendingOps()
-    const requeued = pending.find(o => o.entity === 'attendance' && o.entityId === 'AT-SRV-10')
-    expect(requeued).toBeDefined()
-    const payload = await readPayload(requeued!)
-    expect(payload.version).toBe(4)
-    expect(payload.status).toBe('AbsentUnexcused')
+    expect(pending.filter(o => o.entity === 'attendance')).toHaveLength(0)
+    const retained = await getDB().syncQueue.where('entity').equals('attendance').toArray()
+    expect(retained).toHaveLength(1)
+    expect(retained[0].status).toBe('failed')
+    expect(retained[0].serverAcknowledgement).toBeUndefined()
+    expect((await readPayload(retained[0])).status).toBe('AbsentUnexcused')
+    const conflicts = await useSyncStore.getState().getConflicts()
+    expect(conflicts.some(c => c.entity === 'attendance' && !c.resolved)).toBe(true)
   })
 })
 

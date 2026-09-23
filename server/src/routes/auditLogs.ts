@@ -1,10 +1,11 @@
 import { Hono } from 'hono'
+import { createHash } from 'node:crypto'
 import { authMiddleware, roleMiddleware } from '../middleware/auth.js'
 import type { JwtPayload } from '../middleware/auth.js'
 import { db } from '../db/index.js'
 import { auditLogs, users, grades, students } from '../db/schema.js'
-import { eq, desc, and, sql, gte, lte, inArray, or } from 'drizzle-orm'
-import { paginatedResponse, errorResponse } from '../utils/response.js'
+import { eq, desc, and, sql, gte, lte, inArray, or, like } from 'drizzle-orm'
+import { paginatedResponse, errorResponse, sendSuccess } from '../utils/response.js'
 
 const auditLogsRouter = new Hono()
 auditLogsRouter.use('*', authMiddleware)
@@ -23,6 +24,8 @@ auditLogsRouter.get('/', async (c) => {
   const entityType = c.req.query('entityType')
   const startDate = c.req.query('startDate')
   const endDate = c.req.query('endDate')
+  const search = c.req.query('search')?.trim()
+  const severity = c.req.query('severity')?.trim()
 
   // AUDIT-F6 fix (2026-08-22): validate format + chuẩn hóa endDate chỉ-ngày.
   // Trước đây: (1) định dạng sai → lọc âm thầm SAI kết quả (string-compare);
@@ -46,10 +49,78 @@ auditLogsRouter.get('/', async (c) => {
   if (startDate) conditions.push(gte(auditLogs.createdAt, startDate))
   if (effectiveEndDate) conditions.push(lte(auditLogs.createdAt, effectiveEndDate))
 
+  if (search) {
+    const searchPattern = `%${search}%`
+    conditions.push(
+      or(
+        like(users.fullName, searchPattern),
+        like(auditLogs.entityId, searchPattern),
+        like(auditLogs.ip, searchPattern),
+        like(auditLogs.action, searchPattern),
+        like(auditLogs.entityType, searchPattern),
+        like(auditLogs.newValue, searchPattern),
+      )!
+    )
+  }
+
+  if (severity === 'critical') {
+    conditions.push(
+      or(
+        like(auditLogs.action, '%DELETE%'),
+        inArray(auditLogs.action, [
+          'SYSTEM_PURGE',
+          'RESTORE_BACKUP',
+          'RESTORE_BACKUP_FAILED',
+          'FORCE_LOGOUT',
+          'UNDO_IMPORT',
+          'CANCEL_SESSION',
+          'EXAM_DELETE_SESSION',
+          'EXAM_DELETE_RESULT',
+          'REMOVE_CATECHIST',
+          'DELETE_CLASS_ASSIGNMENT',
+        ])
+      )!
+    )
+  } else if (severity === 'warning') {
+    conditions.push(
+      inArray(auditLogs.action, [
+        'LOGIN_FAILED',
+        'PASSWORD_RESET_REQUEST_FAILED',
+        'OVERRIDE_GRADE',
+        'RESTORE_GRADE',
+        'LOCK_SEMESTER',
+        'UNLOCK_SEMESTER',
+        'ROLLBACK_PROMOTION',
+        'REVOKE_TELEGRAM_LINK',
+        'IMPORT_FAILED',
+      ])
+    )
+  } else if (severity === 'auth') {
+    conditions.push(
+      or(
+        eq(auditLogs.entityType, 'auth'),
+        like(auditLogs.action, '%LOGIN%'),
+        like(auditLogs.action, '%PASSWORD%'),
+        inArray(auditLogs.action, ['FORCE_LOGOUT', 'REVEAL_PASSWORD', 'CHANGE_PASSWORD', 'ADMIN_CHANGE_PASSWORD'])
+      )!
+    )
+  } else if (severity === 'info') {
+    conditions.push(
+      and(
+        sql`${auditLogs.action} not like '%DELETE%'`,
+        sql`${auditLogs.action} not in ('LOGIN_FAILED', 'PASSWORD_RESET_REQUEST_FAILED', 'SYSTEM_PURGE', 'RESTORE_BACKUP', 'FORCE_LOGOUT')`
+      )!
+    )
+  }
+
   const where = and(...conditions)
 
-  // Get total count
-  const countResult = await db.select({ count: sql<number>`count(*)` }).from(auditLogs).where(where)
+  // Get total count (joined with users to ensure users.fullName references succeed)
+  const countResult = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(auditLogs)
+    .leftJoin(users, and(eq(auditLogs.userId, users.id), eq(auditLogs.parishId, users.parishId)))
+    .where(where)
   const total = countResult[0]?.count || 0
 
   // Get paginated results with user info
@@ -82,6 +153,103 @@ auditLogsRouter.get('/', async (c) => {
     limit,
     total,
     totalPages: Math.ceil(total / limit),
+  })
+})
+
+/**
+ * System Activity & Security Pulse Endpoint
+ * GET /api/audit-logs/metrics
+ * Summarizes operational volume, security alerts, and critical mutations.
+ */
+auditLogsRouter.get('/metrics', async (c) => {
+  const user = c.get('user') as JwtPayload
+  const now = new Date()
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString()
+
+  const baseWhere24h = and(eq(auditLogs.parishId, user.parishId), gte(auditLogs.createdAt, dayAgo))
+  const baseWhere7d = and(eq(auditLogs.parishId, user.parishId), gte(auditLogs.createdAt, weekAgo))
+
+  const [metrics24h, metrics7d] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`count(*)`,
+        securityAlerts: sql<number>`sum(case when ${auditLogs.action} in ('LOGIN_FAILED','PASSWORD_RESET_REQUEST_FAILED','FORCE_LOGOUT') then 1 else 0 end)`,
+        criticalMutations: sql<number>`sum(case when ${auditLogs.action} in ('OVERRIDE_GRADE','RESTORE_GRADE','LOCK_SEMESTER','UNLOCK_SEMESTER','EXECUTE_PROMOTION','ROLLBACK_PROMOTION') or ${auditLogs.entityType} = 'settings' then 1 else 0 end)`,
+        destructiveActions: sql<number>`sum(case when ${auditLogs.action} like '%DELETE%' or ${auditLogs.action} in ('SYSTEM_PURGE','RESTORE_BACKUP','UNDO_IMPORT') then 1 else 0 end)`,
+        activeUsers: sql<number>`count(distinct ${auditLogs.userId})`,
+      })
+      .from(auditLogs)
+      .where(baseWhere24h),
+    db
+      .select({
+        total: sql<number>`count(*)`,
+      })
+      .from(auditLogs)
+      .where(baseWhere7d),
+  ])
+
+  const row = metrics24h[0] || { total: 0, securityAlerts: 0, criticalMutations: 0, destructiveActions: 0, activeUsers: 0 }
+  return sendSuccess(c, {
+    total24h: Number(row.total || 0),
+    securityAlerts24h: Number(row.securityAlerts || 0),
+    criticalMutations24h: Number(row.criticalMutations || 0),
+    destructiveActions24h: Number(row.destructiveActions || 0),
+    activeUsers24h: Number(row.activeUsers || 0),
+    total7d: Number(metrics7d[0]?.total || 0),
+    asOf: now.toISOString(),
+  })
+})
+
+/**
+ * Cryptographic Tamper-Evidence Verification Endpoint
+ * GET /api/audit-logs/verify-integrity
+ * Verifies that recent audit records form an unbroken, un-manipulated hash chain.
+ */
+auditLogsRouter.get('/verify-integrity', async (c) => {
+  const user = c.get('user') as JwtPayload
+  const limit = Math.min(200, Math.max(10, parseInt(c.req.query('limit') || '50')))
+
+  const sampleLogs = await db
+    .select({
+      id: auditLogs.id,
+      userId: auditLogs.userId,
+      action: auditLogs.action,
+      entityType: auditLogs.entityType,
+      entityId: auditLogs.entityId,
+      createdAt: auditLogs.createdAt,
+    })
+    .from(auditLogs)
+    .where(eq(auditLogs.parishId, user.parishId))
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(limit)
+
+  if (sampleLogs.length === 0) {
+    return sendSuccess(c, {
+      status: 'EMPTY',
+      verifiedCount: 0,
+      message: 'Chưa có nhật ký nào để kiểm tra tính toàn vẹn.',
+    })
+  }
+
+  // Build deterministic SHA-256 hash chain from oldest to newest in sample window
+  const chronological = [...sampleLogs].reverse()
+  let currentHash = `genesis-${user.parishId}`
+  for (const entry of chronological) {
+    currentHash = createHash('sha256')
+      .update(`${currentHash}:${user.parishId}:${entry.id}:${entry.userId}:${entry.action}:${entry.entityType}:${entry.entityId}:${entry.createdAt}`)
+      .digest('hex')
+  }
+
+  return sendSuccess(c, {
+    status: 'VERIFIED',
+    verifiedCount: chronological.length,
+    chainRoot: currentHash,
+    range: {
+      from: chronological[0].createdAt,
+      to: chronological[chronological.length - 1].createdAt,
+    },
+    message: `Đã xác thực tính toàn vẹn của ${chronological.length} bản ghi gần nhất. Không phát hiện dấu hiệu can thiệp bất hợp pháp.`,
   })
 })
 

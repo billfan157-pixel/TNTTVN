@@ -9,6 +9,9 @@ const INDEXES: Record<string, string[]> = {
   idx_users_username_parish: ['parish_id', 'username'],
   idx_students_code_parish: ['parish_id', 'code'],
   idx_attendance_unique: ['parish_id', 'student_id', 'date', 'type'],
+  idx_external_links_active_source: ['parish_id', 'provider', 'entity_kind', 'external_scope', 'external_id'],
+  idx_external_links_active_target: ['parish_id', 'provider', 'entity_kind', 'external_scope', 'target_id'],
+  idx_external_import_items_run_index: ['parish_id', 'run_id', 'item_index'],
   idx_grades_lookup: ['parish_id', 'student_id', 'academic_year', 'semester'],
   idx_classes_code_year: ['parish_id', 'code', 'academic_year_id'],
   idx_catechist_assignments_unique: ['parish_id', 'user_id', 'class_id'],
@@ -136,6 +139,9 @@ const COMPOSITE_PK_TABLES = new Set([
   'classes',
   'grades',
   'attendance',
+  'external_entity_links',
+  'external_import_runs',
+  'external_import_items',
   'audit_logs',
   'funds',
   'financial_transactions',
@@ -187,6 +193,9 @@ const SPECIAL_COMPOSITE_PRIMARY_KEYS: Record<string, string[]> = {
 }
 
 const REQUIRED_COLUMNS: Record<string, string[]> = {
+  external_entity_links: ['parish_id', 'id', 'provider', 'entity_kind', 'external_scope', 'external_id', 'target_id', 'version', 'reviewed_by', 'retired_at'],
+  external_import_runs: ['parish_id', 'id', 'file_hash', 'actor_id', 'preview_digest', 'status'],
+  external_import_items: ['parish_id', 'id', 'run_id', 'item_index', 'observation_hash', 'target_class_id', 'mapping_version', 'class_mapping_version', 'classification', 'receipt'],
   academic_years: ['promotion_target_year_id', 'finalization_policy'],
   academic_year_snapshots: ['source_class_id', 'report_snapshot'],
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],

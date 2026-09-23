@@ -192,7 +192,7 @@ export function OperationsEventList() {
     : null
   const scopeBadgeOf = (event: OperationEvent) => {
     const scopeType = event.eventScopeType ?? (event.scopeUnitId ? 'UNIT' : 'XU_DOAN')
-    return scopeType === 'XU_DOAN' ? 'Sự kiện Xứ đoàn' : `Chuyên môn · ${unitNameOf(event.scopeUnitId) ?? 'đơn vị phụ trách'}`
+    return scopeType === 'XU_DOAN' ? 'Sự kiện Xứ đoàn (Đa mảng)' : `Mảng chuyên môn · ${unitNameOf(event.scopeUnitId) ?? 'Đơn vị phụ trách'}`
   }
 
   const openEvent = (event: OperationEvent) => {

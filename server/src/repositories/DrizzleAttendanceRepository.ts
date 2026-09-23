@@ -79,7 +79,8 @@ export class DrizzleAttendanceRepository {
     } catch (err: any) {
       // ATT-01 (audit 2026-08-08): race — thiết bị khác đã chèn dòng cùng
       // (parishId, studentId, date, type) khiến UNIQUE ném 500 thô. Re-query theo
-      // composite key rồi đi đúng OCC path (idempotent skip / update / conflict).
+      // composite key and report a conflict. A concurrent create may have a
+      // different status even when both rows start at version 1.
       if (!this.isUniqueViolation(err)) throw err
       const [racer] = await tx
         .select()
@@ -94,8 +95,7 @@ export class DrizzleAttendanceRepository {
         )
         .limit(1)
       if (!racer) throw new Error(String(err?.cause?.message ?? err))
-      if (racer.version === record.version) return
-      await this.applyOccUpdate(record, racer.id, record.version - 1, now, userId, parishId, tx)
+      throw new VersionConflictError('Bản ghi điểm danh đã được tạo bởi người dùng khác.', racer)
     }
   }
 

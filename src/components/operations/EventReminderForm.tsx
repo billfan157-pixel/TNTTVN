@@ -23,7 +23,7 @@ function localDateTime(iso: string) {
 export function EventReminderForm({ event, task, enabled }: Props) {
   const [recipient, setRecipient] = useState('')
   const [at, setAt] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [reminders, setReminders] = useState<OperationReminder[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -34,6 +34,8 @@ export function EventReminderForm({ event, task, enabled }: Props) {
   const submitting = useRef(false)
   const { stableKey, releaseKey } = useStableCommandKey()
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+
+  const isBusy = (actionKey?: string) => actionKey ? busyAction === actionKey : busyAction !== null
 
   // D3': dedupe stays exact-instant server-side (B6' decision), so warn locally
   // when the draft lands within an hour of another PENDING reminder for the
@@ -56,6 +58,7 @@ export function EventReminderForm({ event, task, enabled }: Props) {
   const loadReminders = useCallback(async () => {
     if (!allowed) return
     const scope = getTenantScopeKey()
+    setBusyAction(prev => prev ?? 'reload')
     try {
       const response = await operationsApi.getResourceReminders(task ? { taskId: resourceId } : { eventId: resourceId })
       if (!alive.current || !scope || scope !== getTenantScopeKey()) return
@@ -68,16 +71,20 @@ export function EventReminderForm({ event, task, enabled }: Props) {
         setLoaded(false)
         setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không tải được lịch nhắc.'))
       }
+    } finally {
+      if (alive.current && scope === getTenantScopeKey()) {
+        setBusyAction(prev => prev === 'reload' ? null : prev)
+      }
     }
   }, [allowed, event.event.parishId, resourceId, task])
 
   useEffect(() => { void loadReminders() }, [loadReminders])
   if (!allowed) return null
 
-  const finishMutation = async (action: () => Promise<unknown>, success: string, onSuccess?: () => void) => {
+  const finishMutation = async (action: () => Promise<unknown>, success: string, actionKey = 'general', onSuccess?: () => void) => {
     const scope = getTenantScopeKey()
     if (!scope || submitting.current) return
-    submitting.current = true; setBusy(true); setMessage('')
+    submitting.current = true; setBusyAction(actionKey); setMessage('')
     try {
       await action()
       if (!alive.current || scope !== getTenantScopeKey()) return
@@ -88,7 +95,7 @@ export function EventReminderForm({ event, task, enabled }: Props) {
       if (alive.current && scope === getTenantScopeKey()) setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không cập nhật được lịch nhắc.'))
     } finally {
       submitting.current = false
-      if (alive.current && scope === getTenantScopeKey()) setBusy(false)
+      if (alive.current && scope === getTenantScopeKey()) setBusyAction(null)
     }
   }
 
@@ -108,34 +115,35 @@ export function EventReminderForm({ event, task, enabled }: Props) {
           return result
         },
         'Đã lưu lịch nhắc. Việc gửi còn phụ thuộc quyền truy cập và thiết bị của người nhận.',
+        'create',
         () => { setAt('') },
       )
     }}>
       <h3 className="m-0 text-sm font-extrabold text-text-main">Đặt nhắc {subject}</h3>
       <p className="text-sm text-text-muted">Người nhận cần có tài khoản và quyền xem {subject}. Máy chủ sẽ kiểm tra lại trước khi gửi.</p>
-      <Select aria-label={`Người nhận nhắc ${subject}`} value={recipient} required disabled={busy || candidateDirectory.loading} onChange={e => setRecipient(e.target.value)}><option value="">{candidateDirectory.loading ? 'Đang tải người nhận…' : 'Chọn người nhận'}</option>{candidates.map(candidate => <option key={candidate.userId!} value={candidate.userId!}>{candidate.displayName}</option>)}</Select>
-      <TextInput aria-label={`Thời điểm nhắc ${subject}`} type="datetime-local" value={at} required disabled={busy} onChange={e => setAt(e.target.value)} />
+      <Select aria-label={`Người nhận nhắc ${subject}`} value={recipient} required disabled={isBusy('create') || candidateDirectory.loading} onChange={e => setRecipient(e.target.value)}><option value="">{candidateDirectory.loading ? 'Đang tải người nhận…' : 'Chọn người nhận'}</option>{candidates.map(candidate => <option key={candidate.userId!} value={candidate.userId!}>{candidate.displayName}</option>)}</Select>
+      <TextInput aria-label={`Thời điểm nhắc ${subject}`} type="datetime-local" value={at} required disabled={isBusy('create')} onChange={e => setAt(e.target.value)} />
       {nearDuplicate && <p className="m-0 rounded-lg border border-parish-warning/30 bg-parish-warning-bg/30 p-2 text-xs text-parish-warning">Đã có lịch nhắc đang chờ cho người này lúc {new Date(nearDuplicate.triggerAt).toLocaleString('vi-VN')} — kiểm tra trùng trước khi lưu.</p>}
-      <Button type="submit" disabled={busy || !recipient || !at}>Lưu lịch nhắc</Button>
+      <Button type="submit" disabled={isBusy() || !recipient || !at}>{isBusy('create') ? 'Đang lưu…' : 'Lưu lịch nhắc'}</Button>
     </form>
     {candidateDirectory.error && <p role="alert" className="text-sm text-text-main">{candidateDirectory.error}</p>}
 
     <div className="border-t border-surface-border pt-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="m-0 text-sm font-extrabold text-text-main">Lịch nhắc đã đặt</h3>
-        <Button variant="ghost" size="sm" disabled={busy} onClick={() => void loadReminders()}>Tải lại lịch nhắc</Button>
+        <Button variant="ghost" size="sm" disabled={isBusy()} onClick={() => void loadReminders()}>{isBusy('reload') ? 'Đang tải…' : 'Tải lại lịch nhắc'}</Button>
       </div>
       {loaded && reminders.length === 0 && <EmptyState icon={Bell} title="Chưa có lịch nhắc cho mục này." description="Tạo lịch ở phía trên khi cần nhắc một người có quyền truy cập." className="py-5" />}
       <div className="mt-2 divide-y divide-surface-border">
         {reminders.map(reminder => <div key={reminder.id} data-reminder-id={reminder.id} className="py-3">
           <div className="flex flex-wrap items-start justify-between gap-2 text-sm">
             <div><p className="m-0 font-bold text-text-main">{reminder.recipientUserId ? recipientNames.get(reminder.recipientUserId) ?? 'Tài khoản được phân công' : 'Người nhận'}</p><p className="mb-0 mt-1 text-xs text-text-muted">{new Date(reminder.triggerAt).toLocaleString('vi-VN')} · {reminder.status}</p></div>
-            {reminder.status === 'PENDING' && <Button variant="secondary" size="sm" disabled={busy} onClick={() => { setEditingId(reminder.id); setEditAt(localDateTime(reminder.triggerAt)); setReason('') }}>Đổi hoặc hủy lịch</Button>}
+            {reminder.status === 'PENDING' && <Button variant="secondary" size="sm" disabled={isBusy()} onClick={() => { setEditingId(reminder.id); setEditAt(localDateTime(reminder.triggerAt)); setReason('') }}>Đổi hoặc hủy lịch</Button>}
           </div>
           {editingId === reminder.id && <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
-            <TextInput aria-label={`Giờ nhắc mới ${subject}`} type="datetime-local" value={editAt} disabled={busy} onChange={e => setEditAt(e.target.value)} />
-            <TextInput aria-label={`Lý do đổi hoặc hủy nhắc ${subject}`} value={reason} maxLength={2000} required disabled={busy} placeholder="Lý do bắt buộc" onChange={e => setReason(e.target.value)} />
-            <Button size="sm" disabled={busy || !reason.trim() || !editAt || new Date(editAt).getTime() <= Date.now()} onClick={() => {
+            <TextInput aria-label={`Giờ nhắc mới ${subject}`} type="datetime-local" value={editAt} disabled={isBusy(`reschedule:${reminder.id}`) || isBusy(`cancel:${reminder.id}`)} onChange={e => setEditAt(e.target.value)} />
+            <TextInput aria-label={`Lý do đổi hoặc hủy nhắc ${subject}`} value={reason} maxLength={2000} required disabled={isBusy(`reschedule:${reminder.id}`) || isBusy(`cancel:${reminder.id}`)} placeholder="Lý do bắt buộc" onChange={e => setReason(e.target.value)} />
+            <Button size="sm" disabled={isBusy() || !reason.trim() || !editAt || new Date(editAt).getTime() <= Date.now()} onClick={() => {
               const payload = { expectedVersion: reminder.version, triggerAt: new Date(editAt).toISOString(), reason: reason.trim() }
               const key = stableKey(`reminder-reschedule:${reminder.id}`, { id: reminder.id, ...payload })
               return void finishMutation(
@@ -145,9 +153,10 @@ export function EventReminderForm({ event, task, enabled }: Props) {
                   return result
                 },
                 'Đã đổi thời điểm nhắc.',
+                `reschedule:${reminder.id}`,
               )
-            }}>Lưu giờ mới</Button>
-            <Button variant="danger" size="sm" disabled={busy || !reason.trim()} onClick={() => {
+            }}>{isBusy(`reschedule:${reminder.id}`) ? 'Đang lưu…' : 'Lưu giờ mới'}</Button>
+            <Button variant="danger" size="sm" disabled={isBusy() || !reason.trim()} onClick={() => {
               // V10 hardening: the server hashes (key, reason) together, so the
               // fingerprint must include the reason — otherwise editing the
               // reason after a commit-with-lost-response turns a replay into a
@@ -160,8 +169,9 @@ export function EventReminderForm({ event, task, enabled }: Props) {
                   return result
                 },
                 'Đã hủy lịch nhắc.',
+                `cancel:${reminder.id}`,
               )
-            }}>Hủy lịch này</Button>
+            }}>{isBusy(`cancel:${reminder.id}`) ? 'Đang hủy…' : 'Hủy lịch này'}</Button>
           </div>}
         </div>)}
       </div>

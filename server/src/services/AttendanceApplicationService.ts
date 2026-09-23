@@ -1,4 +1,4 @@
-import { runDbTransaction } from '../db/index.js'
+import { runDbTransaction, type DbTransaction } from '../db/index.js'
 import { auditLogs, students } from '../db/schema.js'
 import { eq, and, isNull } from 'drizzle-orm'
 import { drizzleAttendanceRepository, DrizzleAttendanceRepository } from '../repositories/DrizzleAttendanceRepository.js'
@@ -20,7 +20,7 @@ export interface MarkAttendanceCommand {
   note?: string | null
   academicYear?: string
   semester?: number
-  /** ADR-016 (S21): Version bản ghi mà client đang có — bắt buộc cho offline sync multi-device. */
+  /** 0 means the caller observed no row; N means the caller observed version N. */
   version?: number
   userId: string
   parishId: string
@@ -29,7 +29,8 @@ export interface MarkAttendanceCommand {
   expected?: AcademicWriteExpectation
   ip?: string
   userAgent?: string
-  auditAction?: 'MARK_ATTENDANCE' | 'BATCH_MARK_ATTENDANCE_ITEM'
+  auditAction?: 'MARK_ATTENDANCE' | 'BATCH_MARK_ATTENDANCE_ITEM' | 'IMPORT_TINI_ATTENDANCE'
+  auditProvenance?: { provider: 'tini'; runId: string; observationHash: string; late: boolean }
 }
 
 export class AttendanceApplicationService {
@@ -44,6 +45,11 @@ export class AttendanceApplicationService {
    * Single-use case: Mark or correct attendance status for a student session.
    */
   public async markAttendance(cmd: MarkAttendanceCommand): Promise<AttendanceRecord> {
+    return runDbTransaction(tx => this.markAttendanceInTransaction(tx, cmd))
+  }
+
+  /** Compose an Attendance write and its caller's receipt in one transaction. */
+  public async markAttendanceInTransaction(tx: DbTransaction, cmd: MarkAttendanceCommand): Promise<AttendanceRecord> {
     if (!isValidIsoDate(cmd.date)) {
       const err = new Error('Ngày điểm danh phải là ngày YYYY-MM-DD có thật') as any
       err.status = 400
@@ -59,7 +65,6 @@ export class AttendanceApplicationService {
     const academicYear = cmd.academicYear || resolveAcademicYear(cmd.date)
     const semester = cmd.semester || resolveSemester(cmd.date)
 
-    return runDbTransaction(async (tx) => {
       // 1. Verify student exists and is active
       const [student] = await tx
         .select({ id: students.id, classId: students.classId })
@@ -103,10 +108,16 @@ export class AttendanceApplicationService {
       // ADR-016 (S21): Client-version conflict detection. Trước đây client không
       // gửi version → hai thiết bị sửa cùng bản ghi offline = last-write-wins im
       // lặng, không bao giờ báo conflict.
-      if (existing && cmd.version !== undefined && cmd.version !== null && existing.version !== cmd.version) {
+      if (existing && existing.version !== cmd.version) {
         throw new VersionConflictError(
           'Bản ghi điểm danh đã bị thay đổi bởi người dùng khác. Vui lòng tải lại trang.',
           existing.toJSON()
+        )
+      }
+      if (!existing && cmd.version !== undefined && cmd.version !== 0) {
+        throw new VersionConflictError(
+          'Bản ghi điểm danh dự kiến đã thay đổi. Vui lòng tải lại trang.',
+          null,
         )
       }
 
@@ -114,6 +125,7 @@ export class AttendanceApplicationService {
       if (existing) {
         record = existing
         record.updateStatus(cmd.status, cmd.note, cmd.userId)
+        if (record.version === oldValue!.version) return record
       } else {
         record = new AttendanceRecord({
           id: generateId('ATT'),
@@ -145,6 +157,7 @@ export class AttendanceApplicationService {
         newValue: JSON.stringify({
           studentId: current.studentId, date: current.date, type: current.type,
           status: current.status, version: current.version,
+          ...(cmd.auditProvenance ? { provenance: cmd.auditProvenance } : {}),
         }),
         ip: cmd.ip ?? '',
         userAgent: cmd.userAgent ?? '',
@@ -152,7 +165,6 @@ export class AttendanceApplicationService {
         createdAt: new Date().toISOString(),
       })
       return record
-    })
   }
 }
 

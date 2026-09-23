@@ -79,9 +79,9 @@ export function syncSaveAttendance(data: any): Promise<string> {
 export function syncBatchSaveAttendance(
   date: string,
   type: string,
-  records: { studentId: string; status: string; note?: string }[],
+  records: { studentId: string; status: string; note?: string; version?: number }[],
 ): Promise<string[]> {
-  return Promise.all(records.map(r => syncSaveAttendance({ studentId: r.studentId, date, type, status: r.status, note: r.note })))
+  return Promise.all(records.map(r => syncSaveAttendance({ studentId: r.studentId, date, type, status: r.status, note: r.note, version: r.version ?? 0 })))
 }
 
 // ─── Class ───

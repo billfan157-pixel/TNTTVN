@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Xuất điểm danh TINI cho Catevia</title>
+    <style>
+      :root {
+        --primary: #1b6351;
+        --primary-hover: #154e3f;
+        --primary-light: #e8f4f0;
+        --text: #1b2430;
+        --muted: #5a6878;
+        --border: #e2e8f0;
+        --warning-bg: #fffbeb;
+        --warning-border: #fef3c7;
+        --warning-text: #92400e;
+        --success-bg: #ecfdf5;
+        --success-border: #a7f3d0;
+        --success-text: #065f46;
+        --danger-bg: #fef2f2;
+        --danger-border: #fecaca;
+        --danger-text: #991b1b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 13px;
+        line-height: 1.45;
+        width: 340px;
+        margin: 0;
+        padding: 16px;
+        color: var(--text);
+        background: #ffffff;
+      }
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 12px;
+      }
+      .header img {
+        width: 32px;
+        height: 32px;
+        border-radius: 6px;
+      }
+      .header-info {
+        flex: 1;
+      }
+      .header-title {
+        font-size: 15px;
+        font-weight: 700;
+        margin: 0;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .badge-version {
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: var(--primary-light);
+        color: var(--primary);
+      }
+      .header-desc {
+        font-size: 11px;
+        color: var(--muted);
+        margin: 2px 0 0;
+      }
+      .tab-status {
+        font-size: 12px;
+        padding: 8px 10px;
+        border-radius: 6px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .tab-status.ready {
+        background: var(--success-bg);
+        border: 1px solid var(--success-border);
+        color: var(--success-text);
+      }
+      .tab-status.not-ready {
+        background: var(--warning-bg);
+        border: 1px solid var(--warning-border);
+        color: var(--warning-text);
+      }
+      .notice-card {
+        background: #f8fafc;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 10px;
+        margin-bottom: 12px;
+      }
+      .notice-card ul {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .notice-card li { margin-bottom: 4px; }
+      .notice-card li:last-child { margin-bottom: 0; }
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      button.btn-primary {
+        width: 100%;
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 6px;
+        background: var(--primary);
+        color: #ffffff;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        transition: background 0.15s ease;
+      }
+      button.btn-primary:hover:not(:disabled) {
+        background: var(--primary-hover);
+      }
+      button.btn-primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      button.btn-secondary {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: #ffffff;
+        color: var(--text);
+        font-weight: 500;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+      button.btn-secondary:hover:not(:disabled) {
+        background: #f1f5f9;
+      }
+      .result-box {
+        margin-top: 12px;
+        padding: 10px;
+        border-radius: 6px;
+        font-size: 12px;
+        line-height: 1.4;
+        display: none;
+      }
+      .result-box.success {
+        display: block;
+        background: var(--success-bg);
+        border: 1px solid var(--success-border);
+        color: var(--success-text);
+      }
+      .result-box.warning {
+        display: block;
+        background: var(--warning-bg);
+        border: 1px solid var(--warning-border);
+        color: var(--warning-text);
+      }
+      .result-box.error {
+        display: block;
+        background: var(--danger-bg);
+        border: 1px solid var(--danger-border);
+        color: var(--danger-text);
+      }
+      .footer-links {
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+      }
+      .footer-links a {
+        color: var(--primary);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .footer-links a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <img src="icons/icon32.png" alt="TINI Logo">
+      <div class="header-info">
+        <h1 class="header-title">
+          <span>Xuất điểm danh TINI</span>
+          <span class="badge-version">v1.1</span>
+        </h1>
+        <p class="header-desc">Công cụ trích xuất an toàn cho Catevia</p>
+      </div>
+    </header>
+
+    <div id="tab-status" class="tab-status not-ready">
+      <span>Đang kiểm tra tab trình duyệt...</span>
+    </div>
+
+    <div class="notice-card">
+      <ul>
+        <li>Chọn 1 ngày điểm danh trên TINI (<strong>Từ ngày = Đến ngày</strong>).</li>
+        <li>Nếu trang có nút <strong>"Xem thêm"</strong>, hãy bấm xem hết các dòng trước khi xuất để tránh thiếu học viên.</li>
+      </ul>
+    </div>
+
+    <div class="actions">
+      <button id="export" type="button" class="btn-primary">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Xuất tệp JSON</span>
+      </button>
+
+      <button id="copy" type="button" class="btn-secondary" style="display: none;">
+        Sao chép JSON vào Clipboard
+      </button>
+
+    </div>
+
+    <div id="result" class="result-box" role="status" aria-live="polite"></div>
+
+    <script src="extractor.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

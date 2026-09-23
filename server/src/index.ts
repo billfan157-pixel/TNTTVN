@@ -124,6 +124,7 @@ import syncRouter from './routes/sync.js'
 import questionBankRouter from './routes/questionBank.js'
 import dailyEntriesRouter from './routes/dailyEntries.js'
 import operationsRouter from './routes/operations.js'
+import tiniAttendanceImportRouter from './routes/tiniAttendanceImport.js'
 import { loggerMiddleware } from './middleware/logger.js'
 import { metricsMiddleware } from './middleware/metrics.js'
 
@@ -143,6 +144,7 @@ app.route('/api/students', importRouter)
 app.route('/api/students', studentsRouter)
 app.route('/api/grades', gradesRouter)
 app.route('/api/attendance', attendanceRouter)
+app.route('/api/tini-attendance-import', tiniAttendanceImportRouter)
 app.route('/api/notices', noticesRouter)
 app.route('/api/notifications', notificationsRouter)
 app.route('/api/users', usersRouter)

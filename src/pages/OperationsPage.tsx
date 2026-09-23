@@ -415,7 +415,7 @@ export default function OperationsPage() {
       value: 'tasks',
       label: (
         <span className="flex items-center gap-1.5">
-          <span>{isXuDoanEvent ? 'Nhiệm vụ chi tiết' : 'Nhiệm vụ'}</span>
+          <span>{isMobileLayout ? 'Nhiệm vụ' : (isXuDoanEvent ? 'Nhiệm vụ chi tiết' : 'Nhiệm vụ')}</span>
           <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-xs font-bold text-text-muted">
             {selectedEvent.tasks.length}
           </span>
@@ -427,7 +427,7 @@ export default function OperationsPage() {
       value: 'workstreams' as EventModalTab,
       label: (
         <span className="flex items-center gap-1.5">
-          <span>{isXuDoanEvent ? 'Mảng & Ban/Ngành' : 'Nhóm công tác'}</span>
+          <span>{isMobileLayout ? (isXuDoanEvent ? 'Mảng' : 'Nhóm') : (isXuDoanEvent ? 'Mảng & Ban/Ngành' : 'Nhóm công tác')}</span>
           <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-xs font-bold text-text-muted">
             {selectedEvent.workstreams.length}
           </span>
@@ -441,7 +441,7 @@ export default function OperationsPage() {
       value: 'participants' as EventModalTab,
       label: (
         <span className="flex items-center gap-1.5">
-          <span>Người tham dự</span>
+          <span>{isMobileLayout ? 'Tham dự' : 'Người tham dự'}</span>
           <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-xs font-bold text-text-muted">
             {(selectedEvent.participants ?? []).length}
           </span>
@@ -451,7 +451,7 @@ export default function OperationsPage() {
     },
     {
       value: 'reminders',
-      label: <span>Lập lịch nhắc việc</span>,
+      label: <span>{isMobileLayout ? 'Nhắc việc' : 'Lập lịch nhắc việc'}</span>,
       icon: <Bell className="h-4 w-4" />,
     },
     {
@@ -461,10 +461,10 @@ export default function OperationsPage() {
     },
     ...(selectedEvent.event.status === 'COMPLETED' ? [{
       value: 'retrospective' as EventModalTab,
-      label: <span>Đúc kết sau sự kiện</span>,
+      label: <span>{isMobileLayout ? 'Đúc kết' : 'Đúc kết sau sự kiện'}</span>,
       icon: <CheckCircle2 className="h-4 w-4" />,
     }] : []),
-  ] : [], [selectedEvent, showFieldTab, isXuDoanEvent])
+  ] : [], [selectedEvent, showFieldTab, isXuDoanEvent, isMobileLayout])
 
   // Tabs are dynamic (retrospective only when COMPLETED, workstreams only
   // when showFieldTab): if the selected tab disappears (e.g. rewind out of
@@ -1026,7 +1026,8 @@ export default function OperationsPage() {
           icon={<ClipboardList aria-hidden="true" className="h-6 w-6" />}
           actions={
             <div className="flex flex-wrap gap-2">
-              {canCreateAnything && (
+              {/* B2: on mobile layout, FAB (.mobile-floating-action) is the exclusive create entrypoint */}
+              {!isMobileLayout && canCreateAnything && (
                 <div className="relative" ref={createMenuRef}>
                   <Button ref={createMenuButtonRef} size="sm" leadingIcon={<Plus className="h-4 w-4" />} disabled={!canMutate} onClick={() => setShowCreateMenu(value => !value)} aria-haspopup="menu" aria-expanded={showCreateMenu}>
                     Tạo mới

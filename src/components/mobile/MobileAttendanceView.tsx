@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CheckSquare,
   Clock3,
+  FileSpreadsheet,
   Lock,
   MessageSquare,
   Save,
@@ -56,7 +57,11 @@ const STATUS_OPTIONS: Array<{
   { value: 'AbsentUnexcused', shortLabel: 'Vắng', label: 'Vắng không phép', icon: XCircle },
 ]
 
-export const MobileAttendanceView: React.FC = () => {
+export interface MobileAttendanceViewProps {
+  onOpenTiniImport?: () => void
+}
+
+export const MobileAttendanceView: React.FC<MobileAttendanceViewProps> = ({ onOpenTiniImport }) => {
   const { role, can } = useAuth()
   const canEditAttendance = can('admin', 'chunhiem', 'phuta')
   const students = useStudentStore(s => s.students)
@@ -273,11 +278,24 @@ export const MobileAttendanceView: React.FC = () => {
           </span>
         }
         actions={
-          !needsAdminClassSelection ? (
-            <span className="attendance-total-badge tabular-nums">
-              <Users size={13} aria-hidden="true" /> {filteredStudents.length} em
-            </span>
-          ) : undefined
+          <div className="flex items-center gap-1.5">
+            {role === 'admin' && onOpenTiniImport && (
+              <button
+                type="button"
+                onClick={onOpenTiniImport}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-parish-primary/30 bg-parish-primary/10 text-parish-primary text-xs font-bold active:scale-95 transition-colors"
+                title="Nhập điểm danh từ tiện ích TINI Extension (CCAMS)"
+              >
+                <FileSpreadsheet size={13} />
+                <span>Nhập TINI</span>
+              </button>
+            )}
+            {!needsAdminClassSelection && (
+              <span className="attendance-total-badge tabular-nums">
+                <Users size={13} aria-hidden="true" /> {filteredStudents.length} em
+              </span>
+            )}
+          </div>
         }
       >
         <div className="attendance-session-grid">
