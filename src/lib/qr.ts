@@ -206,6 +206,15 @@ export function generateCertificateQrSvg(payload: string, cellSize = 4): string 
   return createQrSvg(payload, cellSize)
 }
 
+export function generateStudentQrSvg(payload: string, cellSize = 4): string {
+  return createQrSvg(payload, cellSize)
+}
+
+export function generateStudentQrDataUrl(payload: string, cellSize = 4): string {
+  const qr = createQr(payload)
+  return qr.createDataURL(cellSize, QR_QUIET_ZONE_MODULES)
+}
+
 /** Sinh ma trận QR (số 0/1) cho test decode roundtrip (không cần canvas). */
 export function generateExamQrMatrix(payload: string): number[][] {
   const qr = createQr(payload)

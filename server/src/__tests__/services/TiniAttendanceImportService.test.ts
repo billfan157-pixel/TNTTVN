@@ -143,6 +143,11 @@ describe('TINI manual file import through canonical Attendance writer', () => {
 
   it('does not suggest a Catevia student or class already linked to another TINI ID', async () => {
     await linkIdentities()
+    await saveTiniLink({ parishId, actorId, entityKind: 'class', externalScope: '2',
+      externalId: 'l_other', targetId: otherClassId, expectedVersion: 0, reason: 'Đã đối chiếu lớp khác',
+      sourceYearLabel: '2026-2027' })
+    await saveTiniLink({ parishId, actorId, entityKind: 'student', externalScope: '',
+      externalId: '1000099', targetId: secondStudentId, expectedVersion: 0, reason: 'Đã đối chiếu học viên khác' })
     const source = JSON.parse(bundle())
     source.scope.externalClassId = 'l_23'
     source.observations[0].externalStudentId = '1000002'

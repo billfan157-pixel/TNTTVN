@@ -249,6 +249,111 @@ B. Đức Giám Mục
     expect(detectSectionMode('BÀI LÀM')).toBeNull()
     expect(detectSectionMode('Câu 5: Kể lại phép tính lòng nhân hậu của Chúa (7 điểm)')).toBeNull()
   })
+
+  // ─── ESSAY-DECODE (2026-09-23): đề tự luận KHÔNG tiêu đề phần ───
+  // Lỗi gốc: decode thành TN với phương án giả + đáp án A → ô "Phần Tự Luận"
+  // báo "Không tìm thấy câu hỏi tự luận nào" (không import được).
+
+  it('13. ESSAY-DECODE: đề tự luận không tiêu đề — intent essay → toàn bộ là TL', () => {
+    const text = `Câu 1 (3 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể đối với đời sống thiếu nhi TNTT.
+
+Câu 2 (4 điểm): Nêu 4 khẩu hiệu của Phong trào TNTT và ý nghĩa với đời sống hằng ngày.
+`
+    const result = parseExamFromText(text, { intent: 'essay' })
+    expect(result.ok).toBe(true)
+    expect(result.questionCount).toBe(2)
+    expect(result.essayQuestionCount).toBe(2)
+    expect(result.mcQuestionCount).toBe(0)
+    // Không phương án giả, không đáp án giả
+    expect(Object.keys(result.answerKey)).toHaveLength(0)
+    expect(result.questions[0]?.type).toBe('essay')
+    expect(result.questions[0]?.points).toBe(3)
+    expect(result.questions[1]?.points).toBe(4)
+    expect(result.detectedForm).toBe('essay')
+  })
+
+  it('14. ESSAY-DECODE: đề tự luận đánh số trần "1." "2." với câu hỏi con — không tách nhầm', () => {
+    const text = `Câu 1: Trình bày các nội dung sau (6 điểm):
+1. Ý nghĩa của Bí tích Rửa Tội.
+2. Vai trò của người đỡ đầu.
+
+Câu 2 (4 điểm): Nêu 4 khẩu hiệu TNTT.
+`
+    const result = parseExamFromText(text, { intent: 'essay' })
+    expect(result.ok).toBe(true)
+    // Câu hỏi con "1."/"2." trong Câu 1 KHÔNG bị tách thành câu mới
+    expect(result.questionCount).toBe(2)
+    expect(result.essayQuestionCount).toBe(2)
+    expect(result.questions[0]?.question).toContain('Ý nghĩa của Bí tích Rửa Tội')
+    expect(result.totalPoints).toBe(10)
+  })
+
+  it('15. ESSAY-DECODE: khối BIỂU ĐIỂM/ĐÁP ÁN cuối đề + dòng "Đáp án:" trong câu → tách sang Lời giải', () => {
+    const text = `Câu 1 (5 điểm): Nêu 4 khẩu hiệu TNTT.
+Đáp án: Cầu Nguyện - Rước Lễ - Hy Sinh - Làm Tông Đồ (mỗi ý 1,25đ).
+
+BIỂU ĐIỂM VÀ HƯỚNG DẪN CHẤM:
+Câu 1: 4 ý đúng được 5 điểm.
+`
+    const result = parseExamFromText(text, { intent: 'essay' })
+    expect(result.ok).toBe(true)
+    // Khối biểu điểm cuối đề KHÔNG thành câu hỏi rác
+    expect(result.questionCount).toBe(1)
+    expect(result.questions[0]?.type).toBe('essay')
+    // Dòng "Đáp án: ..." tách khỏi đề cho học sinh, chuyển vào Lời giải
+    expect(result.questions[0]?.question).not.toContain('Đáp án:')
+    expect(result.questions[0]?.explanation).toContain('Cầu Nguyện')
+    expect(result.warnings.some(w => w.includes('Lời giải'))).toBe(true)
+  })
+
+  it('16. ESSAY-DECODE: đề gộp dán chung không tiêu đề — dãy TL cuối được cứu (intent essay)', () => {
+    const text = `Câu 1: Chúa lập bí tích nào?
+A. Rửa Tội
+*B. Thánh Thể
+C. Thêm Sức
+D. Hòa Giải
+
+Câu 2 (4 điểm): Nêu 4 khẩu hiệu TNTT và ý nghĩa với đời sống hằng ngày.
+`
+    const result = parseExamFromText(text, { intent: 'essay' })
+    expect(result.ok).toBe(true)
+    const scoped = scopeExamParseResult(result, 'essay')
+    expect(scoped.ok).toBe(true)
+    expect(scoped.essayQuestionCount).toBe(1)
+    expect(scoped.questions[0]?.points).toBe(4)
+  })
+
+  it('17. ESSAY-DECODE: Excel 2 cột (Câu, Nội dung) không Loại/A–D → toàn bộ là TL', async () => {
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Câu Số', 'Nội Dung Câu Hỏi'],
+      [1, 'Trình bày ý nghĩa Bí tích Thánh Thể.'],
+      [2, 'Nêu 4 khẩu hiệu TNTT.'],
+    ])
+    XLSX.utils.book_append_sheet(wb, ws, 'TuLuan')
+    const result = await parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
+    expect(result.ok).toBe(true)
+    expect(result.questionCount).toBe(2)
+    expect(result.essayQuestionCount).toBe(2)
+    expect(result.mcQuestionCount).toBe(0)
+    expect(Object.keys(result.answerKey)).toHaveLength(0)
+    expect(result.questions[0]?.question).toContain('Thánh Thể')
+  })
+
+  it('18. ESSAY-DECODE: Excel cột Nội dung ở vị trí khác (STT, Loại, Đề bài...) → vẫn đọc đúng', async () => {
+    const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['STT', 'Loại', 'Đề bài tự luận', 'Điểm'],
+      [1, 'Tự luận', 'Trình bày ý nghĩa Bí tích Thánh Thể.', 4],
+      [2, 'Tự luận', 'Nêu 4 khẩu hiệu TNTT.', 6],
+    ])
+    XLSX.utils.book_append_sheet(wb, ws, 'TuLuan')
+    const result = await parseExamFromExcel(XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer)
+    expect(result.ok).toBe(true)
+    expect(result.essayQuestionCount).toBe(2)
+    expect(result.questions[0]?.question).toContain('Thánh Thể')
+    expect(result.questions[1]?.points).toBe(6)
+  })
 })
 
 // ─── UI-POLISH 2026-08-25: 2 ô import riêng (Trắc nghiệm / Tự luận) ───

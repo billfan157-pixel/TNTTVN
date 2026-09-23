@@ -88,7 +88,7 @@ export function DesktopLeaveRequests({ embedded = false }: DesktopLeaveRequestsP
   }
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-3 sm:gap-3.5">
       {/* Header */}
       {embedded ? (
         <div className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
@@ -97,7 +97,7 @@ export function DesktopLeaveRequests({ embedded = false }: DesktopLeaveRequestsP
               <Calendar size={16} />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-text-primary">Duyệt Đơn Xin Nghỉ Phép</h2>
+              <h2 className="text-base font-bold text-text-primary truncate">Duyệt Đơn Xin Nghỉ Phép</h2>
               <p className="text-xs text-text-muted hidden xl:block">
                 Quản lý đơn xin nghỉ Thánh Lễ, Giáo Lý và Chầu Thánh Thể do phụ huynh gửi
               </p>

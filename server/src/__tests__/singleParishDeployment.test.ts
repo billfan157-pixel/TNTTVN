@@ -146,4 +146,37 @@ describe('single-parish deployment boundary', () => {
       rejected.close()
     }
   })
+
+  it('checks all scoped tables with two database statements', async () => {
+    const client = createClient({ url: ':memory:' })
+    try {
+      await client.execute('CREATE TABLE scoped_a (id TEXT PRIMARY KEY, parish_id TEXT)')
+      await client.execute('CREATE TABLE scoped_b (id TEXT PRIMARY KEY, parish_id TEXT)')
+      await client.execute('CREATE TABLE unscoped (id TEXT PRIMARY KEY)')
+      await client.execute({ sql: 'INSERT INTO scoped_a VALUES (?, ?)', args: ['a', PARISH] })
+      await client.execute({ sql: 'INSERT INTO scoped_b VALUES (?, ?)', args: ['b', null] })
+      let statements = 0
+      const countedClient = {
+        transaction: async () => {
+          const tx = await client.transaction('read')
+          return new Proxy(tx, {
+            get(target, key) {
+              const value = Reflect.get(target, key)
+              if (key === 'execute') return (...args: unknown[]) => {
+                statements++
+                return (value as (...args: unknown[]) => unknown).apply(target, args)
+              }
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          })
+        },
+      } as unknown as Parameters<typeof assertSingleParishDeploymentData>[0]
+
+      await expect(assertSingleParishDeploymentData(countedClient, PARISH))
+        .rejects.toThrow(/unexpected parish scope in tables: scoped_b/)
+      expect(statements).toBe(2)
+    } finally {
+      client.close()
+    }
+  })
 })

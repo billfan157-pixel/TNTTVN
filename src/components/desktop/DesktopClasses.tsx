@@ -138,7 +138,7 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
   const colCount = canEdit ? 9 : 8
 
   return (
-    <DesktopAppShell width="wide" embedded={embedded}>
+    <DesktopAppShell width="wide" embedded={embedded} className={embedded ? '!gap-3 sm:!gap-3.5' : ''}>
       {!embedded && <PageHeader
         icon={<BookOpen size={20} />}
         title="Quản Lý Lớp Học"
@@ -191,25 +191,66 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
       />}
 
       {embedded && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-parish-primary-light text-parish-primary">
-              <BookOpen aria-hidden="true" size={20} />
-            </span>
-            <div>
-              <h2 className="m-0 text-base font-black text-text-main">Lớp Học</h2>
-              <p className="m-0 mt-0.5 text-xs font-medium text-text-muted">Chọn lớp để xem thiếu nhi; admin có thể tạo và phân công ngay tại đây.</p>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+              <BookOpen size={16} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-text-primary truncate">Lớp Học</h2>
+              <p className="text-xs text-text-muted truncate hidden xl:block">
+                {sortedClasses.length} lớp · Chọn lớp để xem danh sách hoặc phân công huynh trưởng
+              </p>
             </div>
           </div>
-          {canEdit && (academicYears.length === 0 ? (
-            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5 self-start sm:self-auto" onClick={() => navigate({ to: '/academic-years' })}>
-              <Calendar size={16} /> Tạo Năm Học Trước
-            </button>
-          ) : (
-            <button className="btn btn-primary btn-sm min-h-[40px] flex items-center gap-1.5 self-start sm:self-auto" onClick={openCreate}>
-              <Plus size={16} /> Thêm Lớp
-            </button>
-          ))}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Nút Sắp Xếp Cấp Bậc Lớp */}
+            <div className="flex items-center bg-surface-hover p-0.5 rounded-lg border border-surface-border shadow-inner gap-0.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setSortDirection('asc')}
+                className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
+                  sortDirection === 'asc'
+                    ? 'bg-parish-primary text-text-inverse shadow-xs'
+                    : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
+                }`}
+                title="Sắp xếp lớp từ thấp đến cao"
+              >
+                <ArrowDownAZ size={13} />
+                <span className="hidden 2xl:inline">Thấp → Cao</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSortDirection('desc')}
+                className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
+                  sortDirection === 'desc'
+                    ? 'bg-parish-primary text-text-inverse shadow-xs'
+                    : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
+                }`}
+                title="Sắp xếp lớp từ cao đến thấp"
+              >
+                <ArrowDownZA size={13} />
+                <span className="hidden 2xl:inline">Cao → Thấp</span>
+              </button>
+            </div>
+
+            {canEdit && (academicYears.length === 0 ? (
+              <button
+                className="btn btn-primary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
+                onClick={() => navigate({ to: '/academic-years' })}
+              >
+                <Calendar size={14} /> Tạo Năm Học Trước
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
+                onClick={openCreate}
+              >
+                <Plus size={14} /> Thêm Lớp
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

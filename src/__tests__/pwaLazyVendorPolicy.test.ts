@@ -8,7 +8,7 @@ describe('PWA lazy vendor policy', () => {
     const loader = readFileSync(resolve(process.cwd(), 'src/lib/xlsxLoader.ts'), 'utf8')
     const questionBankImporter = readFileSync(resolve(process.cwd(), 'src/utils/questionBankImport.ts'), 'utf8')
 
-    expect(config).toContain("globIgnores: ['**/xlsx-*.js', '**/mammoth-*.js']")
+    expect(config).toContain("globIgnores: ['**/xlsx-*.js', '**/mammoth-*.js', '**/vendor-scanner-*.js']")
     expect(config).toContain("return 'mammoth'")
     expect(loader).toMatch(/import\(['"]xlsx['"]\)/)
     expect(questionBankImporter).toMatch(/import\(['"]mammoth['"]\)/)

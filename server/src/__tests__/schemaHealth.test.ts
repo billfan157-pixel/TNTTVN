@@ -297,24 +297,31 @@ function createHealthyClient(
         return { rows }
       }
 
-      const tableMatch = statement.match(/^PRAGMA table_info\('([^']+)'\)$/)
-      if (tableMatch) {
-        const tableName = tableMatch[1]
-        const rows: Array<{ name: string; pk: number }> = []
-        // Auto-push PK tôn trọng cả omitPkTable lẫn omitColumn: drift cột PK
-        // phải làm fail cả column gate lẫn PK gate (không tự hồi sinh).
-        if (COMPOSITE_PK_TABLES.has(tableName) && options.omitPkTable !== tableName) {
-          for (const [pkName, pk] of [['parish_id', 1], ['id', 2]] as const) {
-            if (options.omitColumn === `${tableName}.${pkName}`) continue
-            rows.push({ name: pkName, pk })
+      if (statement.includes('JOIN pragma_table_info(m.name) AS p')) {
+        const tableNames = new Set([
+          ...COMPOSITE_PK_TABLES,
+          ...Object.keys(SPECIAL_COMPOSITE_PRIMARY_KEYS),
+          ...Object.keys(REQUIRED_COLUMNS),
+        ])
+        const rows: Array<{ table_name: string; column_name: string; pk: number }> = []
+        for (const tableName of tableNames) {
+          const columns: Array<{ name: string; pk: number }> = []
+          // Auto-push PK tôn trọng cả omitPkTable lẫn omitColumn: drift cột PK
+          // phải làm fail cả column gate lẫn PK gate (không tự hồi sinh).
+          if (COMPOSITE_PK_TABLES.has(tableName) && options.omitPkTable !== tableName) {
+            for (const [pkName, pk] of [['parish_id', 1], ['id', 2]] as const) {
+              if (options.omitColumn === `${tableName}.${pkName}`) continue
+              columns.push({ name: pkName, pk })
+            }
           }
-        }
-        for (const [index, column] of (SPECIAL_COMPOSITE_PRIMARY_KEYS[tableName] || []).entries()) {
-          rows.push({ name: column, pk: index + 1 })
-        }
-        for (const column of REQUIRED_COLUMNS[tableName] || []) {
-          if (options.omitColumn === `${tableName}.${column}`) continue
-          if (!rows.some((row) => row.name === column)) rows.push({ name: column, pk: 0 })
+          for (const [index, column] of (SPECIAL_COMPOSITE_PRIMARY_KEYS[tableName] || []).entries()) {
+            columns.push({ name: column, pk: index + 1 })
+          }
+          for (const column of REQUIRED_COLUMNS[tableName] || []) {
+            if (options.omitColumn === `${tableName}.${column}`) continue
+            if (!columns.some((row) => row.name === column)) columns.push({ name: column, pk: 0 })
+          }
+          rows.push(...columns.map(({ name, pk }) => ({ table_name: tableName, column_name: name, pk })))
         }
         return { rows }
       }

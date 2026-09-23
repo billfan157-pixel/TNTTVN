@@ -6,7 +6,8 @@ import type { Student, BranchType } from '../types'
 import { syncCreateStudent, syncUpdateStudent, syncDeleteStudent } from '../lib/syncService'
 import { requestSync as runSyncFlow } from '../lib/syncTrigger'
 import { api, isAuthenticated } from '../lib/api'
-import { getTenantScope } from '../lib/tenantScope'
+import { captureTenantScope, getTenantScope, isTenantScopeCurrent } from '../lib/tenantScope'
+import { useClassStore } from './classStore'
 
 export interface PromotionAction {
   studentId: string
@@ -39,6 +40,7 @@ interface StudentState {
   updateStudent: (id: string, changes: StudentUpdateChanges) => Promise<void>
   deleteStudent: (id: string) => Promise<void>
   deleteStudents: (ids: string[]) => Promise<void>
+  transferStudents: (ids: string[], targetClassId: string, reason: string) => Promise<void>
   applyLocalPromotions: (promotions: PromotionAction[]) => void
   setPagination: (pagination: Partial<StudentState['pagination']>) => void
 }
@@ -58,11 +60,14 @@ export const useStudentStore = create<StudentState>()(
         const safeLimit = limit || (updatedAfter ? 1000 : 10000)
         const safePage = page || 1
         if (!isAuthenticated()) return
+        const owner = captureTenantScope()
+        if (!owner) return
         set({ isLoading: true, error: null })
         try {
           const keyset = !!updatedAfter && page === undefined
           let afterId = keyset ? '' : undefined
           let remote = await api.getStudents({ updatedAfter, updatedBefore, page: safePage, limit: safeLimit, afterId })
+          if (!isTenantScopeCurrent(owner)) throw new Error('Student pull owner changed')
           let data = Array.isArray(remote?.data) ? remote.data : []
           const total = typeof remote?.total === 'number' ? remote.total : data.length
           // Do not use shrinking totals/OFFSET for a mutable delta window.
@@ -72,6 +77,7 @@ export const useStudentStore = create<StudentState>()(
               if (typeof nextId !== 'string' || nextId <= (afterId || '')) throw new Error('Student delta cursor did not advance')
               afterId = nextId
               remote = await api.getStudents({ updatedAfter, updatedBefore, limit: safeLimit, afterId })
+              if (!isTenantScopeCurrent(owner)) throw new Error('Student pull owner changed')
               data = data.concat(Array.isArray(remote?.data) ? remote.data : [])
             }
           }
@@ -109,7 +115,7 @@ export const useStudentStore = create<StudentState>()(
           }
           return
         } catch (err) {
-          set({ isLoading: false, error: (err as Error)?.message || 'Lỗi tải danh sách học sinh' })
+          if (isTenantScopeCurrent(owner)) set({ isLoading: false, error: (err as Error)?.message || 'Lỗi tải danh sách học sinh' })
           if (throwOnError) throw err
         }
       },
@@ -231,6 +237,48 @@ export const useStudentStore = create<StudentState>()(
         }))
         for (const id of ids) {
           await syncDeleteStudent(id)
+        }
+        runSyncFlow()
+      },
+
+      transferStudents: async (ids, targetClassId, reason) => {
+        if (!ids.length) return
+        const trimmedReason = reason?.trim() || ''
+        if (trimmedReason.length < 5) {
+          throw new Error('Vui lòng nhập lý do chuyển lớp/ngành (ít nhất 5 ký tự).')
+        }
+        const classes = useClassStore.getState().classes
+        const targetClass = classes.find((c) => c.id === targetClassId)
+        if (!targetClass) {
+          throw new Error('Không tìm thấy lớp học đích.')
+        }
+
+        const idSet = new Set(ids)
+        const previousStudents = get().students
+
+        // Optimistically update students in state
+        set((state) => ({
+          students: state.students.map((s) => {
+            if (!idSet.has(s.id)) return s
+            return {
+              ...s,
+              classId: targetClassId,
+              branch: (targetClass.branchId || s.branch) as BranchType,
+            }
+          }),
+        }))
+
+        try {
+          for (const id of ids) {
+            await syncUpdateStudent(id, {
+              classId: targetClassId,
+              branch: targetClass.branchId,
+              membershipChangeReason: trimmedReason,
+            })
+          }
+        } catch (error) {
+          set({ students: previousStudents })
+          throw error
         }
         runSyncFlow()
       },

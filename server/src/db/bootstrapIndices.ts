@@ -78,7 +78,16 @@ export const INDICES = [
 ]
 
 export async function applyIndices(client: Client): Promise<void> {
+  // On an already-migrated database, all 74 CREATE IF NOT EXISTS statements
+  // are no-ops. Over a remote libSQL connection each one still costs a round
+  // trip on every process wake. Discover existing objects once and run only
+  // missing definitions; the executable readiness gate still checks required
+  // index shapes and triggers before HTTP bind.
+  const existing = await client.execute("SELECT name FROM sqlite_master WHERE type IN ('index', 'trigger')")
+  const existingNames = new Set(existing.rows.map(row => String((row as Record<string, unknown>).name).toLowerCase()))
   for (const statement of INDICES) {
+    const name = statement.match(/^CREATE\s+(?:UNIQUE\s+)?(?:INDEX|TRIGGER)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z0-9_]+)/i)?.[1]
+    if (name && existingNames.has(name.toLowerCase())) continue
     try { await client.execute(statement) } catch {}
   }
 }

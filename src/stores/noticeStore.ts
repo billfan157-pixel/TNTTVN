@@ -73,11 +73,14 @@ export const useNoticeStore = create<NoticeState>()(
 
       fetchNotices: async (updatedAfter?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
+        const owner = captureTenantScope()
+        if (!owner) return
         set({ loading: true, error: null })
         try {
           const fetched = await api.getNotices(updatedAfter)
           if (Array.isArray(fetched)) {
             const pendingIds = await getPendingNoticeIds()
+            if (!isTenantScopeCurrent(owner)) return
             if (updatedAfter) {
               set((state) => {
                 const merged = new Map(state.notices.map(n => [n.id, n]))
@@ -102,10 +105,10 @@ export const useNoticeStore = create<NoticeState>()(
           }
         } catch (err) {
           Sentry.captureException(err)
-          set({ error: (err as Error)?.message || 'Lỗi tải danh sách thông báo' })
+          if (isTenantScopeCurrent(owner)) set({ error: (err as Error)?.message || 'Lỗi tải danh sách thông báo' })
           if (throwOnError) throw err
         } finally {
-          set({ loading: false })
+          if (isTenantScopeCurrent(owner)) set({ loading: false })
         }
       },
 

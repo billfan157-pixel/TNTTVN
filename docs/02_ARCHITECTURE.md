@@ -12,7 +12,11 @@ The backend stores file and observation hashes, reviewed links, audit entries an
 
 ### Desktop sub-tab command strip boundary & anti-bloat standardization — 2026-09-23
 
-In Desktop mode, nested views inside `TabPanel` (such as `DesktopAttendanceGrid`, `DesktopAttendanceSummary`, `DesktopGradeMatrix`, `DesktopGradeCards`, `DesktopGradeComparison`, `DesktopDailyGradeEntry`, `DesktopStudentList`) adhere strictly to the Single-Row Compact Command Strip contract (DS Pattern A §4.5). To avoid 250px–350px vertical bloat and visual duplication under `DesktopAppShell`'s primary `PageHeader` and navigation `Tabs`, sub-views must never instantiate a second top-level `PageHeader` card. All sub-tab toolbars are unified to compact `h-8.5` controls with semantic `<h2>` titles and micro status pills.
+In Desktop mode, nested views inside `TabPanel` (such as `DesktopAttendanceGrid`, `DesktopAttendanceSummary`, `DesktopGradeMatrix`, `DesktopGradeCards`, `DesktopGradeComparison`, `DesktopDailyGradeEntry`, `DesktopStudentList`, `ExamSessionView`, `QuestionBankView`, `PromotionPanel`, `AcademicYearPage`, `UserManagementPage`, `DesktopClasses`, and `ParishProfilePage`'s `SectionHeading`) adhere strictly to the Single-Row Compact Command Strip contract (DS Pattern A §4.5). To avoid 250px–350px vertical bloat and visual duplication under `DesktopAppShell`'s primary `PageHeader` and navigation `Tabs`, sub-views must never instantiate a second top-level `PageHeader` card. All sub-tab toolbars are unified to compact `h-8.5` controls with prominent semantic `<h2>` titles (`text-base font-bold text-text-primary`, 16px) and micro status pills.
+
+### Bulk student class transfer boundary — 2026-09-23
+
+Bulk transfer of students across classes within the same academic year is performed via `BulkTransferClassModal` (integrated into the Bulk Action Bar of `DesktopStudentList` and `MobileStudentsView`). In compliance with server membership invariants (A8-02, A8-03, and `UPDATE_MEMBERSHIP_CORRECTION`), the client requires a non-empty `membershipChangeReason` with at least 5 characters. The action is guarded to `admin` and `chunhiem` roles, mutates local state optimistically with rollback on failure, enqueues durable offline mutations via `syncUpdateStudent`, and triggers background sync draining.
 
 ## 1. Current Architecture
 
@@ -22,8 +26,8 @@ In Desktop mode, nested views inside `TabPanel` (such as `DesktopAttendanceGrid`
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 26 source page modules                                    │
-│  Components: 154 (audit: 5, auth: 5, common: 36, desktop: 24, exam: 15,     │
-│  finance: 4, landing: 4, mobile: 17, operations: 30, parish: 11)  │
+│  Components: 155 (attendance: 1, audit: 5, auth: 5, common: 37, desktop: 24, │
+│  exam: 15, finance: 4, landing: 4, mobile: 17, operations: 30, parish: 13)   │
 │  Router: TanStack Router (27 policy paths, 6 public + 21 protected)│
 │  State: 25 Zustand stores (12 persist, 13 in-memory)               │
 └────────────────────────────┬─────────────────────────────────────┘
@@ -180,6 +184,8 @@ The dependency direction is one-way: Question Bank may create an Exam, but an Ex
 Branch/class selection reuses the existing class catalog without coupling reusable content to a year-specific roster row: UI class IDs are transient and map to persisted `branch_id + curriculum_level=class.name`. Direct `.xlsx|.xls|.csv|.docx` imports are parsed and previewed client-side; only normalized question JSON crosses the API boundary. `POST /questions/import` validates the whole batch and tenant branch references, then writes draft items, immutable versions and audit metadata in one database transaction.
 
 SheetJS and pinned Mammoth are lazy document chunks excluded from PWA install-time precache. Import is capped at 5 MB/50 parsed questions per file; server batch capacity is 100 normalized items. This is an authoring convenience only: it cannot activate questions, bypass lifecycle/RBAC, introduce a second file-storage path or change Smart Exam/OMR authority.
+
+Smart Exam session import follows a separate client path: `ExamSessionView → ExamImportModal → examParser` parses pasted text, `.xlsx|.xls|.csv`, or `.docx` and previews normalized questions before applying them to the session form. DOCX uses lazy Mammoth raw-text extraction in the browser; embedded images and objects are not OCR'd or uploaded. The UI rejects files over 5 MB and the parser accepts at most 50 questions. The resulting question/answer data goes through the existing exam-session API, where server validation and the established scoring, variant, OMR and finalization authorities remain in force. The parser labels the detected form (multiple choice, essay or mixed), infers headerless content from answer/option evidence, and supports a trailing essay section in the dedicated essay import scope; mixed text without section headings may require importing through that scope. All parse warnings appear in the preview.
 
 ## 7. Task & Event Operations Boundary (ADR-110)
 

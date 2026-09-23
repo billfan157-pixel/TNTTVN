@@ -10,6 +10,7 @@ import { lazyWithRetry } from '../../utils/lazyWithRetry'
 
 const StudentModal = lazyWithRetry(() => import('./StudentModal'), 'StudentModal')
 const StudentReportModal = lazyWithRetry(() => import('./StudentReportModal'), 'StudentReportModal')
+const StudentProfileModal = lazyWithRetry(() => import('./StudentProfileModal'), 'StudentProfileModal')
 const PhotoCard = lazyWithRetry(() => import('./PhotoCard'), 'PhotoCard')
 const Certificate = lazyWithRetry(() => import('./Certificate'), 'Certificate')
 const ForcePasswordChangeModal = lazyWithRetry(() => import('./ForcePasswordChangeModal'), 'ForcePasswordChangeModal')
@@ -145,6 +146,8 @@ export function RootLayout() {
   const {
     isStudentModalOpen,
     studentToEdit,
+    isStudentProfileOpen,
+    studentForProfile,
     isReportModalOpen,
     studentForReport,
     reportPrintRequested,
@@ -154,6 +157,7 @@ export function RootLayout() {
     certificateStudent,
     certificateType,
     closeStudentModal,
+    closeStudentProfile,
     closeReport,
     closePhotoCard,
     closeCertificate,
@@ -246,6 +250,15 @@ export function RootLayout() {
             />
           </Suspense>
         )}
+        {isStudentProfileOpen && studentForProfile && (
+          <Suspense fallback={null}>
+            <StudentProfileModal
+              isOpen={isStudentProfileOpen}
+              onClose={closeStudentProfile}
+              student={studentForProfile}
+            />
+          </Suspense>
+        )}
         {isReportModalOpen && studentForReport && (
           <Suspense fallback={null}>
             <StudentReportModal
@@ -319,6 +332,15 @@ export function RootLayout() {
                 onGoToClasses={currentUser.role === 'admin'
                   ? () => navigate({ to: '/students', search: { view: 'classes' } })
                   : undefined}
+              />
+            </Suspense>
+          )}
+          {isStudentProfileOpen && studentForProfile && (
+            <Suspense fallback={null}>
+              <StudentProfileModal
+                isOpen={isStudentProfileOpen}
+                onClose={closeStudentProfile}
+                student={studentForProfile}
               />
             </Suspense>
           )}

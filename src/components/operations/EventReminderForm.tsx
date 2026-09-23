@@ -124,7 +124,7 @@ export function EventReminderForm({ event, task, enabled }: Props) {
       <Select aria-label={`Người nhận nhắc ${subject}`} value={recipient} required disabled={isBusy('create') || candidateDirectory.loading} onChange={e => setRecipient(e.target.value)}><option value="">{candidateDirectory.loading ? 'Đang tải người nhận…' : 'Chọn người nhận'}</option>{candidates.map(candidate => <option key={candidate.userId!} value={candidate.userId!}>{candidate.displayName}</option>)}</Select>
       <TextInput aria-label={`Thời điểm nhắc ${subject}`} type="datetime-local" value={at} required disabled={isBusy('create')} onChange={e => setAt(e.target.value)} />
       {nearDuplicate && <p className="m-0 rounded-lg border border-parish-warning/30 bg-parish-warning-bg/30 p-2 text-xs text-parish-warning">Đã có lịch nhắc đang chờ cho người này lúc {new Date(nearDuplicate.triggerAt).toLocaleString('vi-VN')} — kiểm tra trùng trước khi lưu.</p>}
-      <Button type="submit" disabled={isBusy() || !recipient || !at}>{isBusy('create') ? 'Đang lưu…' : 'Lưu lịch nhắc'}</Button>
+      <Button type="submit" disabled={isBusy('create') || !recipient || !at}>{isBusy('create') ? 'Đang lưu…' : 'Lưu lịch nhắc'}</Button>
     </form>
     {candidateDirectory.error && <p role="alert" className="text-sm text-text-main">{candidateDirectory.error}</p>}
 

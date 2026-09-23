@@ -416,7 +416,11 @@ export default function OperationsPage() {
       label: (
         <span className="flex items-center gap-1.5">
           <span>{isMobileLayout ? 'Nhiệm vụ' : (isXuDoanEvent ? 'Nhiệm vụ chi tiết' : 'Nhiệm vụ')}</span>
-          <span className="rounded-full bg-surface-hover px-1.5 py-0.5 text-xs font-bold text-text-muted">
+          <span className={`rounded-full px-1.5 py-0.5 text-xs font-bold ${
+            selectedEvent.tasks.some(t => t.status === 'BLOCKED')
+              ? 'bg-parish-danger-bg text-parish-danger'
+              : 'bg-surface-hover text-text-muted'
+          }`}>
             {selectedEvent.tasks.length}
           </span>
         </span>
@@ -974,7 +978,7 @@ export default function OperationsPage() {
       {content}
     </div>
   ) : (
-    <DesktopAppShell width="wide" className="flex flex-col gap-5">
+    <DesktopAppShell width="wide" className="flex flex-col gap-3.5">
       {content}
     </DesktopAppShell>
   )
@@ -1206,7 +1210,7 @@ export default function OperationsPage() {
         <ModalShell
           isOpen={Boolean(selectedEvent)}
           onClose={handleCloseEventModal}
-          mobileDisplay="bottom-sheet"
+          mobileDisplay="fullscreen"
           title={selectedEvent.event.title}
           subtitle={`${formatEventInstant(selectedEvent.event.startsAt, selectedEvent.event.timezone)} · ${selectedEvent.event.location || 'Chưa có địa điểm'} · Tiến độ chuẩn bị ${selectedEvent.readiness.percent}%`}
           icon={<CalendarClock aria-hidden="true" className="h-5 w-5 text-parish-primary" />}
@@ -1231,7 +1235,7 @@ export default function OperationsPage() {
               </Badge>
             </div>
           }
-          maxWidth="1040px"
+          maxWidth="1160px"
           footer={
             /* W3.6 (MB-05): on phones the primary transition leads as a
                full-width row and the remaining actions follow below; at sm+
@@ -1313,10 +1317,7 @@ export default function OperationsPage() {
             </div>
           }
         >
-          <div className="space-y-5" aria-label="Chi tiết sự kiện">
-            {selectedEvent.permissions['operations.event.manage'] && !selectedEventClosed && selectedEvent.event.status !== 'LIVE' && (selectedEvent.event.visibility !== 'PUBLIC_SUMMARY' || selectedEvent.permissions['operations.event.publish_public']) && (
-              <EventEditForm detail={selectedEvent} />
-            )}
+          <div className="space-y-3.5" aria-label="Chi tiết sự kiện">
             {/* 1. KHỐI TIẾN TRÌNH VÒNG ĐỜI & SẴN SÀNG — W3.2: EventLifecycleHub */}
             <EventLifecycleHub
               detail={selectedEvent}
@@ -1335,7 +1336,12 @@ export default function OperationsPage() {
               totalWorkstreamsCount={totalWorkstreamsCount}
             />
 
-            {/* 3. ĐIỀU HƯỚNG TABS */}
+            {/* 3. THÔNG TIN & SỬA ĐỔI NHANH — EventEditForm */}
+            {selectedEvent.permissions['operations.event.manage'] && !selectedEventClosed && selectedEvent.event.status !== 'LIVE' && (selectedEvent.event.visibility !== 'PUBLIC_SUMMARY' || selectedEvent.permissions['operations.event.publish_public']) && (
+              <EventEditForm detail={selectedEvent} />
+            )}
+
+            {/* 4. ĐIỀU HƯỚNG TABS */}
             <div className="border-b border-surface-border">
               <Tabs
                 id="event-modal-tabs"
@@ -1348,7 +1354,7 @@ export default function OperationsPage() {
 
             {/* 4. NỘI DUNG THEO TABS */}
             {/* Tab 1: Nhiệm vụ & Phân công */}
-            <TabPanel tabsId="event-modal-tabs" value="tasks" activeValue={activeModalTab} className="space-y-5">
+            <TabPanel tabsId="event-modal-tabs" value="tasks" activeValue={activeModalTab} className="space-y-3.5">
               <EventTasksTab
                 detail={selectedEvent}
                 assignmentWarnings={assignmentWarnings}
@@ -1391,7 +1397,7 @@ export default function OperationsPage() {
             </TabPanel>
 
             {/* Tab 3: Lập lịch nhắc việc */}
-            <TabPanel tabsId="event-modal-tabs" value="reminders" activeValue={activeModalTab} className="space-y-4">
+            <TabPanel tabsId="event-modal-tabs" value="reminders" activeValue={activeModalTab} className="space-y-3.5">
               {selectedEvent.permissions['operations.event.manage'] && ['DRAFT', 'PLANNING', 'PREPARING', 'READY'].includes(selectedEvent.event.status) ? (
                 <>
                   <EventReminderForm key={`reminder-${selectedEvent.event.id}`} event={selectedEvent} enabled={canMutate} />

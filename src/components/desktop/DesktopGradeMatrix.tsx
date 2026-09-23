@@ -527,7 +527,7 @@ export const DesktopGradeMatrix: React.FC = () => {
   const currentClassName = classList.find(c => c.id === selectedClassId)?.name || 'Tất cả lớp';
 
   return (
-    <div className="product-view space-y-6 pb-10">
+    <div className="product-view space-y-3.5 pb-8">
       {/* Hidden Live Announcer for Screen Readers */}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
@@ -540,7 +540,7 @@ export const DesktopGradeMatrix: React.FC = () => {
             <FileSpreadsheet size={16} />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-text-primary truncate">
+            <h2 className="text-base font-bold text-text-primary truncate">
               Ma Trận Nhập Điểm
             </h2>
             <p className="text-xs text-text-muted truncate hidden xl:block">

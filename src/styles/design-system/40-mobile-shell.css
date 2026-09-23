@@ -120,7 +120,7 @@
 @media (min-width: 1024px) {
   .responsive-page-shell,
   .embedded-page-section {
-    gap: 24px;
+    gap: 14px;
   }
 
   .responsive-page-shell {

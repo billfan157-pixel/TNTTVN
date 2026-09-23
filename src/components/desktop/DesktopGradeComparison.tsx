@@ -63,7 +63,7 @@ export const DesktopGradeComparison: React.FC = () => {
   }, [comparisonData])
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-3 sm:gap-3.5">
       {/* Subtab Header Strip */}
       <div className="flex items-center justify-between gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
         <div className="flex items-center gap-2.5">
@@ -71,7 +71,7 @@ export const DesktopGradeComparison: React.FC = () => {
             <Columns3 size={16} />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-text-primary">So Sánh Học Kỳ I vs Học Kỳ II</h2>
+            <h2 className="text-base font-bold text-text-primary truncate">So Sánh Học Kỳ I vs Học Kỳ II</h2>
             <p className="text-xs text-text-muted">
               {comparisonData.length} thiếu nhi được so sánh
             </p>

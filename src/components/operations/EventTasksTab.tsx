@@ -118,7 +118,7 @@ export function EventTasksTab({
       )}
 
       {/* Lưới Task List + Forms */}
-      <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+      <div className="grid gap-3.5 lg:grid-cols-[1fr_0.9fr]">
         <div className={isMobile && mobileSubTab !== 'tasks' ? 'hidden' : 'block'}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h3 className="m-0 text-base font-bold text-text-main">Task của sự kiện</h3>
@@ -166,7 +166,7 @@ export function EventTasksTab({
               className="rounded-xl border border-surface-border py-8"
             />
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               {taskGroups.filter(group => group.tasks.length > 0).map(group => (
                 <section key={group.key} aria-label={group.label ?? 'Task của sự kiện'}>
                   {group.label && (
@@ -180,9 +180,9 @@ export function EventTasksTab({
                       {!manageTasksInGroup(group.key) ? ' · việc trong Mảng do Trưởng Mảng tạo và phân công' : ''}
                     </p>
                   )}
-                  <div className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-card overflow-hidden">
+                  <div className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-card overflow-hidden shadow-2xs">
                     {group.tasks.map(task => (
-                        <div key={task.id} className="flex items-start justify-between gap-3 px-3.5 py-3 hover:bg-surface-hover/40 transition-colors">
+                        <div key={task.id} className="flex items-start justify-between gap-3 px-4 py-2.5 sm:py-3 hover:bg-surface-hover/40 transition-colors">
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <p className="m-0 text-sm font-bold text-text-main">{task.title}</p>
@@ -213,14 +213,14 @@ export function EventTasksTab({
                             <div className="flex flex-wrap items-center justify-end gap-1">
                               {manageTasksInGroup(group.key) && task.status !== 'DONE' && task.status !== 'CANCELLED' && (
                                 <>
-                                  <Button variant="ghost" size="sm" disabled={!isOnline || source !== 'server'} onClick={() => onOpenEditTask(task)}>
+                                  <Button variant="ghost" size="sm" className="min-h-[44px] sm:min-h-0" disabled={!isOnline || source !== 'server'} onClick={() => onOpenEditTask(task)}>
                                     Sửa
                                   </Button>
                                   {onCancelTask && (
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      className="text-parish-danger hover:text-parish-danger hover:bg-parish-danger-bg"
+                                      className="min-h-[44px] sm:min-h-0 text-parish-danger hover:text-parish-danger hover:bg-parish-danger-bg"
                                       disabled={!isOnline || source !== 'server'}
                                       onClick={() => onCancelTask(task)}
                                     >
@@ -232,6 +232,7 @@ export function EventTasksTab({
                               <Button
                                 variant={selectedTaskId === task.id ? 'primary' : 'ghost'}
                                 size="sm"
+                                className="min-h-[44px] sm:min-h-0"
                                 loading={taskDetailLoading && pendingTaskId === task.id}
                                 disabled={!isOnline || source !== 'server'}
                                 onClick={() => onOpenChecklist(task)}
@@ -249,7 +250,7 @@ export function EventTasksTab({
           )}
         </div>
 
-        <div className={isMobile && mobileSubTab !== 'form' ? 'hidden' : 'space-y-4'}>
+        <div className={isMobile && mobileSubTab !== 'form' ? 'hidden' : 'space-y-3.5'}>
           {isXuDoanEvent && detail.workstreams.length === 0 && (
             <div className="rounded-xl border border-surface-border bg-surface-card p-4 shadow-xs text-center space-y-3">
               <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-parish-primary-light text-parish-primary">

@@ -25,7 +25,21 @@ export const DEFENSIVE_ALTERS = [
 ]
 
 export async function applyDefensiveSync(client: Client): Promise<void> {
+  // Legacy compatibility ALTERs are normally all present. Check their columns
+  // in one remote query instead of issuing 18 expected duplicate-column errors
+  // on every cold start. Missing columns still use the original ALTER path.
+  const columns = await client.execute(`
+    SELECT m.name AS table_name, p.name AS column_name
+    FROM sqlite_master AS m JOIN pragma_table_info(m.name) AS p
+    WHERE m.type = 'table'
+  `)
+  const present = new Set(columns.rows.map(row => {
+    const values = row as Record<string, unknown>
+    return `${String(values.table_name).toLowerCase()}.${String(values.column_name).toLowerCase()}`
+  }))
   for (const statement of DEFENSIVE_ALTERS) {
+    const match = statement.match(/^ALTER\s+TABLE\s+([A-Za-z0-9_]+)\s+ADD\s+COLUMN\s+([A-Za-z0-9_]+)/i)
+    if (match && present.has(`${match[1].toLowerCase()}.${match[2].toLowerCase()}`)) continue
     try { await client.execute(statement) } catch {}
   }
 }

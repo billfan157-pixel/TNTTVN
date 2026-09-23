@@ -599,17 +599,66 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
         }
       />}
 
+      {embedded && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+              <ShieldCheck size={16} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-text-primary truncate">
+                {headerTitle}
+              </h2>
+              <p className="text-xs text-text-muted truncate hidden xl:block">
+                {headerDescription}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative min-w-[160px] max-w-[220px]">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-text-placeholder pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Tìm theo Tên, SĐT..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="form-input-sm w-full h-8.5 pl-8 text-xs rounded-xl"
+              />
+            </div>
+            {scope !== 'staff' && (
+              <button
+                onClick={openProvisionModal}
+                className="btn btn-secondary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Cấp Tài Khoản Phụ Huynh</span>
+              </button>
+            )}
+            <button
+              onClick={openCreateModal}
+              className="btn btn-primary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>{scope === 'phuhuynh' ? 'Tạo Tài Khoản Phụ Huynh' : 'Tạo Tài Khoản GLV'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {scope !== 'staff' && <PasswordResetRequestsPanel onUsersRefresh={fetchUsers} />}
 
-      <div className="view-toolbar">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-placeholder" />
-          <input type="text" placeholder="Tìm theo Tên, Username, hoặc SĐT..." value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="form-input-sm w-full pl-10" />
+      {!embedded && (
+        <div className="view-toolbar">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-text-placeholder" />
+            <input type="text" placeholder="Tìm theo Tên, Username, hoặc SĐT..." value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="form-input-sm w-full pl-10" />
+          </div>
+          {loading && <Loader2 className="w-5 h-5 text-parish-primary animate-spin" />}
         </div>
-        {loading && <Loader2 className="w-5 h-5 text-parish-primary animate-spin" />}
-      </div>
+      )}
 
       {error && (
         <div className="alert-error">{error}</div>

@@ -9,12 +9,16 @@ interface UIState {
   reportPrintRequested: boolean
   isPhotoCardOpen: boolean
   photoCardStudent: Student | null
+  isStudentProfileOpen: boolean
+  studentForProfile: Student | null
   isCertificateOpen: boolean
   certificateStudent: Student | null
   certificateType: 'completion' | 'promotion'
   openAddStudent: () => void
   openEditStudent: (student: Student) => void
   closeStudentModal: () => void
+  openStudentProfile: (student: Student) => void
+  closeStudentProfile: () => void
   openReport: (student: Student) => void
   openReportForPrint: (student: Student) => void
   closeReport: () => void
@@ -27,6 +31,8 @@ interface UIState {
 export const useUIStore = create<UIState>((set) => ({
   isStudentModalOpen: false,
   studentToEdit: null,
+  isStudentProfileOpen: false,
+  studentForProfile: null,
   isReportModalOpen: false,
   studentForReport: null,
   reportPrintRequested: false,
@@ -37,8 +43,11 @@ export const useUIStore = create<UIState>((set) => ({
   certificateType: 'completion',
 
   openAddStudent: () => set({ isStudentModalOpen: true, studentToEdit: null }),
-  openEditStudent: (student) => set({ isStudentModalOpen: true, studentToEdit: student }),
+  openEditStudent: (student) => set({ isStudentModalOpen: true, studentToEdit: student, isStudentProfileOpen: false }),
   closeStudentModal: () => set({ isStudentModalOpen: false, studentToEdit: null }),
+
+  openStudentProfile: (student) => set({ isStudentProfileOpen: true, studentForProfile: student }),
+  closeStudentProfile: () => set({ isStudentProfileOpen: false, studentForProfile: null }),
 
   openReport: (student) => set({ isReportModalOpen: true, studentForReport: student, reportPrintRequested: false }),
   openReportForPrint: (student) => set({ isReportModalOpen: true, studentForReport: student, reportPrintRequested: true }),

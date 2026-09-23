@@ -341,6 +341,49 @@ export function AcademicYearPage({ embedded = false }: { embedded?: boolean } = 
         }
       />}
 
+      {embedded && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+              <Calendar size={16} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-bold text-text-primary truncate">
+                Quản Lý Năm Học Giáo Lý
+              </h2>
+              <p className="text-xs text-text-muted truncate hidden xl:block">
+                {years.length === 0 ? (
+                  <span className="font-semibold text-amber-600">Chưa có năm học nào</span>
+                ) : (
+                  <span>
+                    Hiện tại: <strong className="text-parish-primary font-bold">{currentYear || 'Chưa chọn'}</strong>
+                    {activeYear && ` · ${activeYear.studentCount} học sinh · ${activeYear.classCount} lớp`}
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={refresh}
+              disabled={busy}
+              className="btn btn-secondary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} /> Làm Mới
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="btn btn-primary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" /> Tạo Năm Học
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Wizard steps guide */}
       <div className="app-panel p-5">
         <p className="text-xs font-bold text-text-muted uppercase tracking-wider mb-2">

@@ -201,7 +201,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
   }, [entries, activeScoreType, selectedSemester, filteredStudents])
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-3 sm:gap-3.5">
       {/* Hidden Live Announcer for Screen Readers */}
       <div className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
@@ -214,7 +214,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
             <Calculator size={16} />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-text-primary truncate">
+            <h2 className="text-base font-bold text-text-primary truncate">
               Nhập Điểm Hằng Ngày
             </h2>
             <p className="text-xs text-text-muted truncate hidden xl:block">

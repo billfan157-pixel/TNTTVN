@@ -163,7 +163,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
   }, [kpis.trendTimeline])
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-3 sm:gap-3.5">
       {/* Modal Lịch Sử Điểm Danh */}
       <AttendanceHistoryModal
         isOpen={isHistoryModalOpen}
@@ -178,7 +178,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
             <BarChart2 size={16} />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-text-primary truncate">
+            <h2 className="text-base font-bold text-text-primary truncate">
               Tổng Hợp Chuyên Cần & Phân Tích Số Liệu
             </h2>
             <p className="text-xs text-text-muted truncate hidden xl:block">

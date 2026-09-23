@@ -74,6 +74,7 @@ vi.mock('lucide-react', () => ({
   ArrowRight: () => null, CheckCircle2: () => null, XCircle: () => null,
   ChevronRight: () => null, Award: () => null, IdCard: () => null,
   Upload: () => null, Loader2: () => null, AlertTriangle: () => null,
+  TrendingUp: () => null,
 }))
 vi.mock('../../constants/branches', () => ({
   BRANCHES: { AuNhi: { name: 'Ấu Nhi', badgeBg: '#fff', textColor: '#000' } },

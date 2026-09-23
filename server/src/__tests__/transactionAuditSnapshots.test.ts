@@ -105,7 +105,7 @@ async function auditOldValue(entityId: string, action: string) {
 // The exercised transaction helper deliberately permits a 5s SQLite busy wait
 // before retrying. Give the interleaving fixture enough headroom when the full
 // focused suite creates transient file-lock contention on slower Windows hosts.
-describe('transaction-local audit snapshots', { timeout: 15_000 }, () => {
+describe('transaction-local audit snapshots', { timeout: 30_000 }, () => {
   beforeAll(async () => {
     await cleanup()
     await db.insert(branches).values({

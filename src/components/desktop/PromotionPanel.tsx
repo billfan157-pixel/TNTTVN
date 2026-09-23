@@ -11,7 +11,7 @@ import type { BranchType } from '../../types';
 import { getClassificationLabel, calculateYearlyGpa } from '../../utils/grades';
 import { usePromotionStore } from '../../stores/promotionStore';
 import type { ApprovePromotionPayload } from '../../lib/api/promotion';
-import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard, Upload, Loader2, AlertTriangle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, XCircle, ChevronRight, Award, IdCard, Upload, Loader2, AlertTriangle, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { ModalShell } from '../common/ModalShell';
@@ -257,26 +257,47 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
   }
 
   return (
-    <div className="app-panel overflow-hidden">
-      <div className="p-5 border-b border-surface-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-extrabold text-parish-primary m-0">
-            Đánh Giá Thăng Tiến — {ACADEMIC_YEAR}
-          </h3>
-          <p className="text-xs text-text-muted mt-1 m-0">
-            {canPromote.length} em đủ điều kiện • {needsReview.length} em cần xem xét
-          </p>
+    <div className="product-view flex flex-col gap-4">
+      {/* Subtab Compact Command Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+            <TrendingUp size={16} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-text-primary truncate">
+              Đánh Giá Thăng Tiến — {ACADEMIC_YEAR}
+            </h2>
+            <p className="text-xs text-text-muted truncate hidden xl:block">
+              Xét duyệt điều kiện thăng cấp & chuyển lớp cho niên khóa mới
+            </p>
+          </div>
         </div>
-        {canPromoteAction && canPromote.length > 0 && (
-          <button
-            onClick={() => setConfirmOpen(true)}
-            className="btn btn-primary w-full sm:w-auto min-h-[44px] justify-center text-xs font-bold flex items-center gap-1.5"
-          >
-            <Upload size={16} />
-            Thực Hiện Thăng Tiến ({canPromote.length} em)
-          </button>
-        )}
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-bold text-xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+            <span>{canPromote.length} đủ điều kiện</span>
+          </span>
+          {needsReview.length > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300 font-bold text-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+              <span>{needsReview.length} cần xem xét</span>
+            </span>
+          )}
+          {canPromoteAction && canPromote.length > 0 && (
+            <button
+              onClick={() => setConfirmOpen(true)}
+              className="btn btn-primary h-8.5 text-xs font-bold flex items-center gap-1.5 px-3 py-1.5 rounded-xl shadow-xs"
+            >
+              <Upload size={14} />
+              Thực Hiện Thăng Tiến ({canPromote.length} em)
+            </button>
+          )}
+        </div>
       </div>
+
+      <div className="app-panel overflow-hidden">
 
       {/* Confirmation Modal */}
       {confirmOpen && (
@@ -408,6 +429,7 @@ export const PromotionPanel: React.FC<PromotionPanelProps> = ({ onViewPhotoCard,
       )}
 
       {confirmDialog}
+    </div>
     </div>
   );
 };

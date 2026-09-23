@@ -64,3 +64,18 @@
    - **Cảnh báo (Warning):** `bg-parish-warning-bg text-parish-warning border-parish-warning/30`
    - **Nguy hiểm / Lỗi (Danger):** `bg-parish-danger-bg text-parish-danger border-parish-danger/30`
    - **Thông tin (Info):** `bg-parish-info-bg text-parish-info border-parish-info/30`
+
+---
+
+## 6. Nhịp Điệu Khoảng Cách & Mật Độ Hiển Thị (Spacing Rhythm & Data Density)
+
+1. **Quy tắc bất biến về nhịp điệu dọc (Vertical Rhythm):**
+   - Khoảng cách giữa các thành phần điều khiển liên quan (Header → Tabs → Command Strip / Filter Bar → Data Table / Grid) **dao động trong khoảng 12px – 14px** (class `gap-3` hoặc `gap-3.5` / `!gap-3.5`).
+   - CẤM xếp chồng các khung công cụ với khoảng cách `gap-6` (24px) hoặc `space-y-6` khiến giao diện bị rời rạc, loãng thông tin và đẩy dữ liệu chính xuống dưới màn hình (*below the fold*).
+2. **Khung bao ngoài màn hình (`.responsive-page-shell` & `.embedded-page-section`):**
+   - Mặc định khoảng cách giữa các phần tử con trực tiếp là **14px** trên cả mobile và desktop (tối ưu hóa nhịp điệu điều hướng, không tạo khoảng trống chết).
+3. **Mật độ hiển thị bảng dữ liệu (Data Table Density):**
+   - Padding tiêu chuẩn của hàng bảng (`td`) và tiêu đề cột (`th`) là **`px-4.5 py-2.5 sm:py-3`**.
+   - Tránh dùng padding quá dày (`py-4` hoặc `py-4.5` trở lên) trên các bảng danh sách nhiều dòng để tối ưu hóa khả năng quan sát dữ liệu tập trung.
+4. **Khoảng cách phân khu độc lập:**
+   - Chỉ sử dụng khoảng cách `16px – 20px` (`gap-4` đến `gap-5`) khi ngăn cách giữa các khối chức năng hoàn toàn độc lập (ví dụ giữa khối thống kê tổng hợp và khối biểu đồ phân tích).

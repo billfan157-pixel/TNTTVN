@@ -44,7 +44,7 @@ export function EventLifecycleHub({
     ?? []
 
   return (
-    <div className="rounded-2xl border border-surface-border bg-surface-ground/40 p-4 sm:p-5 space-y-4 shadow-xs" aria-label="Vòng đời sự kiện">
+    <div className="rounded-2xl border border-surface-border bg-surface-ground/40 p-3.5 sm:p-4.5 space-y-3.5 shadow-2xs" aria-label="Vòng đời sự kiện">
       {/* Trạng thái bị hủy / Lưu trữ */}
       {detail.event.status === 'CANCELLED' ? (
         <div className="space-y-3">

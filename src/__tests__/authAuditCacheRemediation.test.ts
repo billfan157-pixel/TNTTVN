@@ -87,6 +87,28 @@ describe('D9 client cache retirement and parent sync', () => {
     expect(settings).toHaveBeenCalledOnce()
     expect(years).toHaveBeenCalledOnce()
   })
+
+  it('uses one full pull when a staff cursor survives but the local roster is empty', async () => {
+    useAuthStore.setState({ user: {
+      id: 'cache-audit-user', parishId: 'cache-audit-parish', username: 'admin',
+      fullName: 'Synthetic Admin', role: 'admin', status: 'ACTIVE',
+    } })
+    useStudentStore.getState().setStudents([])
+    await getDB().syncMeta.put({ key: captureSyncCursorScope()!, value: '2026-09-01T00:00:00.000Z' })
+    const { students, grades, attendance, classes, notices } = mockPull()
+    vi.spyOn(useSettingsStore.getState(), 'fetchSettings').mockResolvedValue(undefined)
+    vi.spyOn(useAcademicYearStore.getState(), 'fetchAcademicYears').mockResolvedValue(undefined)
+
+    await runInitialSync()
+
+    expect(api.getSyncWatermark).toHaveBeenCalledOnce()
+    expect(students).toHaveBeenCalledExactlyOnceWith({ throwOnError: true })
+    expect(grades).toHaveBeenCalledExactlyOnceWith(undefined, true)
+    expect(attendance).toHaveBeenCalledExactlyOnceWith(undefined, true)
+    expect(classes).toHaveBeenCalledOnce()
+    expect(notices).toHaveBeenCalledOnce()
+    expect(await readSyncCursor()).toBe('2026-09-05T00:00:00.000Z')
+  })
 })
 
 function mockPull() {

@@ -160,7 +160,7 @@ export function StudentsPage() {
   if (effectiveMode === 'desktop') {
     return (
       <>
-        <DesktopAppShell width="full">
+        <DesktopAppShell width="full" className="!gap-3.5">
         <PageHeader
           icon={<Users className="text-parish-primary" size={24} />}
           title="Hồ Sơ Thiếu Nhi & Lớp Học"

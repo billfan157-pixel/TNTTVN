@@ -5,7 +5,7 @@ import { useGradeStore } from '../../stores/gradeStore';
 import { useNoticeStore } from '../../stores/noticeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import { calculateGradeAverage, calculateAttendanceRate } from '../../utils/grades';
-import { normalizeAcademicYear } from '../../utils/academicYear';
+import { indexDashboardGrades } from '../../utils/dashboardGradeIndex';
 import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
@@ -55,10 +55,14 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
     let xuatSac = 0, gioi = 0, kha = 0, yeu = 0;
     const studentAverages: { student: typeof students[0]; avg: number; label: string }[] = [];
 
+    // The dashboard remounts on navigation. Filtering the entire grade array
+    // once per student made that render O(students * grades).
+    const gradeByStudent = indexDashboardGrades(grades, selectedSemester, activeYear);
+
     students.forEach(student => {
-      const studentGrades = grades.filter(g => g.studentId === student.id && g.semester === selectedSemester && normalizeAcademicYear(g.academicYear) === activeYear);
-      if (studentGrades.length > 0) {
-        const avgResult = calculateGradeAverage(studentGrades[0], gradeWeights);
+      const studentGrade = gradeByStudent.get(student.id);
+      if (studentGrade) {
+        const avgResult = calculateGradeAverage(studentGrade, gradeWeights);
         if (avgResult.score !== null) {
           studentAverages.push({ student, avg: avgResult.score, label: avgResult.label });
           if (avgResult.label === 'Xuất Sắc') xuatSac++;
@@ -73,8 +77,9 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
 
     // Branch breakdown
     const branchMap: Record<string, number> = {};
-    Object.keys(BRANCHES).forEach(bId => {
-      branchMap[bId] = students.filter(s => s.branch === bId).length;
+    Object.keys(BRANCHES).forEach(bId => { branchMap[bId] = 0; });
+    students.forEach(student => {
+      if (student.branch in branchMap) branchMap[student.branch]++;
     });
 
     return {
@@ -93,7 +98,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
   const _maxBranchCount = Math.max(...Object.values(branchStats), 1);
 
   return (
-    <DesktopAppShell width="full" className="space-y-6 pb-10">
+    <DesktopAppShell width="full" className="pb-8">
       {/* Liturgical Day Widget */}
       <LiturgicalTodayWidget />
 
@@ -169,9 +174,9 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
       </div>
 
       {/* Main Grid: Top Students & Analytics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-4.5">
         {/* Left Column: Top Academic Performers & Analytics Distribution */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-4">
           {/* Top Students */}
           <div className="section-card">
             <div className="section-heading">
@@ -260,7 +265,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
         </div>
 
         {/* Right Column: Branch Stats & Recent Notices */}
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Branch Distribution */}
           <div className="section-card">
             <div className="section-heading">

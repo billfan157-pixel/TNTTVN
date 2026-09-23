@@ -652,11 +652,16 @@ Hệ thống cung cấp cơ chế phân tích đề thi thông minh Client-side,
      - Dòng đáp án riêng: `Đáp án: A`, `Đ/A: B`, `Key: C`, `Chọn: D`.
      - Đánh dấu inline: `*A. Nội dung`, `[B] Nội dung`.
      - Bảng đáp án tổng hợp ở cuối đề: `BẢNG ĐÁP ÁN: 1A 2B 3C 4D...`.
-2. **Định dạng File Bảng Tính Excel (`.xlsx`, `.xls`, `.csv`)**:
+   - Làm sạch ký tự vô hình, khoảng trắng và dấu câu full-width thường phát sinh khi sao chép từ Word/Google Docs. Nếu không có tiêu đề phần, parser suy luận TN/TL từ phương án và đáp án; tại ô import TL, dãy câu cuối không có bằng chứng TN có thể được nhận diện là tự luận và luôn hiện trong xem trước để người dùng kiểm tra.
+   - Câu tự luận giữ cấu trúc các dòng con; dòng đáp án/hướng dẫn chấm nằm trong câu được chuyển vào lời giải, còn khối hướng dẫn chấm cuối đề không trở thành câu hỏi.
+2. **Định dạng File Bảng Tính Excel (`.xlsx`, `.xls`, `.csv`) và Word (`.docx`)**:
    - Nhận diện tự động file 7 cột: `[Câu số, Nội dung, Phương án A, B, C, D, Đáp án đúng]`.
+   - Excel hỗ trợ map cột theo tên header, gồm cột nội dung, loại câu và điểm; bảng chỉ có số thứ tự và nội dung được nhận diện là tự luận nếu không có bằng chứng phương án/đáp án trắc nghiệm.
+   - DOCX được Mammoth trích xuất văn bản thô ngay trên thiết bị rồi đưa vào cùng parser văn bản. Chỉ hỗ trợ `.docx`; nội dung ảnh/đối tượng nhúng không được OCR hay tải lên server.
    - Cung cấp sẵn file mẫu chuẩn `.xlsx` để tải về và nhập liệu.
    - **QB-F1 (2026-08-21)**: ô đáp án TRỐNG hoặc không chứa A/B/C/D → mặc định gán `A` **kèm warning** hiển thị cho người nhập; TUYỆT ĐỐI không suy đoán đáp án từ nội dung phương án (trước đây "Bác Hồ" → B im lặng). Ô dạng dài hợp lệ như `Đáp án: C` vẫn trích được `C`.
 3. **Giới Hạn & Ràng Buộc**:
+   - File tối đa 5 MB; parser nhận tối đa 50 câu. Bản xem trước nêu hình thức TN/TL/kết hợp và hiển thị toàn bộ cảnh báo phân tích trước khi áp dụng. Người nhập cần kiểm tra đáp án bị mặc định, câu bị bỏ qua và phần bị lọc theo ô TN/TL.
    - Tự động đồng bộ số câu `questionCount` (tối đa 50 câu) và bảng đáp án `answerKey` vào phiên chấm bài.
    - **UI-POLISH (2026-08-25) — Import theo hình thức**: form tạo phiên chọn Hình thức TRƯỚC — `mixed`: 2 ô import riêng (Phần Trắc Nghiệm / Phần Tự Luận); `multiple_choice`: chỉ ô Trắc Nghiệm; `written` (tô điểm): không import đề; đổi hình thức tự dọn phần không phù hợp. `scopeExamParseResult()` lọc kết quả parse theo scope, bỏ phần không thuộc scope kèm warning, đánh lại index 1..N trên phần giữ lại; ghép 2 phần: TN 1..N + TL N+1..N+M (giữ ràng buộc MC contiguous §21.5). Chỉ nạp TL mà chưa có TN → chặn submit với thông báo; chỉ TN → `multiple_choice`; có cả hai → `mixed`.
 4. **Hợp đồng lưu trữ ngân hàng câu hỏi (QB-F2/F3, 2026-08-21)**:

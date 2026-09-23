@@ -9,6 +9,7 @@ import { useAuthStore } from './authStore'
 import * as Sentry from '@sentry/react'
 import { decryptQueueValue } from '../lib/offlineCipher'
 import { isOwnOp } from './syncStore'
+import { captureTenantScope, isTenantScopeCurrent } from '../lib/tenantScope'
 
 async function getPendingClassIds(): Promise<Set<string>> {
   try {
@@ -177,12 +178,15 @@ export const useClassStore = create<ClassState>()(
 
       fetchClasses: async (updatedAfter?: string, updatedBefore?: string, throwOnError?: boolean) => {
         if (!isAuthenticated()) return
+        const owner = captureTenantScope()
+        if (!owner) return
         set({ loading: true, error: null })
         try {
           const params = updatedAfter ? { updatedAfter, updatedBefore } : undefined
           const fetched = await api.getClasses(params)
           if (Array.isArray(fetched)) {
             const pendingIds = await getPendingClassIds()
+            if (!isTenantScopeCurrent(owner)) return
             if (updatedAfter) {
               set((state) => {
                 const merged = new Map(state.classes.map(c => [c.id, c]))
@@ -210,10 +214,10 @@ export const useClassStore = create<ClassState>()(
           }
         } catch (err) {
           Sentry.captureException(err)
-          set({ error: (err as Error)?.message || 'Lỗi tải danh sách lớp học' })
+          if (isTenantScopeCurrent(owner)) set({ error: (err as Error)?.message || 'Lỗi tải danh sách lớp học' })
           if (throwOnError) throw err
         } finally {
-          set({ loading: false })
+          if (isTenantScopeCurrent(owner)) set({ loading: false })
         }
       },
 

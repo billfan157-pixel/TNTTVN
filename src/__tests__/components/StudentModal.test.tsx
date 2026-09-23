@@ -24,7 +24,7 @@ vi.mock('../../constants/branches', () => ({
   },
 }))
 
-vi.mock('../../hooks/useFocusTrap', () => ({ useFocusTrap: () => null }))
+vi.mock('../../hooks/useFocusTrap', () => ({ useFocusTrap: () => ({ current: null }) }))
 
 const fakeClassList = [
   { id: 'AU1', code: 'AN-01', name: 'Ấu Nhi 1', branch: 'AuNhi', branchName: 'Ấu Nhi', academicYear: '2025-2026', room: null, catechistLeader: '', catechistAssistants: [] },
@@ -46,11 +46,18 @@ vi.mock('lucide-react', () => ({
   X: 'svg',
   Save: 'svg',
   UserPlus: 'svg',
+  UserCheck: 'svg',
   KeyRound: 'svg',
   Copy: 'svg',
   CheckCircle2: 'svg',
   AlertCircle: 'svg',
   Loader2: 'svg',
+  User: 'svg',
+  Church: 'svg',
+  HeartHandshake: 'svg',
+  FileText: 'svg',
+  Layers: 'svg',
+  Info: 'svg',
 }))
 
 beforeEach(() => {

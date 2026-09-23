@@ -99,6 +99,8 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
   useUIStore.setState({
     isStudentModalOpen: false,
     studentToEdit: null,
+    isStudentProfileOpen: false,
+    studentForProfile: null,
     isReportModalOpen: false,
     studentForReport: null,
     reportPrintRequested: false,

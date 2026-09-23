@@ -6,6 +6,8 @@ import {
 import {
   parseExamFromText,
   parseExamFromExcel,
+  parseExamFromDocx,
+  MAX_EXAM_QUESTIONS,
   generateSampleExamTemplateText,
   generateSampleExcelWorkbook,
   scopeExamParseResult,
@@ -53,17 +55,21 @@ const SCOPE_META: Record<ExamImportScope, { title: string; subtitle: string }> =
 
 export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport, scope = 'both' }) => {
   const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
-  const [activeTab, setActiveTab] = useState<'text' | 'excel'>('text')
+  const [activeTab, setActiveTab] = useState<'text' | 'file'>('text')
   const [rawText, setRawText] = useState('')
   const [previewResult, setPreviewResult] = useState<ExamParseResult | null>(null)
   const [detectedSubject, setDetectedSubject] = useState('')
-  const [, setIsProcessing] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [fileError, setFileError] = useState('')
 
   if (!isOpen) return null
 
   const handleParseText = (textToParse: string) => {
     // UI-POLISH 2026-08-25: parse rồi lọc theo scope (ô import TN/TL riêng).
-    const res = scopeExamParseResult(parseExamFromText(textToParse), scope)
+    // ESSAY-DECODE: truyền scope làm `intent` để cứu đề tự luận không tiêu đề
+    // phần — nếu không, parser mặc định TN (phương án giả + đáp án A) rồi scope
+    // lọc bỏ hết, ô "Phần Tự Luận" báo 0 câu (không import được).
+    const res = scopeExamParseResult(parseExamFromText(textToParse, { intent: scope }), scope)
     setPreviewResult(res)
 
     // Tự động nhận diện môn học nếu dòng đầu tiên có chữ "ĐỀ KIỂM TRA..."
@@ -76,6 +82,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
     setRawText(val)
+    setFileError('')
     if (val.trim()) {
       handleParseText(val)
     } else {
@@ -94,14 +101,35 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
     const file = e.target.files?.[0]
     if (!file) return
 
+    setFileError('')
+    setPreviewResult(null)
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    if (file.size > 5 * 1024 * 1024) {
+      setFileError('File vượt quá giới hạn 5 MB. Hãy chọn file nhỏ hơn rồi thử lại.')
+      e.target.value = ''
+      return
+    }
+    if (!['xlsx', 'xls', 'csv', 'docx'].includes(extension ?? '')) {
+      setFileError('Định dạng không được hỗ trợ. Hãy chọn .xlsx, .xls, .csv hoặc .docx.')
+      e.target.value = ''
+      return
+    }
+
     setIsProcessing(true)
     try {
       const buffer = await file.arrayBuffer()
-      const res = scopeExamParseResult(await parseExamFromExcel(buffer), scope)
+      const parseOpts = { intent: scope } as const
+      const parsed = extension === 'docx'
+        ? await parseExamFromDocx(buffer, parseOpts)
+        : await parseExamFromExcel(buffer, parseOpts)
+      const res = scopeExamParseResult(parsed, scope)
       setPreviewResult(res)
       setDetectedSubject(file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '))
+    } catch {
+      setFileError('Không đọc được file này. Hãy kiểm tra định dạng, thử mở và lưu lại file rồi import lại.')
     } finally {
       setIsProcessing(false)
+      e.target.value = ''
     }
   }
 
@@ -170,12 +198,12 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('excel')}
+              onClick={() => setActiveTab('file')}
               className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
-                activeTab === 'excel' ? 'bg-parish-primary text-white shadow-xs' : 'text-text-muted hover:text-text-main'
+                activeTab === 'file' ? 'bg-parish-primary text-white shadow-xs' : 'text-text-muted hover:text-text-main'
               }`}
             >
-              <Upload size={14} /> Tải File Excel (.xlsx)
+              <Upload size={14} /> Tải File Excel / Word
             </button>
           </div>
 
@@ -189,7 +217,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                 <Sparkles size={13} className="text-amber-500" /> Dán Đề Mẫu
               </button>
             )}
-            {activeTab === 'excel' && (
+            {activeTab === 'file' && (
               <button
                 type="button"
                 onClick={handleDownloadExcelSample}
@@ -230,23 +258,21 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center mb-3">
                   <Upload size={24} />
                 </div>
-                <h4 className="font-bold text-sm text-text-main mb-1">Chọn File Excel Đề Thi</h4>
+                <h4 className="font-bold text-sm text-text-main mb-1">Chọn File Đề Thi</h4>
                 <p className="text-xs text-text-muted max-w-xs mb-4">
-                  {scope === 'essay'
-                    ? 'Hỗ trợ .xlsx, .xls, .csv — 9 cột có cột Loại (TN/TL) và Điểm; chỉ hàng Tự luận (TL) được nạp'
-                    : scope === 'multiple_choice'
-                      ? 'Hỗ trợ .xlsx, .xls, .csv — 7 cột (Câu, Nội dung, A, B, C, D, Đáp án) hoặc 9 cột có Loại + Điểm; chỉ hàng Trắc nghiệm (TN) được nạp'
-                      : 'Hỗ trợ .xlsx, .xls, .csv — 7 cột (Câu, Nội dung, A, B, C, D, Đáp án) hoặc mở rộng 9 cột có thêm cột Loại (TN/TL) và Điểm'}
+                  Hỗ trợ .xlsx, .xls, .csv và Word .docx · tối đa 5 MB, {MAX_EXAM_QUESTIONS} câu. DOCX được trích xuất văn bản ngay trên thiết bị.
                 </p>
                 <label className="btn btn-primary btn-sm cursor-pointer">
-                  <span>Chọn File Từ Máy Tính</span>
+                  <span>{isProcessing ? 'Đang phân tích…' : 'Chọn File Từ Máy Tính'}</span>
                   <input
                     type="file"
-                    accept=".xlsx, .xls, .csv"
+                    accept=".xlsx,.xls,.csv,.docx"
                     onChange={handleFileUpload}
                     className="hidden"
+                    disabled={isProcessing}
                   />
                 </label>
+                {fileError && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">{fileError}</p>}
               </div>
             )}
           </div>
@@ -268,6 +294,16 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
             )}
             </div>
 
+            {previewResult?.detectedForm && (
+              <div role="status" aria-live="polite" className="text-[11px] text-text-muted">
+                Hệ thống nhận diện nội dung là{' '}
+                <strong className="text-text-main">
+                  {previewResult.detectedForm === 'multiple_choice' ? 'trắc nghiệm' : previewResult.detectedForm === 'essay' ? 'tự luận' : 'đề kết hợp'}
+                </strong>
+                {scope !== 'both' && ` · Đang nạp phạm vi ${scope === 'essay' ? 'tự luận' : 'trắc nghiệm'}`}
+              </div>
+            )}
+
             {/* Error / Warning alerts */}
             {previewResult?.errors && previewResult.errors.length > 0 && (
               <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs text-rose-600 font-semibold flex items-center gap-2">
@@ -277,9 +313,9 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
             )}
 
             {previewResult?.warnings && previewResult.warnings.length > 0 && (
-              <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[11px] text-amber-700 dark:text-amber-300">
-                {previewResult.warnings[0]}
-              </div>
+              <ul aria-label="Cảnh báo khi phân tích đề" className="m-0 max-h-32 overflow-y-auto list-disc space-y-1 p-2.5 pl-7 bg-amber-500/10 border border-amber-500/30 rounded-lg text-[11px] text-amber-700 dark:text-amber-300">
+                {previewResult.warnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}
+              </ul>
             )}
 
             {/* Questions scroll view */}
@@ -345,7 +381,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
               <div className="flex-1 flex flex-col items-center justify-center text-text-muted text-xs text-center p-4">
                 <HelpCircle size={32} className="opacity-30 mb-2" />
                 <p className="m-0">Chưa có dữ liệu phân tích.</p>
-                <p className="m-0 text-[11px] opacity-75">Dán đề thi hoặc chọn file Excel để hệ thống tự động nhận diện.</p>
+                <p className="m-0 text-2xs opacity-75">Dán đề thi hoặc chọn file Excel / Word để hệ thống tự động nhận diện.</p>
               </div>
             )}
           </div>

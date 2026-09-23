@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react'
 import { Badge, Button, Select, TextArea, TextInput } from '../common/ui'
 import type { OperationEvent, OperationEventDetail } from '../../lib/api/operations'
 import { OPERATIONS_POSITION_LABELS_VI } from '../../lib/api/operations'
@@ -21,6 +22,7 @@ export function EventEditForm({ detail }: { detail: OperationEventDetail }) {
 
   const [draft, setDraft] = useState({ title: '', description: '', eventType: 'OTHER', startsAt: '', endsAt: '', location: '', expectedHeadcount: '', organizerUserId: '', visibility: 'INTERNAL' as OperationEvent['visibility'] })
   const [saving, setSaving] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(true)
   const [formError, setFormError] = useState<string | null>(null)
   const dirty = useRef(false)
   const lastEventId = useRef<string | null>(null)
@@ -102,74 +104,140 @@ export function EventEditForm({ detail }: { detail: OperationEventDetail }) {
   }
 
   return (
-    <form className="rounded-2xl border border-surface-border bg-surface-card p-4 space-y-3 shadow-xs" aria-label="Sửa thông tin sự kiện" onSubmit={handleSave}>
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h3 className="m-0 text-sm font-extrabold text-text-main">Thông tin sự kiện</h3>
-          <p className="mb-0 mt-1 text-xs text-text-muted">Operations là nơi duy nhất sửa dữ liệu; Lịch chỉ hiển thị bản chiếu công khai.</p>
+    <form className="rounded-2xl border border-surface-border bg-surface-card p-3.5 sm:p-4 space-y-3.5 shadow-2xs" aria-label="Sửa thông tin sự kiện" onSubmit={handleSave}>
+      <div className="flex items-center justify-between gap-2 border-b border-surface-border/70 pb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
+            <SlidersHorizontal className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="m-0 text-sm font-extrabold text-text-main">Thông tin sự kiện</h3>
+            <p className="mb-0 mt-0.5 text-xs text-text-muted">Operations là nơi duy nhất sửa dữ liệu; Lịch chỉ hiển thị bản chiếu công khai.</p>
+          </div>
         </div>
-        <Badge tone={draft.visibility === 'PUBLIC_SUMMARY' ? 'success' : 'neutral'}>{draft.visibility === 'PUBLIC_SUMMARY' ? 'Công khai' : 'Nội bộ'}</Badge>
-      </div>
-      <fieldset>
-        <legend className="mb-1 text-sm font-semibold text-text-main">Hiển thị sự kiện</legend>
-        <div className="grid grid-cols-2 gap-2" role="group" aria-label="Sửa hiển thị sự kiện">
-          <Button type="button" variant={draft.visibility === 'INTERNAL' ? 'primary' : 'secondary'} size="sm" disabled={saving || !detail.permissions['operations.event.create']} onClick={() => { markDirty(); setDraft(value => ({ ...value, visibility: 'INTERNAL' })) }}>Nội bộ</Button>
-          <Button type="button" variant={draft.visibility === 'PUBLIC_SUMMARY' ? 'primary' : 'secondary'} size="sm" disabled={saving || !detail.permissions['operations.event.publish_public']} title={!detail.permissions['operations.event.publish_public'] ? 'Bạn chưa có quyền công khai sự kiện.' : undefined} onClick={() => { markDirty(); setDraft(value => ({ ...value, visibility: 'PUBLIC_SUMMARY' })) }}>Công khai</Button>
+        <div className="flex items-center gap-2">
+          <Badge tone={draft.visibility === 'PUBLIC_SUMMARY' ? 'success' : 'neutral'}>
+            {draft.visibility === 'PUBLIC_SUMMARY' ? 'Công khai' : 'Nội bộ'}
+          </Badge>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="min-h-[44px] sm:min-h-0 text-xs font-semibold"
+            onClick={() => setIsExpanded(prev => !prev)}
+            aria-expanded={isExpanded}
+            leadingIcon={isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          >
+            {isExpanded ? 'Thu gọn' : 'Chỉnh sửa'}
+          </Button>
         </div>
-        <p className="mb-0 mt-1 text-xs text-text-muted">Bật Công khai sẽ tự tạo/cập nhật Lịch và xếp thông báo phụ huynh; dữ liệu vận hành vẫn nội bộ.</p>
-      </fieldset>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="text-sm font-semibold text-text-main sm:col-span-2">Tên sự kiện
-          <TextInput className="mt-1 w-full" value={draft.title} required maxLength={draft.visibility === 'PUBLIC_SUMMARY' ? 200 : 300} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, title: event.target.value })) }} />
-        </label>
-        {/* W2.1: description was server-supported but previously uneditable. */}
-        <label className="text-sm font-semibold text-text-main sm:col-span-2">Mô tả sự kiện
-          <TextArea className="mt-1 w-full" value={draft.description} maxLength={5000} disabled={saving} placeholder="Diễn biến, lưu ý chung (không bắt buộc)" onChange={event => { markDirty(); setDraft(value => ({ ...value, description: event.target.value })) }} />
-        </label>
-        <label className="text-sm font-semibold text-text-main">Loại sự kiện
-          <Select className="mt-1 w-full" value={draft.eventType} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, eventType: event.target.value })) }}>
-            {EVENT_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </Select>
-        </label>
-        <label className="text-sm font-semibold text-text-main">Địa điểm
-          <TextInput className="mt-1 w-full" value={draft.location} maxLength={draft.visibility === 'PUBLIC_SUMMARY' ? 200 : 300} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, location: event.target.value })) }} />
-        </label>
-        <label className="text-sm font-semibold text-text-main">Số người dự kiến
-          <TextInput className="mt-1 w-full" type="number" min={0} value={draft.expectedHeadcount} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, expectedHeadcount: event.target.value })) }} />
-        </label>
-        {/* W2.1: organizer swap — offered only with create authority on scope
-            and candidate leaders; the server re-validates leader rules. */}
-        {canSwapOrganizer && (
-          <label className="text-sm font-semibold text-text-main">Người chịu trách nhiệm (Organizer)
-            <Select className="mt-1 w-full" value={draft.organizerUserId || detail.event.organizerUserId || ''} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, organizerUserId: event.target.value })) }}>
-              {detail.event.organizerUserId && !organizerOptions.some(person => person.userId === detail.event.organizerUserId) && (
-                <option value={detail.event.organizerUserId}>{detail.organizer?.displayName ?? 'Organizer hiện tại'}</option>
-              )}
-              {organizerOptions.map(person => (
-                <option key={person.userId} value={person.userId}>{person.displayName}{OPERATIONS_POSITION_LABELS_VI[person.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI] ? ` · ${OPERATIONS_POSITION_LABELS_VI[person.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI]}` : ''}</option>
-              ))}
-            </Select>
-            <span className="mt-1 block text-xs font-normal text-text-muted">Máy chủ kiểm tra lại điều kiện trưởng ban đương nhiệm khi lưu.</span>
-          </label>
-        )}
-        <SmartEventTimePicker
-          className="sm:col-span-2"
-          startsAt={draft.startsAt}
-          endsAt={draft.endsAt}
-          eventType={draft.eventType}
-          disabled={saving}
-          required
-          idPrefix="edit-event"
-          onChange={({ startsAt, endsAt }) => { markDirty(); setDraft(value => ({ ...value, startsAt, endsAt })) }}
-        />
       </div>
-      {showMissingHint && (
-        <ul role="status" className="m-0 space-y-0.5 rounded-lg border border-parish-warning/30 bg-parish-warning-bg/30 p-2 text-xs text-parish-warning">
-          {missingFields.map(field => <li key={field}>{field}</li>)}
-        </ul>
+
+      {!isExpanded && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-ground/50 px-3 py-2 text-xs text-text-muted">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-text-main">{draft.title || 'Chưa đặt tên'}</span>
+            <span>·</span>
+            <span>{draft.location || 'Chưa có địa điểm'}</span>
+            {draft.expectedHeadcount && (
+              <>
+                <span>·</span>
+                <span>Dự kiến: {draft.expectedHeadcount} người</span>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            className="text-xs font-semibold text-parish-primary hover:underline min-h-[44px] sm:min-h-0 inline-flex items-center"
+            onClick={() => setIsExpanded(true)}
+          >
+            Mở rộng chỉnh sửa
+          </button>
+        </div>
       )}
-      <div className="flex justify-end">{formError && <p role="alert" className="m-0 text-xs text-parish-danger">{formError}</p>}
-        <Button type="submit" size="sm" loading={saving} disabled={!canMutate || missingFields.length > 0}>Lưu thay đổi</Button></div>
+
+      <div className={isExpanded ? 'space-y-3.5' : 'hidden'}>
+        <fieldset>
+          <legend className="mb-1.5 text-xs font-bold uppercase tracking-wider text-text-muted">Hiển thị sự kiện</legend>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Sửa hiển thị sự kiện">
+            <Button
+              type="button"
+              variant={draft.visibility === 'INTERNAL' ? 'primary' : 'secondary'}
+              size="sm"
+              className="min-h-[44px] sm:min-h-0"
+              disabled={saving || !detail.permissions['operations.event.create']}
+              onClick={() => { markDirty(); setDraft(value => ({ ...value, visibility: 'INTERNAL' })) }}
+            >
+              Nội bộ
+            </Button>
+            <Button
+              type="button"
+              variant={draft.visibility === 'PUBLIC_SUMMARY' ? 'primary' : 'secondary'}
+              size="sm"
+              className="min-h-[44px] sm:min-h-0"
+              disabled={saving || !detail.permissions['operations.event.publish_public']}
+              title={!detail.permissions['operations.event.publish_public'] ? 'Bạn chưa có quyền công khai sự kiện.' : undefined}
+              onClick={() => { markDirty(); setDraft(value => ({ ...value, visibility: 'PUBLIC_SUMMARY' })) }}
+            >
+              Công khai
+            </Button>
+          </div>
+          <p className="mb-0 mt-1.5 text-xs text-text-muted">Bật Công khai sẽ tự tạo/cập nhật Lịch và xếp thông báo phụ huynh; dữ liệu vận hành vẫn nội bộ.</p>
+        </fieldset>
+        <div className="grid gap-3.5 sm:grid-cols-2">
+          <label className="text-sm font-semibold text-text-main sm:col-span-2">Tên sự kiện
+            <TextInput className="mt-1 w-full" value={draft.title} required maxLength={draft.visibility === 'PUBLIC_SUMMARY' ? 200 : 300} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, title: event.target.value })) }} />
+          </label>
+          <label className="text-sm font-semibold text-text-main sm:col-span-2">Mô tả sự kiện
+            <TextArea className="mt-1 w-full" value={draft.description} maxLength={5000} disabled={saving} placeholder="Diễn biến, lưu ý chung (không bắt buộc)" onChange={event => { markDirty(); setDraft(value => ({ ...value, description: event.target.value })) }} />
+          </label>
+          <label className="text-sm font-semibold text-text-main">Loại sự kiện
+            <Select className="mt-1 w-full" value={draft.eventType} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, eventType: event.target.value })) }}>
+              {EVENT_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </Select>
+          </label>
+          <label className="text-sm font-semibold text-text-main">Địa điểm
+            <TextInput className="mt-1 w-full" value={draft.location} maxLength={draft.visibility === 'PUBLIC_SUMMARY' ? 200 : 300} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, location: event.target.value })) }} />
+          </label>
+          <label className="text-sm font-semibold text-text-main">Số người dự kiến
+            <TextInput className="mt-1 w-full" type="number" min={0} value={draft.expectedHeadcount} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, expectedHeadcount: event.target.value })) }} />
+          </label>
+          {canSwapOrganizer && (
+            <label className="text-sm font-semibold text-text-main">Người chịu trách nhiệm (Organizer)
+              <Select className="mt-1 w-full" value={draft.organizerUserId || detail.event.organizerUserId || ''} disabled={saving} onChange={event => { markDirty(); setDraft(value => ({ ...value, organizerUserId: event.target.value })) }}>
+                {detail.event.organizerUserId && !organizerOptions.some(person => person.userId === detail.event.organizerUserId) && (
+                  <option value={detail.event.organizerUserId}>{detail.organizer?.displayName ?? 'Organizer hiện tại'}</option>
+                )}
+                {organizerOptions.map(person => (
+                  <option key={person.userId} value={person.userId}>{person.displayName}{OPERATIONS_POSITION_LABELS_VI[person.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI] ? ` · ${OPERATIONS_POSITION_LABELS_VI[person.positionCode as keyof typeof OPERATIONS_POSITION_LABELS_VI]}` : ''}</option>
+                ))}
+              </Select>
+              <span className="mt-1 block text-xs font-normal text-text-muted">Máy chủ kiểm tra lại điều kiện trưởng ban đương nhiệm khi lưu.</span>
+            </label>
+          )}
+          <SmartEventTimePicker
+            className="sm:col-span-2"
+            startsAt={draft.startsAt}
+            endsAt={draft.endsAt}
+            eventType={draft.eventType}
+            disabled={saving}
+            required
+            idPrefix="edit-event"
+            onChange={({ startsAt, endsAt }) => { markDirty(); setDraft(value => ({ ...value, startsAt, endsAt })) }}
+          />
+        </div>
+        {showMissingHint && (
+          <ul role="status" className="m-0 space-y-0.5 rounded-lg border border-parish-warning/30 bg-parish-warning-bg/30 p-2 text-xs text-parish-warning">
+            {missingFields.map(field => <li key={field}>{field}</li>)}
+          </ul>
+        )}
+        <div className="flex items-center justify-end gap-2">
+          {formError && <p role="alert" className="m-0 text-xs text-parish-danger">{formError}</p>}
+          <Button type="submit" size="sm" className="min-h-[44px] sm:min-h-0" loading={saving} disabled={!canMutate || missingFields.length > 0}>
+            Lưu thay đổi
+          </Button>
+        </div>
+      </div>
     </form>
   )
 }

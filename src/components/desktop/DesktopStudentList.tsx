@@ -8,15 +8,17 @@ import {
   SortingState,
 } from '@tanstack/react-table';
 import {
-  UserPlus, Search,   Edit2, Trash2,
-  FileText, Camera, Upload, CheckCircle2,  ChevronLeft,
+  UserPlus, Search, Edit2, Trash2,
+  FileText, Camera, Upload, CheckCircle2, ChevronLeft,
   ChevronRight, CheckSquare, Square,
-  Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA, X
+  Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA, X, ArrowRightLeft,
+  UserRound
 } from 'lucide-react';
 import { useClassStore } from '../../stores/classStore';
 import { useStudentStore } from '../../stores/studentStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useFilterStore } from '../../stores/filterStore';
+import { useUIStore } from '../../stores/uiStore';
 import { useAuth } from '../../hooks/useAuth';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
@@ -25,6 +27,7 @@ import type { Student } from '../../types';
 import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
 import { DesktopClasses } from './DesktopClasses';
+import { BulkTransferClassModal } from '../common/BulkTransferClassModal';
 
 interface DesktopStudentListProps {
   onOpenAddStudent?: () => void;
@@ -32,6 +35,7 @@ interface DesktopStudentListProps {
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onViewPhotoCard: (student: Student) => void;
+  onViewProfile?: (student: Student) => void;
 }
 
 const columnHelper = createColumnHelper<Student>();
@@ -42,10 +46,12 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   onEditStudent,
   onViewReport,
   onViewPhotoCard,
+  onViewProfile,
 }) => {
   const { isAdmin, isChunhiem, isPhuta } = useAuth();
   const canEdit = isAdmin || isChunhiem || isPhuta;
   const canDelete = isAdmin;
+  const canTransfer = isAdmin || isChunhiem;
 
   const students = useStudentStore((s) => s.students);
   const selectedClassId = useFilterStore((s) => s.selectedClassId);
@@ -66,6 +72,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const [pageIndex, setPageIndex] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
+  const [pendingBulkTransfer, setPendingBulkTransfer] = useState(false);
 
   // Filter logic
   const filteredStudents = useMemo(() => {
@@ -157,7 +164,19 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
     }),
     columnHelper.accessor('fullName', {
       header: 'Họ và Tên',
-      cell: (info) => <span className="text-base font-extrabold text-text-main">{info.getValue()}</span>,
+      cell: (info) => {
+        const meta = info.table.options.meta as any;
+        return (
+          <button
+            type="button"
+            onClick={() => meta.onViewProfile?.(info.row.original)}
+            className="text-left font-extrabold text-base text-text-main hover:text-parish-primary hover:underline transition-colors flex items-center gap-1 group cursor-pointer bg-transparent border-0 p-0"
+            title={`Bấm để xem hồ sơ chi tiết của ${info.row.original.holyName} ${info.getValue()}`}
+          >
+            <span>{info.getValue()}</span>
+          </button>
+        );
+      },
       size: 200,
     }),
     columnHelper.accessor('classId', {
@@ -209,6 +228,15 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         return (
           <div className="flex items-center gap-1.5">
             <IconButton
+              onClick={() => meta.onViewProfile?.(info.row.original)}
+              title="Xem hồ sơ chi tiết"
+              label="Xem hồ sơ chi tiết"
+              icon={<UserRound aria-hidden="true" size={16} />}
+              variant="plain"
+              size="sm"
+              className="p-1.5 rounded-lg hover:bg-parish-primary-light text-parish-primary transition-colors"
+            />
+            <IconButton
               onClick={() => meta.onViewReport(info.row.original)}
               title="Xem kết quả học tập"
               label="Xem kết quả học tập"
@@ -240,9 +268,12 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
           </div>
         );
       },
-      size: 120,
+      size: 150,
     }),
   ], [classes]);
+
+  const globalOpenProfile = useUIStore((s) => s.openStudentProfile);
+  const handleViewProfile = onViewProfile || globalOpenProfile;
 
   const table = useReactTable({
     data: pagedStudents,
@@ -257,6 +288,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       toggleSelectPage,
       toggleSelect,
       canEdit,
+      onViewProfile: handleViewProfile,
       onViewReport,
       onViewPhotoCard,
       onEditStudent,
@@ -279,7 +311,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   }
 
   return (
-    <div className="product-view flex flex-col gap-6">
+    <div className="product-view flex flex-col gap-3 sm:gap-3.5">
       {/* Subtab Controls Command Strip */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -287,7 +319,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             <Users size={16} />
           </div>
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-text-primary truncate">
+            <h2 className="text-base font-bold text-text-primary truncate">
               Danh Sách Thiếu Nhi
             </h2>
             <div className="text-xs text-text-muted truncate hidden xl:block">
@@ -450,6 +482,15 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             <button onClick={clearSelection} className="px-4 py-1.5 text-xs font-bold text-slate-300 hover:text-white transition-colors">
               Bỏ chọn
             </button>
+            {canTransfer && (
+              <button
+                type="button"
+                onClick={() => setPendingBulkTransfer(true)}
+                className="btn btn-primary text-xs font-bold flex items-center gap-1.5 shadow-sm"
+              >
+                <ArrowRightLeft size={14} /> Chuyển lớp
+              </button>
+            )}
             {canDelete && (
               <button
                 onClick={() => setPendingBulkDelete(true)}
@@ -471,7 +512,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               <tr className="bg-surface-app border-b-2 border-surface-border">
                 {table.getHeaderGroups().map(headerGroup => (
                   headerGroup.headers.map(header => (
-                    <th key={header.id} className="px-6 py-4.5 font-bold text-text-muted text-xs uppercase tracking-wider" style={{ width: header.getSize() }} scope="col">
+                    <th key={header.id} className="px-4.5 py-3 font-bold text-text-muted text-xs uppercase tracking-wider" style={{ width: header.getSize() }} scope="col">
                       {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     </th>
                   ))
@@ -482,7 +523,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               {table.getRowModel().rows.map(row => (
                 <tr key={row.id} className="bg-surface-card hover:bg-surface-app transition-colors group">
                   {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="px-6 py-4 align-middle">
+                    <td key={cell.id} className="px-4.5 py-2.5 sm:py-3 align-middle">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -518,7 +559,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
 
         {/* Pagination footer */}
         {totalPages > 1 && (
-          <div className="px-6 py-4 bg-surface-app border-t border-surface-border flex items-center justify-between">
+          <div className="px-4.5 py-2.5 sm:py-3 bg-surface-app border-t border-surface-border flex items-center justify-between">
             <p className="text-xs font-bold text-text-secondary">
               Trang <span className="text-text-main">{pageIndex + 1}</span> / {totalPages}
             </p>
@@ -558,6 +599,18 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         }}
         onCancel={() => setPendingBulkDelete(false)}
       />
+
+      {pendingBulkTransfer && (
+        <BulkTransferClassModal
+          isOpen={pendingBulkTransfer}
+          studentIds={Array.from(selectedIds)}
+          onClose={() => setPendingBulkTransfer(false)}
+          onSuccess={() => {
+            setSelectedIds(new Set());
+            setPendingBulkTransfer(false);
+          }}
+        />
+      )}
     </div>
   );
 };

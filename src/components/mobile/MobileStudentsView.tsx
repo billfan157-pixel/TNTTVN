@@ -16,8 +16,10 @@ const PromotionPanel = lazyWithRetry<React.FC<{
 import { 
   Phone, UserPlus, Search, Edit3, 
   Trash2, Printer, Upload, ChevronLeft, ChevronRight, CheckSquare,
-  Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA, X
+  Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA, X,
+  ArrowRightLeft, UserRound
 } from 'lucide-react';
+import { useUIStore } from '../../stores/uiStore';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
 import { SkeletonTable, NoResultState } from '../common/StateFeedback';
 import { StudentName } from '../common/StudentName';
@@ -26,6 +28,7 @@ import { Select, TextInput } from '../common/ui/FormControls';
 import { TabPanel, Tabs } from '../common/ui/SelectionControls';
 import { DesktopClasses } from '../desktop/DesktopClasses';
 import { SubpageHeader } from '../common/SubpageHeader';
+import { BulkTransferClassModal } from '../common/BulkTransferClassModal';
 
 interface MobileStudentsViewProps {
   workspace: StudentWorkspace;
@@ -36,6 +39,7 @@ interface MobileStudentsViewProps {
   onEditStudent: (student: Student) => void;
   onViewReport: (student: Student) => void;
   onPrintReport: (student: Student) => void;
+  onViewProfile?: (student: Student) => void;
   onSendReportCards?: () => void;
   sendingCards?: boolean;
   cardError?: string | null;
@@ -52,12 +56,16 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   onEditStudent,
   onViewReport: _onViewReport,
   onPrintReport,
+  onViewProfile,
   onSendReportCards,
   sendingCards,
   cardError,
   onViewPhotoCard,
   onViewCertificate,
 }) => {
+  const globalOpenProfile = useUIStore(s => s.openStudentProfile)
+  const handleViewProfile = onViewProfile || globalOpenProfile
+
   const students = useStudentStore(s => s.students)
   const deleteStudent = useStudentStore(s => s.deleteStudent)
   const deleteStudents = useStudentStore(s => s.deleteStudents)
@@ -123,12 +131,14 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
   const [pendingDelete, setPendingDelete] = React.useState<Student | null>(null);
   const [pendingBulkDelete, setPendingBulkDelete] = React.useState(false);
+  const [pendingBulkTransfer, setPendingBulkTransfer] = React.useState(false);
   const [selectionMode, setSelectionMode] = React.useState(false);
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [confirmSendCards, setConfirmSendCards] = React.useState(false);
 
   const { can } = useAuth();
   const canDelete = can('admin');
+  const canTransfer = can('admin', 'chunhiem');
   const canPromoteAction = can('admin', 'chunhiem');
   const managementActionCount = [
     canDelete && onOpenAddStudent,
@@ -410,13 +420,18 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                     {selectedIds.has(s.id) ? <CheckSquare size={14} className="text-text-inverse" /> : <span className="w-3.5 h-3.5 rounded-sm border-2 border-surface-border block" />}
                   </label>
                 )}
-                <div className={`flex justify-between items-start ${selectionMode ? 'pl-8' : ''}`}>
+                <div
+                  className={`flex justify-between items-start cursor-pointer group ${selectionMode ? 'pl-8' : ''}`}
+                  onClick={() => handleViewProfile(s)}
+                  title={`Xem hồ sơ chi tiết của ${s.holyName} ${s.fullName}`}
+                >
                   <div className="min-w-0 overflow-hidden">
                     <StudentName
                       holyName={s.holyName}
                       fullName={s.fullName}
                       size="base"
                       layout="stacked"
+                      fullNameClassName="group-hover:text-parish-primary transition-colors"
                     />
                     <div className="text-text-muted text-xs mt-0.5 flex items-center gap-1.5 flex-wrap">
                       <span className="badge shrink-0" style={{ background: branch?.badgeBg, color: branch?.textColor }}>
@@ -453,10 +468,17 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
 
                 {/* Actions */}
                 <div className="flex justify-end gap-2 border-t border-surface-border/60 pt-3">
-                  <button onClick={() => onPrintReport(s)} className="btn btn-secondary min-h-[44px] px-3.5 text-xs font-bold rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => handleViewProfile(s)}
+                    className="btn btn-secondary min-h-[44px] px-3 text-xs font-bold rounded-xl inline-flex items-center gap-1 text-parish-primary"
+                  >
+                    <UserRound size={13} /> Hồ Sơ
+                  </button>
+                  <button onClick={() => onPrintReport(s)} className="btn btn-secondary min-h-[44px] px-3 text-xs font-bold rounded-xl inline-flex items-center gap-1">
                     <Printer size={13} /> In Phiếu
                   </button>
-                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary min-h-[44px] px-3.5 text-xs font-bold rounded-xl">
+                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary min-h-[44px] px-3 text-xs font-bold rounded-xl inline-flex items-center gap-1">
                     <Edit3 size={13} /> Sửa
                   </button>
                   {!selectionMode && canDelete && (
@@ -525,6 +547,15 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             <button onClick={clearSelection} className="btn btn-secondary mobile-btn">
               Bỏ chọn
             </button>
+            {canTransfer && (
+              <button
+                type="button"
+                onClick={() => setPendingBulkTransfer(true)}
+                className="btn mobile-btn btn-secondary flex items-center gap-1.5"
+              >
+                <ArrowRightLeft size={14} /> Chuyển lớp
+              </button>
+            )}
             <button
               onClick={() => setPendingBulkDelete(true)}
               className="btn mobile-btn btn-danger"
@@ -577,6 +608,18 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         }}
         onCancel={() => setConfirmSendCards(false)}
       />
+      {pendingBulkTransfer && (
+        <BulkTransferClassModal
+          isOpen={pendingBulkTransfer}
+          studentIds={selectedStudents.map((s) => s.id)}
+          onClose={() => setPendingBulkTransfer(false)}
+          onSuccess={() => {
+            clearSelection();
+            setSelectionMode(false);
+            setPendingBulkTransfer(false);
+          }}
+        />
+      )}
     </>
   );
 };

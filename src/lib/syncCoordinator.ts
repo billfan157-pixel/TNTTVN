@@ -226,18 +226,15 @@ export async function runInitialSync(): Promise<void> {
     await runSyncFlow()
   } else {
     const pullScopeKey = captureSyncCursorScope()
-    const pullResult = await fetchAllData(true)
+    // A persisted delta cursor is not a valid base when the staff roster was
+    // lost locally. Choose one authoritative full pull up front, rather than
+    // first pulling a delta and then repeating every endpoint as a repair.
+    const { useAuthStore } = await import('../stores/authStore')
+    const isParent = useAuthStore.getState().user?.role === 'phuhuynh'
+    const needsFullRoster = !isParent && useStudentStore.getState().students.length === 0
+    const pullResult = await fetchAllData(!needsFullRoster)
     if (pullResult.ok && pullResult.queryTime) {
       await commitPullCursor(pullResult.queryTime, pullScopeKey)
-    }
-  }
-
-  // An empty local roster with a durable cursor is not a valid delta base.
-  if (useStudentStore.getState().students.length === 0 && navigator.onLine) {
-    const healScopeKey = captureSyncCursorScope()
-    const healResult = await fetchAllData(false)
-    if (healResult.ok && healResult.queryTime) {
-      await commitPullCursor(healResult.queryTime, healScopeKey)
     }
   }
 }

@@ -359,12 +359,27 @@ function quoteSqlLiteral(value: string): string {
   return `'${value.replace(/'/g, "''")}'`
 }
 
-async function getTableInfo(client: SchemaHealthClient, tableName: string) {
-  const result = await client.execute(`PRAGMA table_info(${quoteSqlLiteral(tableName)})`)
-  return result.rows.map((row) => ({
-    name: normalizeIdentifier(rowValue(row, 'name', 1)),
-    pk: Number(rowValue(row, 'pk', 5) ?? 0),
-  }))
+async function loadRequiredTableInfo(client: SchemaHealthClient) {
+  const names = [...new Set([
+    ...Object.keys(REQUIRED_COLUMNS),
+    ...Object.keys(REQUIRED_COMPOSITE_PRIMARY_KEYS),
+  ])]
+  const result = await client.execute(`
+    SELECT m.name AS table_name, p.name AS column_name, p.pk AS pk
+    FROM sqlite_master AS m JOIN pragma_table_info(m.name) AS p
+    WHERE m.type = 'table' AND m.name IN (${names.map(quoteSqlLiteral).join(', ')})
+  `)
+  const byTable = new Map<string, Array<{ name: string; pk: number }>>()
+  for (const row of result.rows) {
+    const tableName = normalizeIdentifier(rowValue(row, 'table_name', 0))
+    const columns = byTable.get(tableName) || []
+    columns.push({
+      name: normalizeIdentifier(rowValue(row, 'column_name', 1)),
+      pk: Number(rowValue(row, 'pk', 2) ?? 0),
+    })
+    byTable.set(tableName, columns)
+  }
+  return byTable
 }
 
 /**
@@ -423,8 +438,12 @@ export async function assertDatabaseReady(client: SchemaHealthClient): Promise<v
     if (!actualTriggers.has(triggerName)) problems.push(`missing required integrity trigger ${triggerName}`)
   }
 
+  // One schema snapshot replaces a remote PRAGMA round trip per table and
+  // shares it between column and composite-PK checks. Missing tables still
+  // produce empty column sets and fail the same readiness gates.
+  const tableInfoByName = await loadRequiredTableInfo(client)
   for (const [tableName, requiredColumns] of Object.entries(REQUIRED_COLUMNS)) {
-    const tableInfo = await getTableInfo(client, tableName)
+    const tableInfo = tableInfoByName.get(tableName) || []
     const actualColumns = new Set(tableInfo.map((column) => column.name))
     for (const column of requiredColumns) {
       if (!actualColumns.has(column)) problems.push(`missing required column ${tableName}.${column}`)
@@ -455,7 +474,7 @@ export async function assertDatabaseReady(client: SchemaHealthClient): Promise<v
   }
 
   for (const [tableName, primaryKeyColumns] of Object.entries(REQUIRED_COMPOSITE_PRIMARY_KEYS)) {
-    const tableInfo = await getTableInfo(client, tableName)
+    const tableInfo = tableInfoByName.get(tableName) || []
     const actualOrdinals = primaryKeyColumns.map(column => tableInfo.find(item => item.name === column)?.pk ?? 0)
     const valid = actualOrdinals.every((ordinal, index) => ordinal === index + 1)
     if (!valid) {

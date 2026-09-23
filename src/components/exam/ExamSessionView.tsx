@@ -26,7 +26,6 @@ import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
 import { ErrorBoundary } from '../common/ErrorBoundary'
-import { PageHeader } from '../common/PageHeader'
 import { SubpageHeader } from '../common/SubpageHeader'
 import { Badge, Button, Surface } from '../common/ui'
 import { Tabs, TabPanel } from '../common/ui/SelectionControls'
@@ -648,26 +647,37 @@ export const ExamSessionView: React.FC = () => {
               }
             />
           ) : (
-            <PageHeader
-              title="Chấm Bài Kiểm Tra"
-              description={
-                effectiveClassId
-                  ? `Lớp: ${findClassById(effectiveClassId)?.name || 'Lớp'} — Quản lý phiên chấm, QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
-                  : `Tất cả các lớp — Quản lý phiên chấm, QR + OMR và nhập nhanh tự đồng bộ điểm · Năm học ${normalizeActiveAY(activeAY)}`
-              }
-              icon={<ClipboardList className="h-5 w-5" />}
-              actions={
-                canManage ? (
+            <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+                  <ClipboardList size={16} />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-bold text-text-primary truncate">
+                    Chấm Bài Kiểm Tra
+                  </h2>
+                  <p className="text-xs text-text-muted truncate hidden xl:block">
+                    {effectiveClassId
+                      ? `Lớp: ${findClassById(effectiveClassId)?.name || 'Lớp'} · Học kỳ ${selectedSemester} · Năm học ${normalizeActiveAY(activeAY)}`
+                      : `Tất cả các lớp · Học kỳ ${selectedSemester} · Năm học ${normalizeActiveAY(activeAY)}`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge tone="primary">Học kỳ {selectedSemester}</Badge>
+                {canManage && (
                   <Button
                     size="sm"
+                    variant="primary"
                     leadingIcon={<Plus className="h-4 w-4" />}
                     onClick={handleOpenCreate}
+                    className="h-8.5 text-xs font-bold"
                   >
                     Tạo Phiên Chấm
                   </Button>
-                ) : undefined
-              }
-            />
+                )}
+              </div>
+            </div>
           )}
 
           {/* 4 Thẻ KPI Metrics Tổng Quan */}

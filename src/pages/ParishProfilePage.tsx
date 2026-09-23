@@ -624,7 +624,12 @@ export default function ParishProfilePage() {
           </div>
         </Surface>
 
-        <SectionHeading title="Lịch Sử Xứ Đoàn" description="Ngày thành lập, các đời Ban Điều Hành, cột mốc và sự kiện quan trọng." action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined} />
+        <SectionHeading
+          icon={<History size={16} />}
+          title="Lịch Sử Xứ Đoàn"
+          description="Ngày thành lập, các đời Ban Điều Hành, cột mốc và sự kiện quan trọng."
+          action={canManage ? () => setEditor({ kind: 'record', recordType: 'MILESTONE' }) : undefined}
+        />
         {milestones.length > 0 && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="relative">
@@ -648,43 +653,43 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="organization" activeValue={activeTab}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-          <SectionHeading
-            title="Cơ Cấu Tổ Chức"
-            description="Ban Điều Hành, các ban, ngành, chi đoàn và nhiệm kỳ phụ trách."
-            action={canManage ? () => setEditor({ kind: 'unit' }) : undefined}
-            actionLabel="Thêm đơn vị"
-            secondaryAction={canManage && snapshot.people.length ? () => setEditor({ kind: 'term' }) : undefined}
-            secondaryLabel="Thêm nhiệm kỳ"
-          />
-
-          {snapshot.units.length > 0 && (
-            <div className="flex items-center gap-1 bg-surface-sunken p-0.5 rounded-lg border border-surface-border shrink-0 self-start sm:self-center">
-              <button
-                type="button"
-                onClick={() => setOrgViewMode('grid')}
-                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors ${
-                  orgViewMode === 'grid'
-                    ? 'bg-surface-card text-parish-primary shadow-sm'
-                    : 'text-text-muted hover:text-text-main'
-                }`}
-              >
-                Dạng thẻ
-              </button>
-              <button
-                type="button"
-                onClick={() => setOrgViewMode('tree')}
-                className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors ${
-                  orgViewMode === 'tree'
-                    ? 'bg-surface-card text-parish-primary shadow-sm'
-                    : 'text-text-muted hover:text-text-main'
-                }`}
-              >
-                Sơ đồ phân cấp
-              </button>
-            </div>
-          )}
-        </div>
+        <SectionHeading
+          icon={<Building2 size={16} />}
+          title="Cơ Cấu Tổ Chức"
+          description="Ban Điều Hành, các ban, ngành, chi đoàn và nhiệm kỳ phụ trách."
+          action={canManage ? () => setEditor({ kind: 'unit' }) : undefined}
+          actionLabel="Thêm đơn vị"
+          secondaryAction={canManage && snapshot.people.length ? () => setEditor({ kind: 'term' }) : undefined}
+          secondaryLabel="Thêm nhiệm kỳ"
+          extraActions={
+            snapshot.units.length > 0 ? (
+              <div className="flex items-center gap-1 bg-surface-sunken p-0.5 rounded-lg border border-surface-border shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setOrgViewMode('grid')}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors ${
+                    orgViewMode === 'grid'
+                      ? 'bg-surface-card text-parish-primary shadow-xs'
+                      : 'text-text-muted hover:text-text-main'
+                  }`}
+                >
+                  Dạng thẻ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrgViewMode('tree')}
+                  className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors ${
+                    orgViewMode === 'tree'
+                      ? 'bg-surface-card text-parish-primary shadow-xs'
+                      : 'text-text-muted hover:text-text-main'
+                  }`}
+                >
+                  Sơ đồ phân cấp
+                </button>
+              </div>
+            ) : undefined
+          }
+        />
 
         {snapshot.units.length === 0 ? (
           <EmptyState icon={Building2} title="Chưa có cơ cấu tổ chức" description="Tạo Ban Điều Hành hoặc một đơn vị đầu tiên để bắt đầu." />
@@ -725,6 +730,7 @@ export default function ParishProfilePage() {
 
       <TabPanel tabsId="parish-profile-tabs" value="people" activeValue={activeTab}>
         <SectionHeading
+          icon={<UserRound size={16} />}
           title="Hồ Sơ Huynh Trưởng / GLV"
           description="Quá trình phục vụ, nhiệm vụ, cấp bậc, thời gian hoạt động và thành tích liên quan."
           action={canManage ? () => setEditor({ kind: 'person' }) : undefined}
@@ -822,7 +828,13 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="archive" activeValue={activeTab}>
-        <SectionHeading title="Kho Tư Liệu" description="Ảnh, video, poster, tài liệu, biên bản, chương trình và giấy khen." action={canManage ? () => setEditor({ kind: 'asset' }) : undefined} actionLabel="Thêm tư liệu" />
+        <SectionHeading
+          icon={<Archive size={16} />}
+          title="Kho Tư Liệu"
+          description="Ảnh, video, poster, tài liệu, biên bản, chương trình và giấy khen."
+          action={canManage ? () => setEditor({ kind: 'asset' }) : undefined}
+          actionLabel="Thêm tư liệu"
+        />
         {snapshot.assets.length > 0 && (
           <div className="mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div className="flex items-center gap-2 flex-wrap">
@@ -901,7 +913,12 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="achievements" activeValue={activeTab}>
-        <SectionHeading title="Khen Thưởng & Thành Tích" description="Ghi nhận cá nhân, tập thể và những mốc đáng nhớ." action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACHIEVEMENT' }) : undefined} />
+        <SectionHeading
+          icon={<Award size={16} />}
+          title="Khen Thưởng & Thành Tích"
+          description="Ghi nhận cá nhân, tập thể và những mốc đáng nhớ."
+          action={canManage ? () => setEditor({ kind: 'record', recordType: 'ACHIEVEMENT' }) : undefined}
+        />
         {achievements.length > 0 && (
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="relative">
@@ -925,7 +942,11 @@ export default function ParishProfilePage() {
       </TabPanel>
 
       <TabPanel tabsId="parish-profile-tabs" value="timeline" activeValue={activeTab}>
-        <SectionHeading title="Timeline Xứ Đoàn" description="Dòng thời gian được tổng hợp từ ngày thành lập, nhiệm kỳ và các bản ghi được chọn hiển thị." />
+        <SectionHeading
+          icon={<FileClock size={16} />}
+          title="Timeline Xứ Đoàn"
+          description="Dòng thời gian được tổng hợp từ ngày thành lập, nhiệm kỳ và các bản ghi được chọn hiển thị."
+        />
         <Timeline items={snapshot.timeline} />
       </TabPanel>
 
@@ -1020,8 +1041,70 @@ function StatCard({ label, value, icon, hint }: { label: string; value: string; 
   )
 }
 
-function SectionHeading({ title, description, action, actionLabel = 'Thêm bản ghi', secondaryAction, secondaryLabel, extraActions }: { title: string; description: string; action?: () => void; actionLabel?: string; secondaryAction?: (() => void) | false; secondaryLabel?: string; extraActions?: React.ReactNode }) {
-  return <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="typography-section-title">{title}</h2><p className="mt-1 typography-body-sm text-text-muted">{description}</p></div>{(action || secondaryAction || extraActions) && <div className="flex flex-wrap gap-2">{extraActions}{secondaryAction && <Button size="sm" variant="secondary" leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />} onClick={secondaryAction}>{secondaryLabel}</Button>}{action && <Button size="sm" leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />} onClick={action}>{actionLabel}</Button>}</div>}</div>
+function SectionHeading({
+  title,
+  description,
+  action,
+  actionLabel = 'Thêm bản ghi',
+  secondaryAction,
+  secondaryLabel,
+  extraActions,
+  icon,
+}: {
+  title: string
+  description: string
+  action?: () => void
+  actionLabel?: string
+  secondaryAction?: (() => void) | false
+  secondaryLabel?: string
+  extraActions?: React.ReactNode
+  icon?: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs mb-4">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
+          {icon || <Landmark size={16} />}
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-base font-bold text-text-primary truncate">
+            {title}
+          </h2>
+          <p className="text-xs text-text-muted truncate hidden xl:block">
+            {description}
+          </p>
+        </div>
+      </div>
+
+      {(action || secondaryAction || extraActions) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {extraActions}
+          {secondaryAction && (
+            <Button
+              size="sm"
+              variant="secondary"
+              leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />}
+              onClick={secondaryAction}
+              className="h-8.5 text-xs font-bold"
+            >
+              {secondaryLabel}
+            </Button>
+          )}
+          {action && (
+            <Button
+              size="sm"
+              variant="primary"
+              leadingIcon={<Plus aria-hidden="true" className="h-4 w-4" />}
+              onClick={action}
+              className="h-8.5 text-xs font-bold"
+            >
+              {actionLabel}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function RecordList({ records, empty, canManage, onEdit, onDelete, peopleById }: { records: ParishRecord[]; empty: string; canManage: boolean; onEdit: (item: ParishRecord) => void; onDelete: (item: ParishRecord) => void; peopleById: Map<string, ParishPerson> }) {

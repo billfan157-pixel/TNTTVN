@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { UserPlus, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Search, UserCheck, UserPlus, Users } from 'lucide-react'
 import { Badge, Button, Select, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
 import { operationsApi, type OperationEventDetail, type OperationEventHeadcount, type OperationEventParticipant } from '../../lib/api/operations'
@@ -32,6 +32,8 @@ const STATUS_TONES: Record<OperationEventParticipant['attendanceStatus'], 'neutr
   ABSENT: 'warning',
 }
 
+type ParticipantFilterStatus = 'ALL' | OperationEventParticipant['attendanceStatus']
+
 export function EventParticipantsPanel({ detail, enabled, refresh }: {
   detail: OperationEventDetail
   enabled: boolean
@@ -47,6 +49,8 @@ export function EventParticipantsPanel({ detail, enabled, refresh }: {
   const [headcountState, setHeadcountState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [targetValue, setTargetValue] = useState('')
   const [role, setRole] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<ParticipantFilterStatus>('ALL')
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const { stableKey, releaseKey } = useStableCommandKey()
@@ -70,6 +74,34 @@ export function EventParticipantsPanel({ detail, enabled, refresh }: {
       (participant.userId != null && candidate.userId === participant.userId)
       || (participant.personId != null && candidate.personId === participant.personId),
     )?.displayName ?? 'Người tham dự'
+
+  const filteredParticipants = useMemo(() => {
+    return participants.filter(participant => {
+      if (statusFilter !== 'ALL' && participant.attendanceStatus !== statusFilter) {
+        return false
+      }
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim()
+        const name = displayName(participant).toLowerCase()
+        const participantRole = (participant.participantRole ?? '').toLowerCase()
+        if (!name.includes(query) && !participantRole.includes(query)) return false
+      }
+      return true
+    })
+  }, [participants, statusFilter, searchQuery, directory.candidates])
+
+  const attendancePercent = headcount && headcount.total > 0
+    ? Math.round(((headcount.confirmed + headcount.attended) / headcount.total) * 100)
+    : 0
+
+  const filterOptions: Array<{ key: ParticipantFilterStatus; label: string; count: number }> = [
+    { key: 'ALL', label: 'Tất cả', count: participants.length },
+    { key: 'CONFIRMED', label: 'Đã xác nhận', count: participants.filter(p => p.attendanceStatus === 'CONFIRMED').length },
+    { key: 'ATTENDED', label: 'Đã tham dự', count: participants.filter(p => p.attendanceStatus === 'ATTENDED').length },
+    { key: 'PLANNED', label: 'Dự kiến', count: participants.filter(p => p.attendanceStatus === 'PLANNED').length },
+    { key: 'ABSENT', label: 'Vắng', count: participants.filter(p => p.attendanceStatus === 'ABSENT').length },
+    { key: 'DECLINED', label: 'Từ chối', count: participants.filter(p => p.attendanceStatus === 'DECLINED').length },
+  ]
 
   const add = async () => {
     const scope = getTenantScopeKey()
@@ -113,70 +145,127 @@ export function EventParticipantsPanel({ detail, enabled, refresh }: {
   }
 
   return (
-    <section className="space-y-3" aria-label="Người tham dự">
+    <section className="space-y-3.5" aria-label="Người tham dự">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 text-sm font-bold text-text-main">Người tham dự ({participants.length})</h3>
-        {headcountState !== 'error' && (
-          <p className="m-0 text-xs text-text-muted">
-            {headcount
-              ? <>Dự kiến {headcount.expected ?? '—'} · Tổng {headcount.total} · Xác nhận {headcount.confirmed} · Tham dự {headcount.attended}</>
-              : 'Đang tải tổng hợp số lượng…'}
-          </p>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-parish-primary-light text-parish-primary shrink-0">
+            <Users className="h-4 w-4" />
+          </div>
+          <div>
+            <h3 className="m-0 text-sm font-extrabold text-text-main">Người tham dự ({participants.length})</h3>
+            {headcountState !== 'error' && (
+              <p className="m-0 text-xs text-text-muted">
+                {headcount
+                  ? <>Dự kiến {headcount.expected ?? '—'} · Tổng {headcount.total} · Xác nhận {headcount.confirmed} · Tham dự {headcount.attended}</>
+                  : 'Đang tải tổng hợp số lượng…'}
+              </p>
+            )}
+          </div>
+        </div>
+        {headcount && headcount.total > 0 && (
+          <div className="flex items-center gap-1.5 rounded-lg bg-surface-card border border-surface-border px-2.5 py-1 text-xs">
+            <UserCheck className="h-3.5 w-3.5 text-parish-success" />
+            <span className="font-semibold text-text-muted">Tỷ lệ sẵn sàng:</span>
+            <span className="font-bold text-parish-success">{attendancePercent}%</span>
+          </div>
         )}
       </div>
       {error && <p role="alert" className="m-0 text-sm text-parish-danger">{error}</p>}
 
       {canManage && (
-        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-surface-border bg-surface-ground/30 p-3">
-          <label className="min-w-[180px] flex-1 text-xs text-text-muted">
+        <div className="flex flex-wrap items-end gap-2.5 rounded-xl border border-surface-border bg-surface-card p-3 sm:p-3.5 shadow-2xs">
+          <label className="min-w-[180px] flex-1 text-xs font-semibold text-text-muted">
             Người tham dự
-            <Select aria-label="Chọn người tham dự" className="mt-1 w-full" value={targetValue} disabled={busyId !== null} onChange={event => setTargetValue(event.target.value)}>
+            <Select aria-label="Chọn người tham dự" className="mt-1 w-full min-h-[44px] sm:min-h-0" value={targetValue} disabled={busyId !== null} onChange={event => setTargetValue(event.target.value)}>
               <option value="">{directory.loading ? 'Đang tải danh sách…' : '— Chọn người —'}</option>
               {directory.candidates.map(candidate => (
                 <option key={operationCandidateValue(candidate)} value={operationCandidateValue(candidate)}>{candidate.displayName}</option>
               ))}
             </Select>
           </label>
-          <label className="min-w-[140px] flex-1 text-xs text-text-muted">
+          <label className="min-w-[140px] flex-1 text-xs font-semibold text-text-muted">
             Vai trò (tùy chọn)
-            <TextInput aria-label="Vai trò người tham dự" className="mt-1 w-full" value={role} maxLength={80} disabled={busyId !== null} placeholder="VD: Hậu cần, Phụng vụ…" onChange={event => setRole(event.target.value)} />
+            <TextInput aria-label="Vai trò người tham dự" className="mt-1 w-full min-h-[44px] sm:min-h-0" value={role} maxLength={80} disabled={busyId !== null} placeholder="VD: Hậu cần, Phụng vụ…" onChange={event => setRole(event.target.value)} />
           </label>
-          <Button size="sm" leadingIcon={<UserPlus className="h-4 w-4" />} disabled={!targetValue || busyId !== null} loading={busyId === 'add'} onClick={() => void add()}>
+          <Button size="sm" className="min-h-[44px] sm:min-h-0" leadingIcon={<UserPlus className="h-4 w-4" />} disabled={!targetValue || busyId !== null} loading={busyId === 'add'} onClick={() => void add()}>
             Thêm
           </Button>
         </div>
       )}
 
-      {participants.length === 0 && (
-        <EmptyState icon={Users} title="Chưa có người tham dự" description="Thêm người tham gia sự kiện để theo dõi số lượng và xác nhận." className="py-6" />
+      {participants.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text-muted pointer-events-none" />
+            <TextInput
+              aria-label="Tìm người tham dự"
+              className="pl-8 text-xs w-full min-h-[44px] sm:min-h-0"
+              placeholder="Tìm theo tên hoặc vai trò..."
+              value={searchQuery}
+              onChange={event => setSearchQuery(event.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5" role="group" aria-label="Lọc người tham dự theo trạng thái">
+            {filterOptions.filter(opt => opt.count > 0 || opt.key === 'ALL').map(opt => (
+              <button
+                key={opt.key}
+                type="button"
+                aria-pressed={statusFilter === opt.key}
+                className={`shrink-0 whitespace-nowrap px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors min-h-[44px] sm:min-h-0 inline-flex items-center justify-center ${
+                  statusFilter === opt.key
+                    ? 'bg-parish-primary text-text-inverse shadow-xs'
+                    : 'bg-surface-card text-text-muted hover:text-text-main border border-surface-border hover:bg-surface-hover'
+                }`}
+                onClick={() => setStatusFilter(opt.key)}
+              >
+                {opt.label} ({opt.count})
+              </button>
+            ))}
+          </div>
+        </div>
       )}
 
-      <div className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-card overflow-hidden">
-        {participants.map(participant => (
-          <div key={participant.id} className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5">
-            <span className="min-w-0 truncate text-sm text-text-main">
-              {displayName(participant)}
-              {participant.participantRole && participant.participantRole !== 'ATTENDEE' && (
-                <span className="ml-2 text-xs text-text-muted">· {participant.participantRole}</span>
+      {participants.length === 0 ? (
+        <EmptyState icon={Users} title="Chưa có người tham dự" description="Thêm người tham gia sự kiện để theo dõi số lượng và xác nhận." className="py-6" />
+      ) : filteredParticipants.length === 0 ? (
+        <EmptyState icon={Search} title="Không tìm thấy người tham dự" description="Không có người tham dự nào khớp với từ khóa tìm kiếm hoặc bộ lọc trạng thái." className="py-6" />
+      ) : (
+        <div className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-card overflow-hidden shadow-2xs">
+          {filteredParticipants.map(participant => (
+            <div key={participant.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 sm:py-3 hover:bg-surface-hover/30 transition-colors">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-ground text-text-muted text-xs font-bold shrink-0">
+                  {displayName(participant).charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0 truncate">
+                  <span className="text-sm font-semibold text-text-main">
+                    {displayName(participant)}
+                  </span>
+                  {participant.participantRole && participant.participantRole !== 'ATTENDEE' && (
+                    <span className="ml-2 text-xs text-text-muted">· {participant.participantRole}</span>
+                  )}
+                  <Badge tone={STATUS_TONES[participant.attendanceStatus]} className="ml-2">
+                    {STATUS_LABELS_VI[participant.attendanceStatus]}
+                  </Badge>
+                </div>
+              </div>
+              {canManage && (
+                <Select
+                  aria-label={`Trạng thái tham dự của ${displayName(participant)}`}
+                  className="w-40 sm:w-44 min-h-[44px] sm:min-h-0 text-xs"
+                  value={participant.attendanceStatus}
+                  disabled={busyId !== null}
+                  onChange={event => void changeStatus(participant, event.target.value as OperationEventParticipant['attendanceStatus'])}
+                >
+                  {(Object.keys(STATUS_LABELS_VI) as OperationEventParticipant['attendanceStatus'][]).map(status => (
+                    <option key={status} value={status}>{STATUS_LABELS_VI[status]}</option>
+                  ))}
+                </Select>
               )}
-              <Badge tone={STATUS_TONES[participant.attendanceStatus]} className="ml-2">{STATUS_LABELS_VI[participant.attendanceStatus]}</Badge>
-            </span>
-            {canManage && (
-              <Select
-                aria-label={`Trạng thái tham dự của ${displayName(participant)}`}
-                className="w-40 sm:w-44"
-                value={participant.attendanceStatus}
-                disabled={busyId !== null}
-                onChange={event => void changeStatus(participant, event.target.value as OperationEventParticipant['attendanceStatus'])}
-              >
-                {(Object.keys(STATUS_LABELS_VI) as OperationEventParticipant['attendanceStatus'][]).map(status => (
-                  <option key={status} value={status}>{STATUS_LABELS_VI[status]}</option>
-                ))}
-              </Select>
-            )}
-          </div>
-        ))}
-      </div>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
