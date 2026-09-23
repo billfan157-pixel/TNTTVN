@@ -22,7 +22,7 @@ In Desktop mode, nested views inside `TabPanel` (such as `DesktopAttendanceGrid`
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 26 source page modules                                    │
-│  Components: 153 (audit: 5, auth: 5, common: 35, desktop: 24, exam: 15,     │
+│  Components: 154 (audit: 5, auth: 5, common: 36, desktop: 24, exam: 15,     │
 │  finance: 4, landing: 4, mobile: 17, operations: 30, parish: 11)  │
 │  Router: TanStack Router (27 policy paths, 6 public + 21 protected)│
 │  State: 25 Zustand stores (12 persist, 13 in-memory)               │
