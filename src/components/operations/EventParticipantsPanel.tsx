@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Search, UserCheck, UserPlus, Users } from 'lucide-react'
 import { Badge, Button, Select, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
@@ -34,12 +34,14 @@ const STATUS_TONES: Record<OperationEventParticipant['attendanceStatus'], 'neutr
 
 type ParticipantFilterStatus = 'ALL' | OperationEventParticipant['attendanceStatus']
 
+const EMPTY_PARTICIPANTS: OperationEventParticipant[] = []
+
 export function EventParticipantsPanel({ detail, enabled, refresh }: {
   detail: OperationEventDetail
   enabled: boolean
   refresh: () => Promise<unknown>
 }) {
-  const participants = detail.participants ?? []
+  const participants = detail.participants ?? EMPTY_PARTICIPANTS
   const canManage = Boolean(detail.permissions['operations.event.manage']) && enabled && !isClosedEvent(detail.event.status)
   const directory = useOperationCandidates({ eventId: detail.event.id }, canManage)
 
@@ -69,11 +71,11 @@ export function EventParticipantsPanel({ detail, enabled, refresh }: {
     return () => { current = false }
   }, [detail.event.id])
 
-  const displayName = (participant: OperationEventParticipant) =>
+  const displayName = useCallback((participant: OperationEventParticipant) =>
     directory.candidates.find(candidate =>
       (participant.userId != null && candidate.userId === participant.userId)
       || (participant.personId != null && candidate.personId === participant.personId),
-    )?.displayName ?? 'Người tham dự'
+    )?.displayName ?? 'Người tham dự', [directory.candidates])
 
   const filteredParticipants = useMemo(() => {
     return participants.filter(participant => {
@@ -88,7 +90,7 @@ export function EventParticipantsPanel({ detail, enabled, refresh }: {
       }
       return true
     })
-  }, [participants, statusFilter, searchQuery, directory.candidates])
+  }, [participants, statusFilter, searchQuery, displayName])
 
   const attendancePercent = headcount && headcount.total > 0
     ? Math.round(((headcount.confirmed + headcount.attended) / headcount.total) * 100)

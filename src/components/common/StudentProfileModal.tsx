@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useCallback } from 'react'
 import {
   User,
   Phone,
@@ -15,17 +15,15 @@ import {
   AlertCircle,
   QrCode,
   Download,
-  Calendar,
   MapPin,
   ShieldCheck,
   FileText,
   Sparkles,
   Check,
   ExternalLink,
-  ChevronRight,
   TrendingUp,
 } from 'lucide-react'
-import type { Student, BranchType } from '../../types'
+import type { Student } from '../../types'
 import { ModalShell } from './ModalShell'
 import { StudentName } from './StudentName'
 import { Badge, type BadgeTone } from './ui/Badge'

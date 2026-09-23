@@ -1,17 +1,11 @@
 import { useState } from 'react'
 import {
-  Calendar,
-  CalendarCheck,
   CalendarPlus,
   Check,
   Clock,
   Eye,
-  Globe,
-  Layers,
-  Lock,
   MapPin,
   ShieldCheck,
-  Sparkles,
   Users,
   ChevronRight,
   ChevronLeft,
