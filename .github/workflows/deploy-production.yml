@@ -169,3 +169,12 @@ jobs:
           frontend_headers="$(curl --fail --silent --show-error --head https://tnttvn.vercel.app/)"
           grep -qi '^content-security-policy:' <<<"$frontend_headers"
           grep -qi '^strict-transport-security:' <<<"$frontend_headers"
+          # CSP-TOOLBAR-1 (2026-09-23): strict CSP (A-NEW-23) và Vercel Toolbar
+          # loại trừ nhau — toolbar chèn <style> element nên luôn sinh violation
+          # style-src, vì vậy repository không allow-list https://vercel.live nữa.
+          # Giữ Vercel Toolbar Off cho Production thay vì nới policy.
+          frontend_csp="$(grep -i '^content-security-policy:' <<<"$frontend_headers")"
+          if grep -qi 'vercel\.live' <<<"$frontend_csp"; then
+            echo "Production CSP still allows https://vercel.live (Vercel Toolbar); keep the Toolbar Off for Production (CSP-TOOLBAR-1)." >&2
+            exit 1
+          fi

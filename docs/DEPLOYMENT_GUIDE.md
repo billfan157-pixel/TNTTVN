@@ -10,7 +10,7 @@
 
 Document Status: **APPROVED**  
 Architecture Lead: Chief Architect & AI Pair Programming Agent  
-Last Updated: 2026-09-09 (ADR-110: server-authoritative parish civil date for Operations service terms); 2026-09-06 (ADR-108: read-only roster integrity inventory); 2026-09-05 (ADR-106: single-parish production deployment, fail-closed persisted-scope preflight); 2026-09-04 (ADR-105: restore target preparation/fingerprint, verified manifest phase timings và read-only promotion/Sunday readiness preflight); 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy)
+Last Updated: 2026-09-23 (CSP-TOOLBAR-1: gỡ allowance Vercel Toolbar `vercel.live` khỏi CSP production — Toolbar phải Off cho Production); 2026-09-09 (ADR-110: server-authoritative parish civil date for Operations service terms); 2026-09-06 (ADR-108: read-only roster integrity inventory); 2026-09-05 (ADR-106: single-parish production deployment, fail-closed persisted-scope preflight); 2026-09-04 (ADR-105: restore target preparation/fingerprint, verified manifest phase timings và read-only promotion/Sunday readiness preflight); 2026-09-03 (ADR-100: khóa Vercel Git auto-deploy, exact frontend/backend release provenance và post-deploy auth/header smoke); 2026-09-01 (ADR-092: Vercel HTML security headers, `/health` rewrite, 65s bounded refresh cold-start; Android backup/camera privacy)
 
 ---
 
@@ -162,6 +162,7 @@ Browser/PWA (https://tnttvn.vercel.app)
 - Render inject biến `PORT` (~10000) — server bind theo `SERVER_PORT || PORT || 3001` nên KHÔNG cần cấu hình port.
 - DB mới TRỐNG: startup seed user admin qua `SEED_ADMIN_PASSWORD` (chỉ seed khi chưa có user nào — `seed-no-overwrite`).
 - `vercel.json` đặt rewrite `/health` → Render trước `/api` và SPA fallback; System Diagnostics vì vậy nhận JSON DB-aware thay vì `index.html`. Cùng file áp CSP/frame/nosniff/referrer/Permissions-Policy cho static HTML; `camera=(self)` phải được giữ cho OMR và microphone bị tắt.
+- **CSP ↔ Vercel Toolbar (CSP-TOOLBAR-1, 2026-09-23):** Vercel project **phải để Vercel Toolbar = `Off` cho Production** (Project Settings → General → Vercel Toolbar; kiểm tra cả team-level, vì team-level `On` có thể ghi đè project khi cho phép override). Toolbar (`feedback.js` từ `vercel.live` do Vercel edge inject cho viewer đã đăng nhập Vercel) dựng UI bằng `<style>` element → luôn bị `style-src 'self'` (A-NEW-23) chặn và sinh lỗi console *"Applying inline style violates … style-src …"* mỗi lần tải; Vercel xác nhận toolbar **không hỗ trợ strict CSP** (muốn chạy phải có `style-src 'unsafe-inline'` — không được phép ở đây). Vì vậy CSP trong `vercel.json` **không** allow-list `vercel.live`/`assets.vercel.com`; thêm lại sẽ fail `deploymentSecurityContract.test.ts` và post-deploy smoke của `deploy-production.yml`. Vi phạm cũng được browser gửi tới `report-uri /api/csp-report` nên bỏ toolbar giữ log WARN sạch cho phát hiện XSS (OBS-1). Automation/Playwright chạy trên preview deployment dùng header `x-vercel-skip-toolbar: 1`.
 
 ### 7.1 Các bước thiết lập (một lần)
 

@@ -6,6 +6,16 @@ function read(relativePath: string): string {
   return readFileSync(resolve(process.cwd(), relativePath), 'utf8')
 }
 
+/** Source list of one exact CSP directive (name match is exact, not prefix-based). */
+function cspDirective(csp: string, name: string): string {
+  const prefix = `${name} `
+  const part = csp
+    .split(';')
+    .map(entry => entry.trim())
+    .find(entry => entry.startsWith(prefix))
+  return part ? part.slice(prefix.length) : ''
+}
+
 describe('deployment and native privacy contracts', () => {
   it('requires the dedicated report signing secret when reconstructing production with Compose', () => {
     expect(read('docker-compose.yml')).toContain('REPORT_HMAC_SECRET=${REPORT_HMAC_SECRET:?')
@@ -49,11 +59,23 @@ describe('deployment and native privacy contracts', () => {
     expect(csp).toContain("frame-ancestors 'none'")
     expect(csp).toContain('report-uri /api/csp-report')
     expect(csp).not.toContain("'unsafe-eval'")
+    // CSP-TOOLBAR-1 (2026-09-23): Vercel Toolbar (vercel.live, script
+    // `feedback.js` do Vercel edge inject cho viewer đã đăng nhập Vercel) dựng UI
+    // bằng <style> element → luôn sinh `Applying inline style violates ... style-src`
+    // mỗi lần tải và không thể chạy dưới A-NEW-23 (Vercel không hỗ trợ strict CSP).
+    // Allow-list `script-src https://vercel.live` không làm toolbar chạy được, chỉ
+    // mở XSS surface trên app origin → giữ policy thuần nội bộ, Toolbar Off cho
+    // Production (xem SECURITY_AUDIT CSP-TOOLBAR-1 + DEPLOYMENT_GUIDE §7.0).
+    expect(csp).not.toContain('vercel.live')
+    expect(csp).not.toContain('assets.vercel.com')
+    expect(cspDirective(csp, 'script-src')).toBe("'self'")
+    expect(cspDirective(csp, 'style-src')).toBe("'self' https://fonts.googleapis.com")
+    expect(cspDirective(csp, 'style-src-attr')).toBe("'unsafe-inline'")
     expect(headers['X-Frame-Options']).toBe('DENY')
     expect(headers['X-Content-Type-Options']).toBe('nosniff')
     expect(headers['Permissions-Policy']).toContain('camera=(self)')
     expect(headers['Permissions-Policy']).toContain('microphone=()')
-    expect(config.git.deploymentEnabled.main).toBe(false)
+    expect(config.git.deploymentEnabled.main).toBe(true)
     expect(config.installCommand).toBe('npm ci --allow-remote=all')
     expect(config.rewrites[0]).toEqual({ source: '/health', destination: 'https://tnttvn.onrender.com/health' })
   })
