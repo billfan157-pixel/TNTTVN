@@ -441,16 +441,19 @@ describe('MobileViewsEnhancement Tests', () => {
   })
 
   describe('MobileCalendarView', () => {
-    it('renders upcoming solemnities as accessible button elements', () => {
+    it('renders upcoming solemnities in the Lễ Trọng view as accessible rows', () => {
       render(<MobileCalendarView />)
 
-      const solemnityHeading = screen.getByText(/Lễ Trọng Sắp Tới/i)
-      expect(solemnityHeading).toBeInTheDocument()
+      // U-20 redesign (a6d5dc1): danh sách lễ trọng chuyển thành VIEW 3 sau toggle
+      // 'Lễ Trọng' — view mặc định là lưới tháng, nên phải chuyển view trước khi assert.
+      fireEvent.click(screen.getByRole('radio', { name: /Lễ Trọng/ }))
 
-      const solemnityButtons = screen.getAllByRole('button').filter(btn =>
-        btn.className.includes('bg-surface-app')
-      )
-      expect(solemnityButtons.length).toBeGreaterThan(0)
+      expect(screen.getByText('Lễ Trọng & Lễ Buộc Sắp Tới')).toBeInTheDocument()
+      // Engine phụng vụ luôn tìm thấy ≥1 lễ trọng/lễ buộc trong cửa sổ quét 90 ngày
+      // ở mọi thời điểm trong năm; mỗi entry render là 1 hàng nền bg-surface-app.
+      const panel = screen.getByText('Lễ Trọng & Lễ Buộc Sắp Tới').closest('.app-panel')
+      expect(panel).not.toBeNull()
+      expect(panel!.querySelectorAll('.bg-surface-app').length).toBeGreaterThan(0)
     })
   })
 })
