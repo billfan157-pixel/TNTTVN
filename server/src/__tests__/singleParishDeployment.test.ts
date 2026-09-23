@@ -179,4 +179,42 @@ describe('single-parish deployment boundary', () => {
       client.close()
     }
   })
+
+  it('chunks queries safely when scoped table count exceeds 50', async () => {
+    const client = createClient({ url: ':memory:' })
+    try {
+      const TABLE_COUNT = 55
+      for (let i = 0; i < TABLE_COUNT; i++) {
+        await client.execute(`CREATE TABLE scoped_tbl_${i} (id TEXT PRIMARY KEY, parish_id TEXT)`)
+        await client.execute({
+          sql: `INSERT INTO scoped_tbl_${i} VALUES (?, ?)`,
+          args: [`id_${i}`, i === 52 ? 'foreign-parish' : PARISH],
+        })
+      }
+
+      let statements = 0
+      const countedClient = {
+        transaction: async () => {
+          const tx = await client.transaction('read')
+          return new Proxy(tx, {
+            get(target, key) {
+              const value = Reflect.get(target, key)
+              if (key === 'execute') return (...args: unknown[]) => {
+                statements++
+                return (value as (...args: unknown[]) => unknown).apply(target, args)
+              }
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          })
+        },
+      } as unknown as Parameters<typeof assertSingleParishDeploymentData>[0]
+
+      await expect(assertSingleParishDeploymentData(countedClient, PARISH))
+        .rejects.toThrow(/unexpected parish scope in tables: scoped_tbl_52/)
+      // 1 statement for sqlite_master discovery + Math.ceil(55 / 25) = 3 chunk statements = 4 total
+      expect(statements).toBe(4)
+    } finally {
+      client.close()
+    }
+  })
 })

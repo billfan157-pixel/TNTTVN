@@ -1,6 +1,7 @@
 import type { Client, Transaction } from '@libsql/client'
 
 const SAFE_TABLE_NAME = /^[A-Za-z0-9_]+$/
+export const MAX_COMPOUND_SELECT_TERMS = 25
 
 /**
  * Read-only production preflight. It discovers every persisted parish_id column
@@ -25,11 +26,20 @@ async function findMismatchedTables(executor: Transaction, parishId: string): Pr
 
   // EXISTS short-circuits each table at its first offending row. UNION ALL
   // returns only table names, preserving the previous privacy-safe error.
-  const checks = scopedTables.map((tableName) =>
-    `SELECT '${tableName}' AS name WHERE EXISTS (SELECT 1 FROM "${tableName}" WHERE parish_id IS NULL OR parish_id <> ?)`
-  ).join(' UNION ALL ')
-  const mismatches = await executor.execute({ sql: checks, args: scopedTables.map(() => parishId) })
-  return mismatches.rows.map((row) => String((row as Record<string, unknown>).name))
+  // Chunking respects SQLite's SQLITE_LIMIT_COMPOUND_SELECT (default 50 in many environments)
+  // to prevent startup failure when the schema grows beyond 50 scoped tables.
+  const mismatchedTables: string[] = []
+  for (let i = 0; i < scopedTables.length; i += MAX_COMPOUND_SELECT_TERMS) {
+    const chunk = scopedTables.slice(i, i + MAX_COMPOUND_SELECT_TERMS)
+    const checks = chunk.map((tableName) =>
+      `SELECT '${tableName}' AS name WHERE EXISTS (SELECT 1 FROM "${tableName}" WHERE parish_id IS NULL OR parish_id <> ?)`
+    ).join(' UNION ALL ')
+    const mismatches = await executor.execute({ sql: checks, args: chunk.map(() => parishId) })
+    for (const row of mismatches.rows) {
+      mismatchedTables.push(String((row as Record<string, unknown>).name))
+    }
+  }
+  return mismatchedTables
 }
 
 export async function assertSingleParishDeploymentData(client: Pick<Client, 'transaction'>, parishId: string): Promise<void> {
