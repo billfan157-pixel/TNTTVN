@@ -1,5 +1,7 @@
 import React, { Suspense } from 'react'
 import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Loader2 } from 'lucide-react'
+import appLogo from '../../assets/app-logo-192.png'
 import { HeaderBar } from './HeaderBar'
 import { DesktopSidebar, type DesktopTab } from '../desktop/DesktopSidebar'
 import { MobileAppShell } from '../mobile/MobileAppShell'
@@ -23,6 +25,8 @@ import { useStoreErrorWatcher } from '../../hooks/useStoreErrorWatcher'
 import { useScrollRestoration } from '../../hooks/useScrollRestoration'
 import { useMobileRoutePreload } from '../../hooks/useMobileRoutePreload'
 import { useOperationsPendingCount } from '../../hooks/useOperationsPendingCount'
+import { useDelayedNotice } from '../../hooks/useDelayedNotice'
+import { ColdStartNotice } from './ColdStartNotice'
 import { getFilteredClassList, useClassStore } from '../../stores/classStore'
 import { useAuthStore } from '../../stores/authStore'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -104,9 +108,13 @@ export function RootLayout() {
   }, [semesterRestricted, semesterReady, openSemester, selectedSemester, setSelectedSemester])
 
   // GLV may browse the parish-wide roster by class on /students. Keep that
-  // selection on the roster only; other staff modules remain class-scoped at
-  // the server and must not inherit a stale persisted class filter.
+  // selection on the roster only; other staff modules remain class-scoped at the
+  // server and must not inherit a stale persisted class filter.
   const authReady = useAuthStore(s => s.authReady)
+  // Cold-start hint: session bootstrap can legally wait tens of seconds while
+  // the hosting instance wakes (transport keeps a 65s refresh window). Show the
+  // reassurance note only after a normal wait has clearly been exceeded.
+  const slowAuthWait = useDelayedNotice(!authReady)
 
   React.useEffect(() => {
     if (!workspaceStorageKey) return
@@ -171,8 +179,22 @@ export function RootLayout() {
 
   if (!authReady) {
     return (
-      <div className="min-h-screen bg-surface-app flex items-center justify-center text-text-muted text-sm">
-        Đang xác thực phiên làm việc...
+      <div className="min-h-screen bg-surface-app flex items-center justify-center p-5 font-sans">
+        <section
+          className="auth-card w-full max-w-sm p-6 text-center space-y-4"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="mx-auto w-16 h-16 rounded-2xl overflow-hidden shadow-md border border-surface-border bg-surface-card">
+            <img src={appLogo} alt="" className="w-full h-full object-cover" />
+          </div>
+          <div className="flex items-center justify-center gap-2 text-sm text-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            Đang xác thực phiên làm việc...
+          </div>
+          {slowAuthWait && <ColdStartNotice />}
+        </section>
       </div>
     )
   }
