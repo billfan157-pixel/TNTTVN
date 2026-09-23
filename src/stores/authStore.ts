@@ -167,7 +167,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   login: async (username: string, password: string) => {
     if (logoutInFlight) await logoutInFlight
-    set({ isLoading: true, error: null, authReady: false })
+    // authReady ý nghĩa "session bootstrap đã phân định" — login do người dùng chủ
+    // động khởi phát nên KHÔNG flip authReady về false: RootLayout sẽ không unmount
+    // trang login giữa chừng, giữ nguyên form (và thông tin đã gõ) khi login thất bại.
+    // isLoading là trạng thái phản hồi UI duy nhất trong lúc submit.
+    set({ isLoading: true, error: null })
     try {
       const res = await api.login(username, password)
       if (res && res.accessToken && res.user.parishId) {

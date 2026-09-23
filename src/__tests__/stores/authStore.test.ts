@@ -127,6 +127,32 @@ describe('authStore — login', () => {
     expect(ok).toBe(false)
     expect(useAuthStore.getState().error).toContain('thiếu tenant context')
   })
+
+  // REGRESSION (2026-09-23): login từng flip authReady:false khi submit → RootLayout
+  // unmount trang login giữa chừng → login thất bại làm mất username/mật khẩu đã gõ.
+  // authReady chỉ thuộc vòng đời bootstrap; login phản hồi UI qua isLoading.
+  it('login đang chờ phản hồi KHÔNG flip authReady về false', async () => {
+    useAuthStore.setState({ authReady: true })
+    let resolveLogin!: (value: unknown) => void
+    mockApi.login.mockImplementationOnce(
+      () => new Promise((resolve) => { resolveLogin = resolve }),
+    )
+    const pending = useAuthStore.getState().login('u', 'p')
+    expect(useAuthStore.getState().isLoading).toBe(true)
+    expect(useAuthStore.getState().authReady).toBe(true)
+    resolveLogin({ accessToken: 'acc-ok', user: fullUser })
+    expect(await pending).toBe(true)
+    expect(useAuthStore.getState().authReady).toBe(true)
+  })
+
+  it('login thất bại giữ authReady=true (form đăng nhập không bị unmount)', async () => {
+    useAuthStore.setState({ authReady: true })
+    mockApi.login.mockRejectedValueOnce(new Error('Tên đăng nhập hoặc mật khẩu không chính xác!'))
+    const ok = await useAuthStore.getState().login('u', 'wrong')
+    expect(ok).toBe(false)
+    expect(useAuthStore.getState().authReady).toBe(true)
+    expect(useAuthStore.getState().isLoading).toBe(false)
+  })
 })
 
 describe('authStore — logout / setUser', () => {

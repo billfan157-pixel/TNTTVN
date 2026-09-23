@@ -3,8 +3,10 @@ import { useNavigate } from '@tanstack/react-router'
 import { Lock, User, AlertCircle, Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { LoginShell } from '../components/auth/LoginShell'
+import { ColdStartNotice } from '../components/common/ColdStartNotice'
 import { Button, IconButton } from '../components/common/ui/Button'
 import { TextInput } from '../components/common/ui/FormControls'
+import { useDelayedNotice } from '../hooks/useDelayedNotice'
 
 export function StaffLoginPage() {
   const [username, setUsername] = useState('')
@@ -12,6 +14,7 @@ export function StaffLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [portalError, setPortalError] = useState<string | null>(null)
   const { login, isLoading, error, clearError } = useAuthStore()
+  const showColdStartHint = useDelayedNotice(isLoading)
 
   const navigate = useNavigate()
 
@@ -105,6 +108,8 @@ export function StaffLoginPage() {
         >
           Đăng Nhập Ngay
         </Button>
+
+        {isLoading && showColdStartHint && <ColdStartNotice />}
       </form>
 
       <div className="text-center pb-6 -mt-2 px-6 space-y-3">
