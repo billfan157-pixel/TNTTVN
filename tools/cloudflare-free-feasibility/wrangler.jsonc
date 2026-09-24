@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "catevia-free-feasibility",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": { "CATEVIA_RUNTIME": "cloudflare-worker" },
+  "workers_dev": true,
+  "browser": { "binding": "BROWSER" },
+  "r2_buckets": [{ "binding": "BACKUP_PROBE", "bucket_name": "catevia-cf-backup-probe-20260924" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "AUTH_CPU", "class_name": "AuthCpuProbe" },
+      { "name": "PASSWORD_CPU", "class_name": "PasswordCpu" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["AuthCpuProbe"] },
+    { "tag": "v2", "new_sqlite_classes": ["PasswordCpu"] }
+  ],
+  "observability": { "enabled": true }
+}

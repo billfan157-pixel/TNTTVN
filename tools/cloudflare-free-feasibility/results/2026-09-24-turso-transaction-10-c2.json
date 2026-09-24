@@ -1,0 +1,69 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "turso-transaction",
+  "beganAt": "2026-09-24T04:09:02.976Z",
+  "endedAt": "2026-09-24T04:09:14.338Z",
+  "count": 10,
+  "concurrency": 2,
+  "validCount": 10,
+  "statusCounts": {
+    "200": 10
+  },
+  "firstRequestMs": 3756.92,
+  "minMs": 1276.46,
+  "p50Ms": 1470.36,
+  "p95Ms": 3799.3,
+  "maxMs": 3799.3,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 3756.92,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 3134.24,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 3799.3,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1326.6,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1470.36,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1276.46,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1673.78,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 2102.28,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1423.42,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1427.38,
+      "valid": true
+    }
+  ]
+}

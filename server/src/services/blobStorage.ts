@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import {
   S3Client,
   PutObjectCommand,
@@ -9,6 +10,7 @@ import {
   DeleteObjectCommand,
 } from '@aws-sdk/client-s3'
 import { getSafetyBackupDir, tryChmod600 } from '../utils/safetyDir.js'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 /**
  * ADR-041 (2026-08-15): abstraction lưu trữ blob (backup + safety snapshot).
@@ -29,6 +31,34 @@ export interface StoredObject {
   key: string
   size?: number
   lastModified?: number
+}
+
+/** The R2 methods used by Catevia; the binding itself is supplied per request. */
+export interface BlobBucket {
+  put(key: string, body: Uint8Array, options: { httpMetadata: { contentType: string } }): Promise<unknown | null>
+  get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>
+  list(options: { prefix: string; cursor?: string }): Promise<{
+    objects: { key: string; size: number; uploaded: Date }[]
+    truncated: boolean
+    cursor?: string
+  }>
+  delete(key: string): Promise<void>
+}
+
+const blobBucketContext = new AsyncLocalStorage<BlobBucket | null>()
+
+export function withBlobBucket<T>(bucket: BlobBucket | undefined, run: () => Promise<T>): Promise<T> {
+  return blobBucketContext.run(bucket ?? null, run)
+}
+
+function workerBucket(): BlobBucket {
+  const bucket = blobBucketContext.getStore()
+  if (!bucket) throw new Error('BLOB_BUCKET binding is required in the Cloudflare Worker runtime')
+  return bucket
+}
+
+export function hasDurableBlobStorage(): boolean {
+  return isCloudflareWorkerRuntime() ? Boolean(blobBucketContext.getStore()) : isR2Enabled
 }
 
 let s3: S3Client | null = null
@@ -96,6 +126,12 @@ export async function putObject(
 ): Promise<void> {
   const buf = typeof body === 'string' ? Buffer.from(body, 'utf-8') : body
 
+  if (isCloudflareWorkerRuntime()) {
+    const stored = await workerBucket().put(key, buf, { httpMetadata: { contentType } })
+    if (!stored) throw new Error('R2 refused to store object')
+    return
+  }
+
   if (s3 && r2Bucket) {
     await s3.send(
       new PutObjectCommand({
@@ -131,6 +167,10 @@ export async function putObject(
 }
 
 export async function getObject(key: string): Promise<Buffer | null> {
+  if (isCloudflareWorkerRuntime()) {
+    const object = await workerBucket().get(key)
+    return object ? Buffer.from(await object.arrayBuffer()) : null
+  }
   if (s3 && r2Bucket) {
     try {
       const res = await s3.send(new GetObjectCommand({ Bucket: r2Bucket, Key: key }))
@@ -149,6 +189,24 @@ export async function getObject(key: string): Promise<Buffer | null> {
 }
 
 export async function listObjects(prefix: string): Promise<StoredObject[]> {
+  if (isCloudflareWorkerRuntime()) {
+    const bucket = workerBucket()
+    const objects: StoredObject[] = []
+    const seenCursors = new Set<string>()
+    let cursor: string | undefined
+    for (;;) {
+      const page = await bucket.list({ prefix, ...(cursor ? { cursor } : {}) })
+      objects.push(...page.objects.map(object => ({
+        key: object.key,
+        size: object.size,
+        lastModified: object.uploaded.getTime(),
+      })))
+      if (!page.truncated) return objects
+      if (!page.cursor || seenCursors.has(page.cursor)) throw new Error('R2 listing returned an invalid cursor')
+      seenCursors.add(page.cursor)
+      cursor = page.cursor
+    }
+  }
   if (s3 && r2Bucket) {
     const out: StoredObject[] = []
     let continuation: string | undefined
@@ -186,6 +244,10 @@ export async function listObjects(prefix: string): Promise<StoredObject[]> {
 }
 
 export async function deleteObject(key: string): Promise<void> {
+  if (isCloudflareWorkerRuntime()) {
+    await workerBucket().delete(key)
+    return
+  }
   if (s3 && r2Bucket) {
     await s3.send(new DeleteObjectCommand({ Bucket: r2Bucket, Key: key }))
     return
