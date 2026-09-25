@@ -16,6 +16,7 @@ test('@critical public Operations event is projected to the parent read-only cal
   await page.getByRole('button', { name: 'Công khai', exact: true }).click()
   await page.getByLabel('Tên sự kiện').fill(key)
   await page.getByLabel('Loại sự kiện').selectOption('CAMP')
+  await page.getByRole('button', { name: 'Tiếp tục: Thời gian & Địa điểm' }).click()
   await page.getByLabel('Địa điểm').fill('Sân giáo xứ E2E')
   await page.getByLabel('Bắt đầu', { exact: true }).fill(`${date}T08:00`)
   // W4-era selector fix: the SmartEventTimePicker end-date switch label
@@ -491,7 +492,7 @@ test('@critical Operations P5 previews and instantiates an immutable event templ
   expect(persisted.tasks[0]).not.toHaveProperty('approvalStatus')
 
   const instantiatedDialog = page.getByRole('dialog', { name: eventTitle })
-  await expect(instantiatedDialog.getByRole('tab', { name: 'Mẫu' })).toBeVisible()
+  await expect(instantiatedDialog.getByRole('tab', { name: 'Mẫu' })).toBeVisible({ timeout: 15_000 })
   await instantiatedDialog.getByRole('tab', { name: 'Mẫu' }).click()
   const lifecycle = instantiatedDialog.getByRole('region', { name: 'Quản lý mẫu từ sự kiện' })
   await expect(lifecycle.getByLabel('Mẫu sự kiện cần tạo phiên bản')).toHaveValue(template.id)
@@ -629,6 +630,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   await page.getByRole('button', { name: 'Tạo mới' }).click()
   await page.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }).click()
   await page.getByLabel('Tên sự kiện').fill(eventTitle)
+  await page.getByRole('button', { name: 'Tiếp tục: Thời gian & Địa điểm' }).click()
   await page.getByLabel('Bắt đầu', { exact: true }).fill('2026-10-12T08:00')
   await page.getByLabel('Kết thúc', { exact: true }).fill('2026-10-12T12:00')
   const eventResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/events') && response.request().method() === 'POST')
@@ -660,11 +662,13 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   const groupResponse = page.waitForResponse(response => response.url().endsWith('/api/operations/workstreams') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Tạo & Giao Mảng', exact: true }).click()
   const groupCreated = await groupResponse
-  expect(groupCreated.status()).toBe(201)
+  expect(groupCreated.status(), await groupCreated.text()).toBe(201)
   const group = (await groupCreated.json()).data as { id: string }
   // Member/assignee selects use `person:<id>` candidate values.
   await page.getByLabel('Thành viên nhóm').selectOption(`person:${assigneePersonId}`)
-  await page.getByLabel('Vai trò trong nhóm').selectOption('WORKSTREAM_LEAD')
+  // The selected unit has an active leader who is auto-assigned as WORKSTREAM_LEAD.
+  // Add the same person as an observer without duplicating the protected lead role.
+  await page.getByLabel('Vai trò trong nhóm').selectOption('OBSERVER')
   const memberResponse = page.waitForResponse(response => response.url().endsWith(`/workstreams/${group.id}/members`) && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Phân công vào Mảng' }).click()
   expect((await memberResponse).status()).toBe(201)

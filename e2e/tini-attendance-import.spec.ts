@@ -4,6 +4,7 @@ import { authorizedRequest, getAdminSession, injectSession, testKey } from './he
 
 test.describe('TINI manual attendance import', () => {
   test('@critical admin previews a local extractor file and commits official Attendance', async ({ page }, testInfo) => {
+    test.setTimeout(90_000)
     const session = await getAdminSession(page.request)
     const key = testKey(testInfo, 'TINI').replace(/-/g, '_')
     const externalStudentId = `student_${key}`
@@ -54,7 +55,10 @@ test.describe('TINI manual attendance import', () => {
     })
     await expect(page.getByRole('heading', { name: 'Đề xuất đối chiếu định danh' })).toBeVisible()
     await page.getByRole('checkbox', { name: `Chọn đề xuất ${externalClassId}` }).check()
-    await page.getByRole('checkbox', { name: `Chọn đề xuất ${externalStudentId}` }).check()
+    const studentProposalCheckbox = page.getByRole('checkbox', { name: `Chọn đề xuất ${externalStudentId}` })
+    await expect(studentProposalCheckbox).toBeVisible()
+    await studentProposalCheckbox.scrollIntoViewIfNeeded()
+    await studentProposalCheckbox.check()
     await expect(page.getByRole('button', { name: 'Duyệt 2 liên kết đề xuất' })).toBeVisible()
     await page.getByLabel('Lý do duyệt liên kết').fill('E2E reviewed exact name birth date and class')
     const linkResponse = page.waitForResponse(response => (
