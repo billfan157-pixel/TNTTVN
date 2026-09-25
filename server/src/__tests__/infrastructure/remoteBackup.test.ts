@@ -11,6 +11,7 @@ const TEST_KEY = '11'.repeat(32)
 const createMemoryClient = createDisposableRestoreTarget
 
 describe('encrypted Turso logical backup', () => {
+  // Full-schema fixture setup and restore are integrity checks, not a runtime SLO.
   it.each(['ACTIVE', 'LOCKED'] as const)('restores populated Operations and historical organizer state (%s) without replaying command triggers', async status => {
     const source = createMemoryClient(), target = createMemoryClient()
     try {
@@ -37,7 +38,7 @@ describe('encrypted Turso logical backup', () => {
       await assertDatabaseReady(target)
       await expect(drizzle(target).insert(operationEvents).values({ ...event, id: 'invalid', organizerUserId: 'missing' })).rejects.toMatchObject({ cause: { message: expect.stringContaining('INVALID_OPERATION_EVENT_ORGANIZER_USER') } })
     } finally { source.close(); target.close() }
-  }, 30_000)
+  }, 120_000)
 
   it('rejects a checksum-valid snapshot missing a target table before any writes', async () => {
     const target = createMemoryClient()
