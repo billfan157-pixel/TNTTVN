@@ -54,16 +54,16 @@ export function LandingFAQ() {
   }
 
   return (
-    <section aria-labelledby="tieu-de-faq" className="flex flex-col gap-5 scroll-mt-20" id="cau-hoi-thuong-gap">
-      <div className="flex flex-col gap-1">
-        <div className="inline-flex items-center gap-2 text-parish-primary text-xs font-bold uppercase tracking-wider">
+    <section aria-labelledby="tieu-de-faq" className="flex flex-col gap-8 scroll-mt-20 max-w-4xl mx-auto w-full" id="cau-hoi-thuong-gap">
+      <div className="landing-narrative text-center flex flex-col items-center gap-3">
+        <span className="landing-eyebrow">
           <HelpCircle aria-hidden="true" className="w-4 h-4" />
-          <span>Giải đáp thắc mắc</span>
-        </div>
-        <h2 id="tieu-de-faq" className="m-0 text-lg sm:text-xl font-extrabold text-text-main">
+          <span>Giải Đáp Thắc Mắc</span>
+        </span>
+        <h2 id="tieu-de-faq" className="landing-section-title m-0 text-balance">
           Câu hỏi thường gặp
         </h2>
-        <p className="m-0 text-sm text-text-secondary">
+        <p className="landing-lead m-0 text-balance">
           Những băn khoăn phổ biến nhất của phụ huynh và huynh trưởng khi sử dụng Catevia.
         </p>
       </div>

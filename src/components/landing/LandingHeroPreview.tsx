@@ -14,13 +14,25 @@ import {
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { normalizeAcademicYear } from '../../utils/academicYear'
 
-type PreviewWorkspace = 'academic' | 'organization' | 'parent'
+export type PreviewWorkspace = 'academic' | 'organization' | 'parent'
 
-export function LandingHeroPreview() {
-  const [activeTab, setActiveTab] = useState<PreviewWorkspace>('academic')
+export interface LandingHeroPreviewProps {
+  externalActiveTab?: PreviewWorkspace
+  onTabChange?: (tab: PreviewWorkspace) => void
+}
+
+export function LandingHeroPreview({ externalActiveTab, onTabChange }: LandingHeroPreviewProps = {}) {
+  const [internalTab, setInternalTab] = useState<PreviewWorkspace>('academic')
   const currentYear = useAcademicYearStore(s => s.currentYear)
   const activeYear = normalizeAcademicYear(currentYear) || '2025-2026'
   const displayYear = activeYear.replace('-', '–')
+
+  const activeTab = externalActiveTab ?? internalTab
+
+  const handleTabClick = (tab: PreviewWorkspace) => {
+    setInternalTab(tab)
+    onTabChange?.(tab)
+  }
 
   return (
     <div className="relative group/mockup select-none [perspective:1200px]">
@@ -35,10 +47,10 @@ export function LandingHeroPreview() {
         {/* Top simulated browser / app title bar */}
         <div className="bg-surface-app border-b border-surface-border px-4 py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5" aria-hidden="true">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-400/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80" />
-            <span className="ml-2 text-xs font-semibold text-text-muted">app.catevia.vn</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-parish-danger/80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-parish-warning/80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-parish-success/80" />
+            <span className="ml-2 text-xs font-semibold text-text-muted">Catevia · Bản minh họa</span>
           </div>
           <span className="text-xs font-medium text-parish-primary flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-parish-success animate-pulse" />
@@ -53,7 +65,7 @@ export function LandingHeroPreview() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'academic'}
-            onClick={() => setActiveTab('academic')}
+            onClick={() => handleTabClick('academic')}
             className={`min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'academic'
                 ? 'bg-surface-card text-parish-primary shadow-sm'
@@ -68,7 +80,7 @@ export function LandingHeroPreview() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'organization'}
-            onClick={() => setActiveTab('organization')}
+            onClick={() => handleTabClick('organization')}
             className={`min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'organization'
                 ? 'bg-surface-card text-parish-primary shadow-sm'
@@ -83,7 +95,7 @@ export function LandingHeroPreview() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'parent'}
-            onClick={() => setActiveTab('parent')}
+            onClick={() => handleTabClick('parent')}
             className={`min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'parent'
                 ? 'bg-surface-card text-parish-primary shadow-sm'
@@ -97,7 +109,7 @@ export function LandingHeroPreview() {
       </div>
 
       {/* Tab content panel */}
-      <div className="p-4 sm:p-5 flex flex-col gap-3 min-h-[260px] justify-between">
+      <div key={activeTab} className="preview-panel-fade p-4 sm:p-5 flex flex-col gap-3 min-h-[260px] justify-between">
         {activeTab === 'academic' && (
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
