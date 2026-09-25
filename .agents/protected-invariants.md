@@ -2,7 +2,8 @@
 
 > Parent: root `AGENTS.md`
 > Scope: repository-wide protected boundaries. An intentional change to any
-> invariant below requires explicit approved authority.
+> invariant below requires explicit product decision authority as defined in
+> `operating-contract.md` §1.6.
 
 ## Security and Tenancy
 

@@ -421,8 +421,8 @@ Do not keep patching implementation against a broken plan.
 If documentation changed, verify that:
 
 - the document actually owns the changed truth;
-- the statement matches the approved requirement or current implementation as
-  appropriate;
+- the statement matches the applicable product decision authority / normative
+  source or current implementation, as appropriate;
 - historical evidence is not presented as current runtime truth;
 - superseded/contradictory claims are handled correctly.
 
