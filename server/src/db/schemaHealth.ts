@@ -79,9 +79,13 @@ export const REQUIRED_MIGRATION_MARKERS = [
   '20260912-257',
   '20260912-258',
   '20260912-259',
+  '20260912-260',
   '20260917-261',
+  '20260921-262',
   '20260922-264',
   '20260922-265',
+  '20260925-266',
+  '20260925-267',
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -157,6 +161,8 @@ const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
   idx_native_push_tokens_installation: ['installation_id'],
   idx_native_push_tokens_platform_token: ['platform', 'token'],
   idx_native_push_tokens_user: ['parish_id', 'user_id'],
+  idx_push_subscriptions_endpoint_unique: ['parish_id', 'endpoint'],
+  idx_financial_transactions_receipt_parish: ['parish_id', 'receipt_number'],
   idx_notifications_worker: ['status', 'next_attempt_at', 'lease_expires_at'],
   idx_question_bank_list: ['parish_id', 'status', 'updated_at'],
   idx_question_bank_taxonomy: ['parish_id', 'branch_id', 'curriculum_level', 'lesson_order', 'difficulty'],
@@ -238,7 +244,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   parish_records: ['parish_id', 'id', 'status', 'visibility', 'show_on_timeline', 'deleted_at'],
   parish_archive_assets: ['parish_id', 'id', 'storage_type', 'object_key', 'external_url', 'deleted_at'],
   operation_workstreams: ['parish_id', 'id', 'source_unit_id', 'status', 'blocked_reason', 'version', 'deleted_at'],
-  operation_tasks: ['parish_id', 'id', 'workstream_id', 'scope_unit_id', 'status', 'priority', 'is_required', 'phase', 'due_at', 'scheduled_start_at', 'scheduled_end_at', 'version', 'blocked_reason', 'cancellation_reason', 'deleted_at'],
+  operation_tasks: ['parish_id', 'id', 'operation_event_id', 'workstream_id', 'scope_unit_id', 'parent_task_id', 'status', 'priority', 'is_required', 'phase', 'due_at', 'scheduled_start_at', 'scheduled_end_at', 'completed_by', 'version', 'blocked_reason', 'cancellation_reason', 'deleted_at'],
   operation_task_dependencies: ['parish_id', 'task_id', 'depends_on_task_id', 'dependency_type'],
   operation_task_assignees: ['parish_id', 'id', 'task_id', 'user_id', 'person_id', 'assignment_role', 'acknowledgement_status', 'version', 'removed_at'],
   operation_checklist_items: ['parish_id', 'task_id', 'id', 'is_required', 'is_done'],
@@ -256,6 +262,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   feedback_messages: ['parish_id', 'id', 'target_type', 'target_user_id', 'visibility', 'sender_user_id', 'subject', 'content', 'status'],
   password_reset_requests: ['parish_id', 'id', 'user_id', 'status', 'request_count', 'last_requested_at', 'resolved_at', 'resolved_by'],
   native_push_tokens: ['parish_id', 'id', 'installation_id', 'platform', 'token', 'user_id', 'created_at', 'updated_at'],
+  push_subscriptions: ['parish_id', 'id', 'endpoint', 'p256dh', 'auth', 'user_id', 'created_at'],
   notices: ['parish_id', 'id', 'updated_at', 'deleted_at', 'parent_revoked_at'],
   question_bank_items: ['parish_id', 'id', 'status', 'current_version', 'branch_id', 'curriculum_level', 'difficulty', 'provenance', 'created_by'],
   question_bank_versions: ['parish_id', 'id', 'question_id', 'version', 'question_type', 'stem', 'answer_data', 'metadata_snapshot', 'content_hash'],
@@ -279,6 +286,19 @@ const REQUIRED_TABLE_SQL_FRAGMENTS: Record<string, readonly string[]> = {
   // Tier 2 (20260904-168): ledger phải chấp nhận attempts nhập tay.
   assessment_entries: [
     'sourcein(exam_finalization,legacy_baseline,manual_entry)',
+  ],
+}
+
+const REQUIRED_FOREIGN_KEYS: Record<string, ReadonlyArray<{ table: string; columns: readonly string[]; onDelete: string }>> = {
+  operation_tasks: [
+    { table: 'operation_events', columns: ['parish_id', 'operation_event_id'], onDelete: 'RESTRICT' },
+    { table: 'operation_workstreams', columns: ['parish_id', 'workstream_id'], onDelete: 'RESTRICT' },
+    { table: 'parish_organization_units', columns: ['parish_id', 'scope_unit_id'], onDelete: 'RESTRICT' },
+    { table: 'operation_tasks', columns: ['parish_id', 'parent_task_id'], onDelete: 'RESTRICT' },
+    { table: 'users', columns: ['parish_id', 'completed_by'], onDelete: 'RESTRICT' },
+  ],
+  push_subscriptions: [
+    { table: 'users', columns: ['parish_id', 'user_id'], onDelete: 'CASCADE' },
   ],
 }
 
@@ -322,6 +342,7 @@ const REQUIRED_COMPOSITE_PRIMARY_KEYS: Record<string, readonly string[]> = {
   feedback_messages: ['parish_id', 'id'],
   password_reset_requests: ['parish_id', 'id'],
   native_push_tokens: ['parish_id', 'id'],
+  push_subscriptions: ['parish_id', 'id'],
   question_bank_items: ['parish_id', 'id'],
   question_bank_versions: ['parish_id', 'id'],
   exam_blueprints: ['parish_id', 'id'],
@@ -481,6 +502,32 @@ export async function assertDatabaseReady(client: SchemaHealthClient): Promise<v
       problems.push(
         `table ${tableName} must use composite primary key (${primaryKeyColumns.join(', ')}); got pk ordinals ${primaryKeyColumns.map((column, index) => `${column}=${actualOrdinals[index]}`).join(', ')}`,
       )
+    }
+  }
+
+  for (const [tableName, expectedKeys] of Object.entries(REQUIRED_FOREIGN_KEYS)) {
+    const foreignKeyResult = await client.execute(`PRAGMA foreign_key_list("${tableName}")`)
+    const groups = new Map<string, Array<{ table: string; column: string; onDelete: string; sequence: number }>>()
+    for (const row of foreignKeyResult.rows) {
+      const id = String(rowValue(row, 'id', 0))
+      const group = groups.get(id) || []
+      group.push({
+        table: normalizeIdentifier(rowValue(row, 'table', 2)),
+        column: normalizeIdentifier(rowValue(row, 'from', 3)),
+        onDelete: normalizeIdentifier(rowValue(row, 'on_delete', 6)),
+        sequence: Number(rowValue(row, 'seq', 1) ?? 0),
+      })
+      groups.set(id, group)
+    }
+    for (const expected of expectedKeys) {
+      const matches = [...groups.values()].some((group) => {
+        const ordered = [...group].sort((left, right) => left.sequence - right.sequence)
+        return ordered.length === expected.columns.length
+          && ordered.every((item, index) => item.table === expected.table && item.column === expected.columns[index] && item.onDelete === expected.onDelete.toLowerCase())
+      })
+      if (!matches) {
+        problems.push(`table ${tableName} is missing foreign key (${expected.columns.join(',')}) -> ${expected.table} ON DELETE ${expected.onDelete}`)
+      }
     }
   }
 

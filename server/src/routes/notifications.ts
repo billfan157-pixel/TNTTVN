@@ -93,7 +93,7 @@ notificationsRouter.post('/subscribe', zValidator('json', subscribeSchema), asyn
       userId: user.userId,
       parishId: user.parishId,
     }).onConflictDoUpdate({
-      target: pushSubscriptions.endpoint,
+      target: [pushSubscriptions.parishId, pushSubscriptions.endpoint],
       set: {
         p256dh: body.keys.p256dh,
         auth: body.keys.auth,

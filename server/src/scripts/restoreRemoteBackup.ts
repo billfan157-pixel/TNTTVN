@@ -1,7 +1,7 @@
 import { createClient } from '@libsql/client'
 import { createHash } from 'crypto'
 import { getObject } from '../services/blobStorage.js'
-import { decryptLogicalSnapshot, restoreLogicalSnapshot } from '../services/remoteBackup.js'
+import { decryptLogicalSnapshot, readAndVerifyRemoteBackupSet, restoreLogicalSnapshot, restoreRemoteBackupSet } from '../services/remoteBackup.js'
 import { assertDatabaseReady } from '../db/schemaHealth.js'
 import { assertDeploymentParishConfiguration } from '../utils/deploymentParish.js'
 
@@ -37,37 +37,85 @@ if (process.env.TURSO_URL && normalizeDatabaseUrl(targetUrl) === normalizeDataba
 const target = createClient({ url: targetUrl, authToken: targetToken })
 try {
   const startedAt = Date.now()
-  const downloadStartedAt = Date.now()
-  const encrypted = await getObject(objectKey)
-  const downloadMs = Date.now() - downloadStartedAt
-  if (!encrypted) throw new Error(`Backup object not found: ${objectKey}`)
+  const isSetManifest = /^backups\/v2\/[^/]+\/manifest\.json$/.test(objectKey)
+  let sourceCreatedAt: string
+  let archiveObjectCount = 0
+  let archiveBytes = 0
+  let result
+  let downloadMs = 0
+  let decryptMs = 0
 
-  const decryptStartedAt = Date.now()
-  const snapshot = decryptLogicalSnapshot(encrypted)
-  const decryptMs = Date.now() - decryptStartedAt
+  if (isSetManifest) {
+    const archivePrefix = process.env.RESTORE_ARCHIVE_PREFIX?.trim()
+    if (!archivePrefix) throw new Error('RESTORE_ARCHIVE_PREFIX is required for backup set restore')
+    const downloadStartedAt = Date.now()
+    const verified = await readAndVerifyRemoteBackupSet(objectKey)
+    downloadMs = Date.now() - downloadStartedAt
+    sourceCreatedAt = verified.snapshot.createdAt
+    archiveObjectCount = verified.manifest.archive.count
+    archiveBytes = verified.manifest.archive.totalPlaintextBytes
+    const restoreStartedAt = Date.now()
+    result = await restoreRemoteBackupSet(target, objectKey, {
+      quarantineTarget: { parishId, targetFingerprint: fingerprint },
+      archivePrefix,
+    })
+    decryptMs = 0
+    const restoreMs = Date.now() - restoreStartedAt
+    const readinessStartedAt = Date.now()
+    await assertDatabaseReady(target)
+    const readinessMs = Date.now() - readinessStartedAt
+    console.log(JSON.stringify({
+      status: 'verified',
+      purpose: 'isolated-data-fidelity-drill',
+      cutoverReady: false,
+      quarantined: result.quarantined,
+      archiveObjectCount,
+      archiveBytes,
+      archivePrefix: result.archivePrefix,
+      metadataDelta: 'One system_settings recovery quarantine marker; restoredRows excludes this marker, tableCounts includes it',
+      requiredCutoverGates: ['traffic-and-worker-quarantine', 'credential-and-session-invalidation', 'client-generation-and-offline-reconciliation', 'delivery-reconciliation', 'owner-approval'],
+      targetFingerprint: fingerprint,
+      sourceCreatedAt,
+      restoredRows: result.restoredRows,
+      tableCounts: result.tableCounts,
+      foreignKeyViolations: result.foreignKeyViolations,
+      phaseDurationMs: { download: downloadMs, decrypt: decryptMs, restore: restoreMs, readiness: readinessMs },
+      durationMs: Date.now() - startedAt,
+    }))
+  } else {
+    const downloadStartedAt = Date.now()
+    const encrypted = await getObject(objectKey)
+    downloadMs = Date.now() - downloadStartedAt
+    if (!encrypted) throw new Error(`Backup object not found: ${objectKey}`)
 
-  const restoreStartedAt = Date.now()
-  const result = await restoreLogicalSnapshot(target, snapshot, { parishId, targetFingerprint: fingerprint })
-  const restoreMs = Date.now() - restoreStartedAt
+    const decryptStartedAt = Date.now()
+    const snapshot = decryptLogicalSnapshot(encrypted)
+    decryptMs = Date.now() - decryptStartedAt
+    sourceCreatedAt = snapshot.createdAt
 
-  const readinessStartedAt = Date.now()
-  await assertDatabaseReady(target)
-  const readinessMs = Date.now() - readinessStartedAt
-  console.log(JSON.stringify({
-    status: 'verified',
-    purpose: 'isolated-data-fidelity-drill',
-    cutoverReady: false,
-    quarantined: result.quarantined,
-    metadataDelta: 'One system_settings recovery quarantine marker; restoredRows excludes this marker, tableCounts includes it',
-    requiredCutoverGates: ['traffic-and-worker-quarantine', 'credential-and-session-invalidation', 'client-generation-and-offline-reconciliation', 'delivery-reconciliation', 'owner-approval'],
-    targetFingerprint: fingerprint,
-    sourceCreatedAt: snapshot.createdAt,
-    restoredRows: result.restoredRows,
-    tableCounts: result.tableCounts,
-    foreignKeyViolations: result.foreignKeyViolations,
-    phaseDurationMs: { download: downloadMs, decrypt: decryptMs, restore: restoreMs, readiness: readinessMs },
-    durationMs: Date.now() - startedAt,
-  }))
+    const restoreStartedAt = Date.now()
+    result = await restoreLogicalSnapshot(target, snapshot, { parishId, targetFingerprint: fingerprint })
+    const restoreMs = Date.now() - restoreStartedAt
+
+    const readinessStartedAt = Date.now()
+    await assertDatabaseReady(target)
+    const readinessMs = Date.now() - readinessStartedAt
+    console.log(JSON.stringify({
+      status: 'verified',
+      purpose: 'isolated-data-fidelity-drill',
+      cutoverReady: false,
+      quarantined: result.quarantined,
+      metadataDelta: 'One system_settings recovery quarantine marker; restoredRows excludes this marker, tableCounts includes it',
+      requiredCutoverGates: ['traffic-and-worker-quarantine', 'credential-and-session-invalidation', 'client-generation-and-offline-reconciliation', 'delivery-reconciliation', 'owner-approval'],
+      targetFingerprint: fingerprint,
+      sourceCreatedAt,
+      restoredRows: result.restoredRows,
+      tableCounts: result.tableCounts,
+      foreignKeyViolations: result.foreignKeyViolations,
+      phaseDurationMs: { download: downloadMs, decrypt: decryptMs, restore: restoreMs, readiness: readinessMs },
+      durationMs: Date.now() - startedAt,
+    }))
+  }
 } finally {
   target.close()
 }

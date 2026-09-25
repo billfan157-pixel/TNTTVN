@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { Button } from '../components/common/ui/Button'
 import { StudentName } from '../components/common/StudentName'
+import { API_BASE } from '../lib/api/core'
 
 export default function VerificationPage() {
   const [params, setParams] = useState<{ parishId?: string; studentId?: string; academicYear?: string; certId?: string; sig?: string }>({})
@@ -20,7 +21,7 @@ export default function VerificationPage() {
     setParams({ parishId, studentId, academicYear, certId, sig })
 
     if (parishId && studentId && academicYear && certId && sig) {
-      fetch(`/api/verification/verify?parishId=${encodeURIComponent(parishId)}&studentId=${encodeURIComponent(studentId)}&academicYear=${encodeURIComponent(academicYear)}&certId=${encodeURIComponent(certId)}&sig=${encodeURIComponent(sig)}`)
+      fetch(`${API_BASE}/verification/verify?parishId=${encodeURIComponent(parishId)}&studentId=${encodeURIComponent(studentId)}&academicYear=${encodeURIComponent(academicYear)}&certId=${encodeURIComponent(certId)}&sig=${encodeURIComponent(sig)}`)
         .then(res => res.json())
         .then(data => {
           if (data.success) {

@@ -1,0 +1,20 @@
+{
+  "name": "catevia-cloudflare-free-feasibility",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir .dist",
+    "dev": "wrangler dev --local"
+  },
+  "dependencies": {
+    "@libsql/client": "0.17.4",
+    "bcryptjs": "2.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/puppeteer": "^1.4.0",
+    "wrangler": "4.137.0"
+  }
+}

@@ -1,11 +1,30 @@
 import puppeteer from 'puppeteer'
 import type { Browser, PDFMargin } from 'puppeteer'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { sanitizePDFHTML, isAllowedPdfResourceUrl } from '../utils/pdfSanitizer.js'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 let browser: Browser | null = null
+const workerBrowserLauncher = new AsyncLocalStorage<() => Promise<Browser>>()
+const workerPdfRenderer = new AsyncLocalStorage<(html: string, options: PdfOptions) => Promise<Uint8Array>>()
+
+type PdfOptions = { format?: 'A4' | 'A3' | 'Letter'; landscape?: boolean; margin?: PDFMargin }
+
+export function withPdfBrowserLauncher<T>(launch: () => Promise<Browser>, run: () => T): T {
+  return workerBrowserLauncher.run(launch, run)
+}
+
+export function withPdfRenderer<T>(render: (html: string, options: PdfOptions) => Promise<Uint8Array>, run: () => T): T {
+  return workerPdfRenderer.run(render, run)
+}
 
 async function getBrowser(): Promise<Browser> {
+  if (isCloudflareWorkerRuntime()) {
+    const launch = workerBrowserLauncher.getStore()
+    if (!launch) throw new Error('Cloudflare Browser Run binding is required for PDF generation')
+    return launch()
+  }
   if (!browser) {
     browser = await puppeteer.launch({
       headless: true,
@@ -17,8 +36,10 @@ async function getBrowser(): Promise<Browser> {
 
 export async function generatePDFFromHTML(
   htmlContent: string,
-  options: { format?: 'A4' | 'A3' | 'Letter'; landscape?: boolean; margin?: PDFMargin } = {}
+  options: PdfOptions = {}
 ): Promise<Uint8Array> {
+  const remoteRenderer = isCloudflareWorkerRuntime() ? workerPdfRenderer.getStore() : undefined
+  if (remoteRenderer) return remoteRenderer(htmlContent, options)
   const sanitizedHTML = sanitizePDFHTML(htmlContent)
   const b = await getBrowser()
   const page = await b.newPage()
@@ -62,6 +83,7 @@ export async function generatePDFFromHTML(
     return pdfBuffer
   } finally {
     await page.close()
+    if (isCloudflareWorkerRuntime()) await b.close()
   }
 }
 

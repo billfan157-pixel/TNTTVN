@@ -30,7 +30,7 @@ import { Badge, type BadgeTone } from './ui/Badge'
 import { Button, IconButton } from './ui/Button'
 import { Surface } from './ui/Surface'
 import { useUIStore } from '../../stores/uiStore'
-import { useClassStore } from '../../stores/classStore'
+import { useClassStore, canUserEditStudent } from '../../stores/classStore'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useGradeStore } from '../../stores/gradeStore'
@@ -92,8 +92,9 @@ export const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
   const rawAttendance = useAttendanceStore((s) => s.attendance)
   const addToast = useToastStore((s) => s.addToast)
 
-  const { isAdmin, isChunhiem, isPhuta } = useAuth()
-  const canEdit = isAdmin || isChunhiem || isPhuta
+  const { role, isAdmin } = useAuth()
+  const classes = useClassStore((s) => s.classes)
+  const canEdit = (isAdmin || role === 'chunhiem') && canUserEditStudent(student, classes, role)
 
   const copyToClipboard = useCallback(
     (text: string, label: string, fieldId: string) => {

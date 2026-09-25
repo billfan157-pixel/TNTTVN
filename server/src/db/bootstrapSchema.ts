@@ -239,7 +239,8 @@ export const BOOTSTRAP_DDL = `
 
   CREATE TABLE IF NOT EXISTS push_subscriptions (
     id TEXT NOT NULL,
-    endpoint TEXT NOT NULL UNIQUE,
+    endpoint TEXT NOT NULL,
+
     p256dh TEXT NOT NULL,
     auth TEXT NOT NULL,
     user_id TEXT,
@@ -248,8 +249,10 @@ export const BOOTSTRAP_DDL = `
     PRIMARY KEY (parish_id, id),
     FOREIGN KEY (parish_id, user_id) REFERENCES users(parish_id, id) ON DELETE CASCADE
   );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint_unique ON push_subscriptions(parish_id, endpoint);
 
   CREATE TABLE IF NOT EXISTS native_push_tokens (
+
     id TEXT NOT NULL,
     installation_id TEXT NOT NULL,
     platform TEXT NOT NULL CHECK(platform IN ('android', 'ios')),

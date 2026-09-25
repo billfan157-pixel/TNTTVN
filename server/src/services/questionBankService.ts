@@ -15,6 +15,7 @@ import {
 } from '../db/schema.js'
 import { generateExamVariantManifest, type VariantQuestion } from './examVariantManifest.js'
 import { generateId } from '../utils/id.js'
+import { resolveWritableAcademicYear } from './academicYearService.js'
 
 export const QUESTION_TYPES = ['multiple_choice', 'true_false', 'multiple_select', 'short_answer', 'fill_blank', 'matching', 'essay'] as const
 export const QUESTION_STATUSES = ['draft', 'in_review', 'approved', 'active', 'archived'] as const
@@ -484,7 +485,7 @@ export async function buildExamFromBank(input: {
   buildCommandId: string;
 }, actor: { userId: string; parishId: string; role: string }) {
   return runDbTransaction(async tx => {
-  const [classRow] = await tx.select({ id: classes.id, deletedAt: classes.deletedAt }).from(classes).where(and(
+  const [classRow] = await tx.select({ id: classes.id, academicYearId: classes.academicYearId, deletedAt: classes.deletedAt }).from(classes).where(and(
     eq(classes.parishId, actor.parishId), eq(classes.id, input.classId),
   )).limit(1)
   if (!classRow) throw new QuestionBankError('Lớp học không tồn tại.', 404, 'CLASS_NOT_FOUND')
@@ -526,6 +527,7 @@ export async function buildExamFromBank(input: {
     return existingBuild
   }
   if (classRow.deletedAt) throw new QuestionBankError('Lớp học không tồn tại.', 404, 'CLASS_NOT_FOUND')
+  const canonicalYear = await resolveWritableAcademicYear(actor.parishId, input.academicYear, tx, input.classId)
   let resolvedMaxScore = input.maxScore
   let selected: VersionRow[] = []
   let blueprintSnapshot: Record<string, unknown> | null = null
@@ -599,7 +601,7 @@ export async function buildExamFromBank(input: {
   const now = new Date().toISOString()
   await tx.insert(examSessions).values({
       id: sessionId, parishId: actor.parishId, classId: input.classId, subject: input.subject.trim(), scoreType: input.scoreType,
-      maxScore: resolvedMaxScore, semester: input.semester, academicYear: input.academicYear, status: 'draft', createdBy: actor.userId,
+      maxScore: resolvedMaxScore, semester: input.semester, academicYear: canonicalYear, status: 'draft', createdBy: actor.userId,
       examType, questionCount: questionCount || null, answerKey: questionCount ? JSON.stringify(manifest?.variants.A?.answerKey ?? answerKey) : null,
       answerVariants: answerVariants ? JSON.stringify(answerVariants) : null, variantManifests: manifest ? JSON.stringify(manifest) : null,
       questions: JSON.stringify(questions), sourceType: input.mode === 'manual' ? 'question_bank' : 'blueprint', blueprintId: input.blueprintId ?? null,

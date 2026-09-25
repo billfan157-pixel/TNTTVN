@@ -1,8 +1,8 @@
-import React, { useMemo, useState } from 'react'
-import { AlertTriangle, Layers3, Loader2, LockKeyhole, Plus, Save, Trash2, WandSparkles, X } from 'lucide-react'
-import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
+import React, { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, CheckCircle2, Layers3, Loader2, LockKeyhole, Plus, Save, Trash2, WandSparkles, WifiOff, X } from 'lucide-react'
+import { EXAM_VERSION_CODES, formatExamVersionLabel, normalizeAnswerVariants } from '../../lib/examVariants'
 import { useExamStore } from '../../stores/examStore'
-import type { ExamSession, ExamVersionCode, MultipleChoiceOption } from '../../types'
+import type { ExamQuestion, ExamSession, ExamVersionCode, MultipleChoiceOption } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from '../common/ModalPortal'
 
@@ -12,6 +12,62 @@ interface ExamVariantsModalProps {
 }
 
 const OPTIONS: MultipleChoiceOption[] = ['A', 'B', 'C', 'D']
+
+interface VariantLintResult {
+  canGenerate: boolean
+  totalMc: number
+  issues: string[]
+}
+
+function lintQuestionsForVariants(rawQuestions: unknown, questionCount: number): VariantLintResult {
+  let questions: ExamQuestion[] = []
+  if (Array.isArray(rawQuestions)) {
+    questions = rawQuestions as ExamQuestion[]
+  } else if (typeof rawQuestions === 'string' && rawQuestions.trim()) {
+    try {
+      const parsed = JSON.parse(rawQuestions)
+      if (Array.isArray(parsed)) questions = parsed as ExamQuestion[]
+    } catch {
+      return { canGenerate: false, totalMc: 0, issues: ['Dữ liệu câu hỏi của phiên không phải định dạng JSON hợp lệ.'] }
+    }
+  }
+
+  if (questions.length === 0) {
+    return { canGenerate: false, totalMc: 0, issues: ['Phiên chưa có nội dung câu hỏi để tự động đảo đề.'] }
+  }
+
+  const mc = questions.filter(q => (q.type ?? 'multiple_choice') !== 'essay')
+  if (mc.length !== questionCount) {
+    return {
+      canGenerate: false,
+      totalMc: mc.length,
+      issues: [`Số câu trắc nghiệm (${mc.length}) không khớp với cấu hình phiên (${questionCount} câu).`],
+    }
+  }
+
+  const issues: string[] = []
+  const positional = /(?:tất cả|cả\s+[abcd]|không có đáp án|all of|none of|both\s+[abcd])/iu
+
+  for (const q of mc) {
+    if (!q.options || !q.correctOption) {
+      issues.push(`Câu ${q.index}: Thiếu danh sách lựa chọn A/B/C/D hoặc đáp án đúng.`)
+      continue
+    }
+    const values = (['A', 'B', 'C', 'D'] as const).map(code => (q.options![code] || '').trim().toLocaleLowerCase('vi'))
+    if (new Set(values).size !== values.length) {
+      issues.push(`Câu ${q.index}: Có phương án trùng lặp nội dung.`)
+    }
+    if (values.some(v => positional.test(v))) {
+      issues.push(`Câu ${q.index}: Có phương án phụ thuộc vị trí ("tất cả các đáp án", "không có đáp án nào"...). Cần sửa trước khi đảo.`)
+    }
+  }
+
+  return {
+    canGenerate: issues.length === 0,
+    totalMc: mc.length,
+    issues,
+  }
+}
 
 export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, onClose }) => {
   const questionCount = session.questionCount ?? 20
@@ -28,6 +84,23 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
   const { updateAnswerVariants, generateVariantManifests, saving } = useExamStore()
   const configured = EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
   const activeKey = variants[activeVersion] ?? {}
+
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== 'undefined' ? navigator.onLine : true))
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true)
+    const handleOffline = () => setIsOnline(false)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    return () => {
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
+  const lintResult = useMemo(
+    () => lintQuestionsForVariants(session.questions, questionCount),
+    [session.questions, questionCount],
+  )
 
   const addVersion = () => {
     const nextCode = EXAM_VERSION_CODES.find(code => !variants[code])
@@ -102,35 +175,80 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
 
         <div className="flex flex-wrap items-center gap-2 border-b border-surface-border p-3">
           {configured.map(code => (
-            <button key={code} type="button" onClick={() => setActiveVersion(code)} className={`min-h-10 rounded-xl border px-4 text-sm font-black ${activeVersion === code ? 'border-parish-primary bg-parish-primary text-white' : 'border-surface-border bg-surface-app text-text-main'}`}>Mã {code}</button>
+            <button
+              key={code}
+              type="button"
+              onClick={() => setActiveVersion(code)}
+              className={`min-h-10 rounded-xl border px-4 text-sm font-black ${activeVersion === code ? 'border-parish-primary bg-parish-primary text-white' : 'border-surface-border bg-surface-app text-text-main'}`}
+            >
+              {formatExamVersionLabel(code)}
+            </button>
           ))}
           {!manifestLocked && <button type="button" className="btn btn-secondary min-h-10" onClick={addVersion} disabled={configured.length === EXAM_VERSION_CODES.length}><Plus size={15} /> Thêm mã đề</button>}
-          {!manifestLocked && activeVersion !== 'A' && <button type="button" className="btn btn-danger min-h-10" onClick={() => removeVersion(activeVersion)}><Trash2 size={15} /> Xóa mã {activeVersion}</button>}
+          {!manifestLocked && activeVersion !== 'A' && <button type="button" className="btn btn-danger min-h-10" onClick={() => removeVersion(activeVersion)}><Trash2 size={15} /> Xóa {formatExamVersionLabel(activeVersion)}</button>}
         </div>
 
         {message && <div role="status" className="mx-3 mt-3 rounded-xl border border-surface-border bg-surface-app px-3 py-2 text-sm font-semibold">{message}</div>}
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-parish-warning/30 bg-parish-warning-bg p-3 text-xs text-parish-warning">
             {manifestLocked ? <LockKeyhole size={16} className="mt-0.5 shrink-0" /> : <AlertTriangle size={16} className="mt-0.5 shrink-0" />}
-            {manifestLocked
-              ? 'Bộ mã đề đã được máy chủ vật chất hóa và khóa bất biến. Mỗi mã có thứ tự câu, thứ tự đáp án, answer key và content hash riêng.'
-              : 'Có thể nhập đáp án cho đề đảo bên ngoài, hoặc dùng Exam Studio để máy chủ tạo 1–8 mã đề bất biến. Sau khi tạo tự động, không thể sửa riêng answer key hay đảo lại phiên này.'}
+            <span>
+              {manifestLocked
+                ? 'Bộ mã đề đã được máy chủ vật chất hóa và khóa bất biến. Mỗi mã có thứ tự câu, thứ tự đáp án, answer key và content hash riêng.'
+                : 'Có thể nhập đáp án cho đề đảo bên ngoài, hoặc dùng Exam Studio để máy chủ tạo 1–8 mã đề bất biến. Sau khi tạo tự động, không thể sửa riêng answer key hay đảo lại phiên này.'}
+            </span>
           </div>
           {!manifestLocked && (
-            <div className="mb-3 flex flex-col gap-2 rounded-xl border border-parish-primary/20 bg-parish-primary-light p-3 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-black text-parish-primary">Exam Studio — tạo đề tự động</div>
-                <div className="text-xs text-text-muted">Trộn câu trắc nghiệm và A/B/C/D; giữ phần tự luận sau phần OMR. Câu có “tất cả/không đáp án nào” sẽ bị từ chối an toàn.</div>
+            <div className="mb-3 flex flex-col gap-3 rounded-xl border border-parish-primary/20 bg-parish-primary-light p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-black text-parish-primary">Exam Studio — tạo đề tự động</div>
+                  <div className="text-xs text-text-muted">Trộn câu trắc nghiệm và A/B/C/D; giữ phần tự luận sau phần OMR. Câu có “tất cả/không đáp án nào” sẽ được phát hiện trước.</div>
+                </div>
+                <label className="flex items-center gap-2 text-xs font-bold text-text-main">
+                  Số mã
+                  <select className="form-select min-h-10 w-20" value={variantCount} onChange={event => setVariantCount(Number(event.target.value))}>
+                    {EXAM_VERSION_CODES.map((_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary min-h-10"
+                  disabled={saving || !session.questions || !lintResult.canGenerate || !isOnline}
+                  title={!isOnline ? 'Cần kết nối mạng để tạo và khóa mã đề trên máy chủ' : !lintResult.canGenerate ? 'Cần sửa các câu hỏi có vấn đề trước khi tạo' : undefined}
+                  onClick={() => void generate()}
+                >
+                  {saving ? <Loader2 size={15} className="animate-spin" /> : <WandSparkles size={15} />} Tạo và khóa
+                </button>
               </div>
-              <label className="flex items-center gap-2 text-xs font-bold text-text-main">
-                Số mã
-                <select className="form-select min-h-10 w-20" value={variantCount} onChange={event => setVariantCount(Number(event.target.value))}>
-                  {EXAM_VERSION_CODES.map((_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}
-                </select>
-              </label>
-              <button type="button" className="btn btn-primary min-h-10" disabled={saving || !session.questions} onClick={() => void generate()}>
-                {saving ? <Loader2 size={15} className="animate-spin" /> : <WandSparkles size={15} />} Tạo và khóa
-              </button>
+
+              {!isOnline && (
+                <div className="flex items-center gap-2 rounded-lg border border-parish-danger/30 bg-parish-danger-bg p-2 text-xs font-medium text-parish-danger">
+                  <WifiOff size={15} className="shrink-0" />
+                  <span>Đang ngoại tuyến. Việc tạo và khóa mã đề đòi hỏi máy chủ tính toán PRNG và băm nội dung để bảo đảm bất biến khi in/chấm.</span>
+                </div>
+              )}
+
+              {lintResult.issues.length > 0 && (
+                <div className="flex flex-col gap-1 rounded-lg border border-parish-danger/30 bg-parish-danger-bg p-2 text-xs text-parish-danger">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertTriangle size={15} className="shrink-0" />
+                    <span>Phát hiện {lintResult.issues.length} vấn đề cần xử lý trước khi đảo đề:</span>
+                  </div>
+                  <ul className="m-0 list-disc pl-5 space-y-0.5">
+                    {lintResult.issues.map((issue, idx) => (
+                      <li key={idx}>{issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {lintResult.canGenerate && session.questions && (
+                <div className="flex items-center gap-1.5 text-xs font-medium text-parish-success">
+                  <CheckCircle2 size={14} className="shrink-0" />
+                  <span>Sẵn sàng đảo {lintResult.totalMc} câu trắc nghiệm sang {variantCount} mã đề ({EXAM_VERSION_CODES.slice(0, variantCount).map(c => formatExamVersionLabel(c)).join(', ')}).</span>
+                </div>
+              )}
             </div>
           )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,7 +264,7 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
         </div>
 
         <div className="flex flex-col gap-2 border-t border-surface-border p-3 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-xs text-text-muted">Đã cấu hình {configured.length}/8 mã đề · đang sửa mã {activeVersion}</span>
+          <span className="text-xs text-text-muted">Đã cấu hình {configured.length}/8 mã đề · đang sửa {formatExamVersionLabel(activeVersion)}</span>
           {!manifestLocked && <button type="button" className="btn btn-primary min-h-11 justify-center" disabled={saving} onClick={() => void save()}>{saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Lưu và chấm lại</button>}
         </div>
       </div>

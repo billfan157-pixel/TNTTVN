@@ -46,7 +46,8 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
   if (dbConfig.isRemote) {
     try {
       const result = await createAndStoreRemoteBackup(client)
-      console.log(`[BACKUP SUCCESS] Encrypted Turso logical backup stored at ${result.objectKey} (${result.rowCount} rows)`)
+       console.log(`[BACKUP SUCCESS] Encrypted backup set stored at ${result.objectKey} (${result.rowCount} rows, ${result.archiveObjectCount} archive objects)`)
+
       await enforceRetention(getRetentionCount())
       return { success: true, destFile: result.objectKey }
     } catch (err: any) {
@@ -117,14 +118,29 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
 
 async function enforceRetention(retentionCount: number): Promise<void> {
   try {
-    const objects = (await listObjects('backups/')).sort(
-      (a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0),
-    )
-    if (objects.length > retentionCount) {
-      for (const old of objects.slice(retentionCount)) {
+    const allObjects = await listObjects('backups/')
+    const v2Manifests = allObjects
+      .filter(object => /^backups\/v2\/[^/]+\/manifest\.json$/.test(object.key))
+      .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))
+    const retainedRoots = new Set(v2Manifests.slice(0, retentionCount).map(object => object.key.slice(0, -'manifest.json'.length)))
+    for (const manifest of v2Manifests.slice(retentionCount)) {
+      const root = manifest.key.slice(0, -'manifest.json'.length)
+      for (const object of allObjects.filter(item => item.key.startsWith(root))) {
+        await deleteObject(object.key)
+        console.log(`[BACKUP CLEANUP] Removed old backup set object ${object.key}`)
+      }
+    }
+    const legacyObjects = allObjects
+      .filter(object => !object.key.startsWith('backups/v2/'))
+      .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))
+    if (legacyObjects.length > retentionCount) {
+      for (const old of legacyObjects.slice(retentionCount)) {
         await deleteObject(old.key)
         console.log(`[BACKUP CLEANUP] Removed old backup ${old.key}`)
       }
+    }
+    if (retainedRoots.size < v2Manifests.length) {
+      console.log(`[BACKUP CLEANUP] Retained ${retainedRoots.size} complete backup sets`)
     }
   } catch (cleanupErr: any) {
     console.warn('[BACKUP WARNING] Cleanup old backups encountered an issue:', cleanupErr?.message || cleanupErr)

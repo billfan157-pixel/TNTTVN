@@ -25,3 +25,27 @@
 .toast-slide-in {
   animation: toastSlideIn 0.25s ease-out;
 }
+
+@keyframes toastSlideOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(10px) scale(0.96); }
+}
+.toast-slide-out {
+  animation: toastSlideOut 0.2s ease-in forwards;
+}
+
+@keyframes toastCountdown {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+.toast-countdown-bar {
+  animation: toastCountdown linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-slide-in,
+  .toast-slide-out,
+  .toast-countdown-bar {
+    animation: none !important;
+  }
+}

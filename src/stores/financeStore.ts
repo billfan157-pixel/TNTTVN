@@ -62,7 +62,7 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   transactions: [],
   classFeeRecords: [],
   selectedFundId: 'ALL',
-  selectedAcademicYear: '2025-2026',
+  selectedAcademicYear: '',
   ledgerFilters: { type: 'ALL', startDate: '', endDate: '' },
   isLoading: false,
   error: null,
@@ -72,8 +72,8 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       const targetAY = academicYear || get().selectedAcademicYear
-      const summary = await api.finances.getSummary(targetAY)
-      set({ summary, funds: summary.funds, isLoading: false })
+      const summary = await api.finances.getSummary(targetAY || undefined)
+      set({ summary, funds: summary.funds, selectedAcademicYear: summary.academicYear || targetAY, isLoading: false })
     } catch (err: any) {
       set({ error: err?.message || 'Không thể tải thống kê tài chính', isLoading: false })
     }
@@ -106,11 +106,14 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
     try {
       const { pagination } = get()
       const queryParams: Record<string, string> = {
-        academicYear: get().selectedAcademicYear,
         limit: String(pagination.pageSize),
         offset: String((pagination.page - 1) * pagination.pageSize),
         ...(params || {}),
       }
+      if (get().selectedAcademicYear && !queryParams.academicYear) {
+        queryParams.academicYear = get().selectedAcademicYear
+      }
+
       if (get().selectedFundId !== 'ALL') {
         queryParams.fundId = get().selectedFundId
       }
@@ -139,9 +142,10 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
   createTransaction: async (data) => {
     set({ isLoading: true, error: null })
     try {
+      const academicYear = data.academicYear || get().selectedAcademicYear
       const tx = await api.finances.createTransaction({
         ...data,
-        academicYear: data.academicYear || get().selectedAcademicYear,
+        ...(academicYear ? { academicYear } : {}),
       })
       await get().fetchSummary()
       await get().fetchTransactions()
@@ -222,8 +226,6 @@ export const useFinanceStore = create<FinanceState>((set, get) => ({
 
   setSelectedAcademicYear: (ay) => {
     set({ selectedAcademicYear: ay, pagination: { ...get().pagination, page: 1 } })
-    get().fetchSummary(ay)
-    get().fetchTransactions({ academicYear: ay })
   },
 
   setLedgerFilters: (partial) => {

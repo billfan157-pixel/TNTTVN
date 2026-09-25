@@ -1,5 +1,5 @@
 import { randomInt } from 'node:crypto'
-import bcrypt from 'bcryptjs'
+import { hashPassword } from '../utils/passwordCompute.js'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, runDbTransaction } from '../db/index.js'
 import { auditLogs, passwordResetRequests, users } from '../db/schema.js'
@@ -145,7 +145,7 @@ export async function resolvePasswordResetRequest(
   userAgent: string,
 ): Promise<{ username: string; tempPassword: string; fullName: string }> {
   const tempPassword = `Reset@${randomInt(100000, 999999)}`
-  const passwordHash = await bcrypt.hash(tempPassword, BCRYPT_COST)
+  const passwordHash = await hashPassword(tempPassword, BCRYPT_COST)
   const now = new Date().toISOString()
 
   return runDbTransaction(async (tx) => {

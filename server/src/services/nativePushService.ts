@@ -15,6 +15,8 @@ export interface NativePushSendResult {
   platforms: { android: boolean; ios: boolean }
   successfulTokens?: string[]
   lastProviderError?: string
+  /** Eligible devices left for a later Worker invocation. */
+  deferred?: number
 }
 
 function safeNativeUrl(url: string | undefined): string | undefined {
@@ -42,6 +44,7 @@ export async function sendNativePush(
   payload: AppPushPayload,
   userIds?: string[],
   excludeTokens?: string[],
+  maxDeliveries?: number,
 ): Promise<NativePushSendResult> {
   const platforms = { android: isFcmConfigured(), ios: isApnsConfigured() }
   if (userIds && userIds.length === 0) {
@@ -60,9 +63,12 @@ export async function sendNativePush(
 
   const excluded = new Set(excludeTokens || [])
   const activeRows = rows.filter(row => !excluded.has(row.token))
-  const androidTokens = activeRows.filter(row => row.platform === 'android').map(row => row.token)
-  const iosTokens = activeRows.filter(row => row.platform === 'ios').map(row => row.token)
-  const skipped = (platforms.android ? 0 : androidTokens.length) + (platforms.ios ? 0 : iosTokens.length)
+  const sendableRows = activeRows.filter(row => row.platform === 'android' ? platforms.android : row.platform === 'ios' && platforms.ios)
+  const selectedRows = maxDeliveries === undefined ? sendableRows : sendableRows.slice(0, Math.max(0, maxDeliveries))
+  const deferred = sendableRows.length - selectedRows.length
+  const androidTokens = selectedRows.filter(row => row.platform === 'android').map(row => row.token)
+  const iosTokens = selectedRows.filter(row => row.platform === 'ios').map(row => row.token)
+  const skipped = activeRows.length - sendableRows.length
   const safePayload = { ...payload, url: safeNativeUrl(payload.url) }
   const [androidResult, iosResult] = await Promise.all([
     platforms.android && androidTokens.length > 0
@@ -93,6 +99,7 @@ export async function sendNativePush(
     platforms,
     successfulTokens,
     lastProviderError,
+    ...(maxDeliveries === undefined ? {} : { deferred }),
   }
 }
 
@@ -100,6 +107,6 @@ export function sendNativePushToParish(parishId: string, payload: AppPushPayload
   return sendNativePush(parishId, payload, undefined, excludeTokens)
 }
 
-export function sendNativePushToUsers(parishId: string, userIds: string[], payload: AppPushPayload, excludeTokens?: string[]) {
-  return sendNativePush(parishId, payload, userIds, excludeTokens)
+export function sendNativePushToUsers(parishId: string, userIds: string[], payload: AppPushPayload, excludeTokens?: string[], maxDeliveries?: number) {
+  return sendNativePush(parishId, payload, userIds, excludeTokens, maxDeliveries)
 }

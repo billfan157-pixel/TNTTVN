@@ -14,6 +14,10 @@ import {
   printBatchExamPapers,
   buildBatchAnswerSheetsHtml,
   printBatchAnswerSheets,
+  buildAllVariantsExamPapersHtml,
+  printAllVariantsExamPapers,
+  buildAllVariantsAnswerSheetsHtml,
+  printAllVariantsAnswerSheets,
   printQrSheet,
   buildQrSheetHtml,
   type ExamPaperPrintOptions,
@@ -25,7 +29,7 @@ import { ReportExportService, sanitizeFilename } from '../../services/reportExpo
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
-import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../../lib/examVariants'
+import { EXAM_VERSION_CODES, normalizeAnswerVariants, getExamVersionNumericAlias, formatExamVersionLabel } from '../../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../../lib/examPrintSafety'
 import { canSelectExternalExamVersion, resolvePrintableExamVersion } from '../../lib/examVersionPolicy'
 import type { ExamQuestion, ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../../types'
@@ -85,6 +89,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const [durationMinutes, setDurationMinutes] = useState(45)
   const [printMode, setPrintMode] = useState<'single' | 'batch'>('single')
   const [selectedVersion, setSelectedVersion] = useState<ExamVersionCode>('A')
+  const [isAllVariants, setIsAllVariants] = useState(false)
   const [showMobileOptions, setShowMobileOptions] = useState(false)
   const [mobileZoom, setMobileZoom] = useState<'fit' | '100'>('fit')
   const containerRef = useRef<HTMLDivElement>(null)
@@ -126,6 +131,26 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     () => EXAM_VERSION_CODES.filter(code => Boolean(manifestSet?.variants[code])),
     [manifestSet],
   )
+
+  const applicableVersions = useMemo(() => {
+    if (docType === 'exam_paper' || docType === 'question_reader') {
+      return manifestVersions.length > 0 ? manifestVersions : (['A'] as ExamVersionCode[])
+    }
+    if (docType === 'answer_sheet') {
+      return availableVersions
+    }
+    return ['A'] as ExamVersionCode[]
+  }, [docType, manifestVersions, availableVersions])
+
+  const canSelectAll = useMemo(() => {
+    return canSelectExternalExamVersion(docType, manifestVersions.length > 0) && applicableVersions.length > 1
+  }, [docType, manifestVersions.length, applicableVersions.length])
+
+  useEffect(() => {
+    if (!canSelectAll && isAllVariants) {
+      setIsAllVariants(false)
+    }
+  }, [canSelectAll, isAllVariants])
 
   const effectiveSelectedVersion = resolvePrintableExamVersion(docType, selectedVersion, availableVersions, manifestVersions)
 
@@ -187,6 +212,24 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     examVersion: effectiveSelectedVersion,
   }), [parishName, dioceseName, subject, scoreTypeLabel, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, effectiveSelectedVersion])
 
+  const allVariantsData = useMemo(() => {
+    if (!isAllVariants) return []
+    return applicableVersions.map(code => {
+      const activeKey = variants[code] || answerKey || {}
+      const manifestedQuestions = manifestSet?.variants[code]?.questions
+      const sourceQuestions = manifestedQuestions && (docType === 'exam_paper' || docType === 'question_reader')
+        ? manifestedQuestions
+        : questions
+      const sorted = [...sourceQuestions].sort((a, b) => (a.index || 0) - (b.index || 0))
+      const qs = sorted.map((q, idx) => ({
+        ...q,
+        index: q.index || idx + 1,
+        correctOption: activeKey[q.index || idx + 1] || q.correctOption || 'A',
+      }))
+      return { examVersion: code, questions: qs }
+    })
+  }, [isAllVariants, applicableVersions, variants, answerKey, manifestSet, docType, questions])
+
   const sampleStudent: StudentSheetInfo = useMemo(() => ({
     id: 'GENERIC',
     code: '',
@@ -218,6 +261,9 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
   const previewHtml = useMemo(() => {
     if (docType === 'answer_sheet') {
+      if (isAllVariants) {
+        return prepareExamDocumentForOutput(buildAllVariantsAnswerSheetsHtml(applicableVersions, batchAnswerSheetParams, sampleStudent))
+      }
       if (printMode === 'batch' && students.length > 0) {
         return prepareExamDocumentForOutput(buildBatchAnswerSheetsHtml(students.slice(0, 2), batchAnswerSheetParams))
       }
@@ -236,11 +282,15 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       return `<!DOCTYPE html><html><body style="font-family:sans-serif;padding:40px;text-align:center;color:#64748b;"><h3>Chưa có nội dung câu hỏi cho đề thi.</h3><p>Vui lòng chuyển qua tab <b>Phiếu Trả Lời Rời A4</b> hoặc <b>Thẻ Mã QR</b> để xem phiếu làm bài.</p></body></html>`
     }
 
+    if (isAllVariants && allVariantsData.length > 0) {
+      return prepareExamDocumentForOutput(buildAllVariantsExamPapersHtml({ ...printOptions, variants: allVariantsData }))
+    }
+
     const rawHtml = printMode === 'batch' && students.length > 0
       ? buildBatchExamPapersHtml(students.slice(0, 2), printOptions)
       : buildExamPaperHtml(printOptions)
     return prepareExamDocumentForOutput(rawHtml)
-  }, [docType, printMode, students, sampleStudent, batchAnswerSheetParams, classLabel, subject, qrSvgs, effectiveQuestions, printOptions, questionIntegrityError])
+  }, [docType, isAllVariants, applicableVersions, allVariantsData, printMode, students, sampleStudent, batchAnswerSheetParams, classLabel, subject, qrSvgs, effectiveQuestions, printOptions, questionIntegrityError])
 
   if (!isOpen) return null
 
@@ -254,12 +304,20 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const handlePrint = () => {
     if (!guardExamPaperIntegrity()) return
     if (docType === 'answer_sheet') {
+      if (isAllVariants) {
+        printAllVariantsAnswerSheets(applicableVersions, batchAnswerSheetParams, sampleStudent)
+        return
+      }
       const answerSheetStudents = printMode === 'batch' && students.length > 0 ? students : [sampleStudent]
       printBatchAnswerSheets(answerSheetStudents, batchAnswerSheetParams)
       return
     }
     if (docType === 'qr_sheet') {
       printQrSheet(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
+      return
+    }
+    if (isAllVariants && allVariantsData.length > 0) {
+      printAllVariantsExamPapers({ ...printOptions, variants: allVariantsData })
       return
     }
     if (printMode === 'batch' && students.length > 0) {
@@ -274,6 +332,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     const isBatch = printMode === 'batch' && students.length > 0
 
     if (docType === 'answer_sheet') {
+      if (isAllVariants) {
+        const htmlToExport = buildAllVariantsAnswerSheetsHtml(applicableVersions, batchAnswerSheetParams, sampleStudent)
+        const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_TatCaMaDe_${applicableVersions.join('')}`)
+        ReportExportService.exportPdf(htmlToExport, filename)
+        return
+      }
       const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
       const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`)
       ReportExportService.exportPdf(htmlToExport, filename)
@@ -283,6 +347,13 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     if (docType === 'qr_sheet') {
       const htmlToExport = buildQrSheetHtml(`${classLabel} — ${subject} (Thẻ Mã QR)`, qrSvgs)
       const filename = sanitizeFilename(`The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}`)
+      ReportExportService.exportPdf(htmlToExport, filename)
+      return
+    }
+
+    if (isAllVariants && allVariantsData.length > 0) {
+      const htmlToExport = buildAllVariantsExamPapersHtml({ ...printOptions, variants: allVariantsData })
+      const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_TatCaMaDe_${applicableVersions.join('')}`)
       ReportExportService.exportPdf(htmlToExport, filename)
       return
     }
@@ -300,6 +371,13 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     const isBatch = printMode === 'batch' && students.length > 0
 
     if (docType === 'answer_sheet') {
+      if (isAllVariants) {
+        const htmlToExport = buildAllVariantsAnswerSheetsHtml(applicableVersions, batchAnswerSheetParams, sampleStudent)
+        const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_TatCaMaDe_${applicableVersions.join('')}.html`)
+        ReportExportService.downloadHTML(htmlToExport, filename)
+        useToastStore.getState().addToast(`Đã xuất file HTML Phiếu Trả Lời Toàn Bộ Mã Đề: ${filename}`, 'success')
+        return
+      }
       const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
       const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`)
       ReportExportService.downloadHTML(htmlToExport, filename)
@@ -312,6 +390,14 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       const filename = sanitizeFilename(`The_Ma_QR_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}.html`)
       ReportExportService.downloadHTML(htmlToExport, filename)
       useToastStore.getState().addToast(`Đã xuất file HTML Thẻ Mã QR: ${filename}`, 'success')
+      return
+    }
+
+    if (isAllVariants && allVariantsData.length > 0) {
+      const htmlToExport = buildAllVariantsExamPapersHtml({ ...printOptions, variants: allVariantsData })
+      const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_TatCaMaDe_${applicableVersions.join('')}.html`)
+      ReportExportService.downloadHTML(htmlToExport, filename)
+      useToastStore.getState().addToast(`Đã xuất file HTML đề thi Toàn Bộ Mã Đề: ${filename}`, 'success')
       return
     }
 
@@ -335,10 +421,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       academicYear,
       durationMinutes,
       questions: effectiveQuestions,
-      selectedVersion: effectiveSelectedVersion,
+      selectedVersion: isAllVariants ? 'ALL' : effectiveSelectedVersion,
       answerVariants,
       answerKey,
+      variantManifests,
       includeAnswerKey: showAnswerKey,
+
       includeExplanations,
       includeStudentInfo: true,
       includeQuickAnswerGrid: includeAnswerGrid,
@@ -354,10 +442,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       classLabel,
       academicYear,
       questions: effectiveQuestions,
-      selectedVersion: effectiveSelectedVersion,
+      selectedVersion: isAllVariants ? 'ALL' : effectiveSelectedVersion,
       answerVariants,
       answerKey,
+      variantManifests,
       includeAnswerKey: true,
+
       includeExplanations: true,
     }).catch(console.error)
   }
@@ -556,19 +646,33 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 )}
 
                 {/* Mã Đề Selector */}
-                {canSelectExternalExamVersion(docType, manifestVersions.length > 0) && availableVersions.length > 1 && (
+                {canSelectExternalExamVersion(docType, manifestVersions.length > 0) && applicableVersions.length > 1 && (
                   <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
                     <span className="text-[11px] text-text-muted font-bold px-1 flex items-center">
                       <Layers3 size={11} className="mr-0.5" /> Mã:
                     </span>
-                    {availableVersions.map(code => (
+                    <button
+                      type="button"
+                      onClick={() => setIsAllVariants(true)}
+                      className={`px-1.5 py-0.5 rounded text-[11px] font-black transition-all ${
+                        isAllVariants ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                      }`}
+                      title={`Xem và in gộp toàn bộ ${applicableVersions.length} mã đề (${applicableVersions.join(', ')})`}
+                    >
+                      Tất cả
+                    </button>
+                    {applicableVersions.map(code => (
                       <button
                         key={code}
                         type="button"
-                        onClick={() => setSelectedVersion(code)}
+                        onClick={() => {
+                          setIsAllVariants(false)
+                          setSelectedVersion(code)
+                        }}
                         className={`px-1.5 py-0.5 rounded text-[11px] font-black transition-all ${
-                          effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                          !isAllVariants && effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
                         }`}
+                        title={formatExamVersionLabel(code)}
                       >
                         {code}
                       </button>
@@ -715,22 +819,36 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 </div>
               )}
 
-              {canSelectExternalExamVersion(docType, manifestVersions.length > 0) && availableVersions.length > 1 && (
+              {canSelectExternalExamVersion(docType, manifestVersions.length > 0) && applicableVersions.length > 1 && (
                 <div className="flex items-center gap-1.5 text-xs">
                   <span className="text-text-muted font-semibold flex items-center gap-1">
                     <Layers3 size={13} /> Mã Đề:
                   </span>
                   <div className="flex bg-surface-card rounded-lg border border-surface-border p-0.5">
-                    {availableVersions.map(code => (
+                    <button
+                      type="button"
+                      onClick={() => setIsAllVariants(true)}
+                      className={`px-2.5 py-0.5 rounded text-xs font-black transition-all ${
+                        isAllVariants ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                      }`}
+                      title={`Xem và in gộp toàn bộ ${applicableVersions.length} mã đề (${applicableVersions.join(', ')})`}
+                    >
+                      Tất cả ({applicableVersions.length})
+                    </button>
+                    {applicableVersions.map(code => (
                       <button
                         key={code}
                         type="button"
-                        onClick={() => setSelectedVersion(code)}
+                        onClick={() => {
+                          setIsAllVariants(false)
+                          setSelectedVersion(code)
+                        }}
                         className={`px-2 py-0.5 rounded text-xs font-black transition-all ${
-                          effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                          !isAllVariants && effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
                         }`}
+                        title={formatExamVersionLabel(code)}
                       >
-                        {code}
+                        {code} ({getExamVersionNumericAlias(code)})
                       </button>
                     ))}
                   </div>
@@ -916,7 +1034,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 <>
                   <div className="flex items-center justify-between pb-2 border-b border-surface-border">
                     <span className="text-xs font-bold text-parish-primary">
-                      Danh sách {effectiveQuestions.length} câu hỏi · Mã đề {effectiveSelectedVersion}
+                      Danh sách {effectiveQuestions.length} câu hỏi · {formatExamVersionLabel(effectiveSelectedVersion)}
                     </span>
                     <span className="text-[11px] text-text-muted">
                       {showAnswerKey ? '✅ Đang hiện đáp án' : '🔒 Đang ẩn đáp án'}

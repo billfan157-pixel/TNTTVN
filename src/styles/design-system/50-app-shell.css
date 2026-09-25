@@ -3,30 +3,34 @@
    ═══════════════════════════════════════════════════ */
 
 .skeleton {
-  background: var(--color-surface-hover);
+  background: linear-gradient(90deg, var(--color-surface-sunken) 0%, var(--color-surface-hover) 50%, var(--color-surface-sunken) 100%);
+  background-size: 200% 100%;
   border-radius: var(--radius-sm);
-  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
 }
 .skeleton-text {
   height: 14px;
   border-radius: 4px;
-  background: var(--color-surface-hover);
-  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--color-surface-sunken) 0%, var(--color-surface-hover) 50%, var(--color-surface-sunken) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
 }
 
 .skeleton-title {
   height: 20px;
   border-radius: 6px;
-  background: var(--color-surface-hover);
-  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--color-surface-sunken) 0%, var(--color-surface-hover) 50%, var(--color-surface-sunken) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
 }
 
 .skeleton-avatar {
   width: 40px;
   height: 40px;
   border-radius: var(--radius-full);
-  background: var(--color-surface-hover);
-  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  background: linear-gradient(90deg, var(--color-surface-sunken) 0%, var(--color-surface-hover) 50%, var(--color-surface-sunken) 100%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.8s ease-in-out infinite;
 }
 
 .skeleton-card {
@@ -79,23 +83,39 @@
   gap: 16px 20px;
 }
 
+/* Card hero frame (DS §5): thanh accent vàng→xanh chạy dọc cạnh trái được vẽ bằng
+   NỀN LAYER của chính card (left / 6px 100%) — nền card tự clip theo bo góc,
+   nên thanh khít viền tuyệt đối ở mọi mức zoom, không cần pseudo-element bo riêng.
+   Gradient qua cầu tối (vàng → bronze sẫm → navy sẫm) để vùng chuyển sắc không
+   sinh ô-li bẩn. Glow hai cực (xanh phải-trên, vàng phải-dưới) cũng là background
+   layer nên không cần overflow:hidden — dropdown trong actions không bao giờ bị cắt. */
 .page-header--card {
-  padding: 20px 22px;
-  border: 1px solid var(--color-surface-border);
+  padding: 20px 24px;
+  border: 1px solid color-mix(in srgb, var(--color-parish-primary) 16%, var(--color-surface-border));
   border-radius: var(--radius-lg);
-  background: var(--color-surface-card);
-  box-shadow: var(--shadow-card);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--color-parish-gold) 55%, var(--color-parish-gold-light)) 0%,
+      var(--color-parish-gold) 26%,
+      color-mix(in srgb, var(--color-parish-gold) 68%, black) 48%,
+      color-mix(in srgb, var(--color-parish-primary) 58%, black) 74%,
+      var(--color-parish-primary) 100%
+    ) left / 6px 100% no-repeat,
+    radial-gradient(460px 200px at 94% -60%, rgba(30, 58, 138, 0.08), transparent 72%),
+    radial-gradient(280px 150px at 101% 135%, rgba(183, 121, 31, 0.07), transparent 70%),
+    linear-gradient(118deg, var(--color-surface-card) 0%, color-mix(in srgb, var(--color-parish-primary-light) 42%, var(--color-surface-card)) 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.05),
+    0 12px 30px -20px rgba(30, 58, 138, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.page-header--card::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: linear-gradient(180deg, var(--color-parish-gold), var(--color-parish-primary));
-  content: '';
-  opacity: 0.82;
-  border-top-left-radius: var(--radius-lg);
-  border-bottom-left-radius: var(--radius-lg);
+.dark .page-header--card {
+  border-color: color-mix(in srgb, var(--color-parish-primary-light) 55%, var(--color-surface-border));
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 12px 30px -20px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .page-header__identity {
@@ -107,17 +127,26 @@
   gap: 14px;
 }
 
+/* Icon tile thương hiệu (DS §5): gradient xanh xứ đoàn + icon vàng kem, đồng
+   ngôn ngữ với .mobile-page-header--brand. Tile là chủ sở hữu màu icon —
+   các call site truyền text-parish-primary cũ không được phá vỡ phối màu. */
 .page-header__icon {
   display: inline-flex;
-  width: 42px;
-  height: 42px;
+  width: 46px;
+  height: 46px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border: 1px solid color-mix(in srgb, var(--color-parish-primary) 12%, var(--color-surface-border));
   border-radius: var(--radius-md);
-  background: var(--color-parish-primary-light);
-  color: var(--color-parish-primary);
+  background: linear-gradient(145deg, var(--color-parish-primary) 0%, var(--color-parish-primary-hover) 100%);
+  color: var(--color-parish-secondary-light);
+  box-shadow:
+    0 8px 16px -10px rgba(30, 58, 138, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.page-header__icon svg {
+  color: currentColor;
 }
 
 .page-header__title {
@@ -133,7 +162,7 @@
 
 .page-header__description {
   margin: 4px 0 0;
-  color: var(--color-text-muted);
+  color: var(--color-text-secondary);
   font-size: 13px;
   font-weight: 450;
   line-height: 1.45;
@@ -417,6 +446,10 @@
     scroll-behavior: auto;
   }
 
+  .skeleton,
+  .skeleton-text,
+  .skeleton-title,
+  .skeleton-avatar,
   .route-transition-frame,
   ::view-transition-old(root),
   ::view-transition-new(root),

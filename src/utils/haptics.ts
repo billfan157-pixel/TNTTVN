@@ -1,24 +1,32 @@
 /**
- * haptics.ts — Nền tảng phản hồi xúc giác (Haptic & Tactile Feedback Engine)
- *
- * Hỗ trợ đa nền tảng:
- * 1. Native Capacitor App: Tận dụng Web Vibration / Native Bridge
- * 2. Mobile Web / PWA: HTML5 Navigator.vibrate API với chuỗi xung nhịp tối ưu
- * 3. Desktop / Unsupported: Fallback no-op an toàn, không ném ngoại lệ
- * 4. Respect Accessibility: Tự động tắt nếu người dùng bật `prefers-reduced-motion`
+ * Tiện ích phản hồi xúc giác (Haptic Feedback) chuẩn cho Catevia PWA.
+ * An toàn trên mọi môi trường (Browser, PWA mobile iOS 16+/Android, SSR, jsdom).
+ * Tự động tắt khi người dùng bật chế độ giảm chuyển động (prefers-reduced-motion: reduce).
  */
 
-function isVibrationSupported(): boolean {
-  return typeof window !== 'undefined' && typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
+let hapticsEnabled = true
+
+function canVibrate(): boolean {
+  if (!hapticsEnabled) return false
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+  if (typeof navigator.vibrate !== 'function') return false
+
+  // Tôn trọng thiết lập trợ năng của người dùng
+  if (typeof window.matchMedia === 'function') {
+    try {
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return false
+      }
+    } catch {
+      // Bỏ qua lỗi matchMedia trên môi trường kiểm thử cũ
+    }
+  }
+
+  return true
 }
 
-function userPrefersReducedMotion(): boolean {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
-  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-function triggerVibration(pattern: number | number[]): boolean {
-  if (!isVibrationSupported() || userPrefersReducedMotion()) return false
+function safeVibrate(pattern: number | number[]): boolean {
+  if (!canVibrate()) return false
   try {
     return navigator.vibrate(pattern)
   } catch {
@@ -28,44 +36,74 @@ function triggerVibration(pattern: number | number[]): boolean {
 
 export const hapticFeedback = {
   /**
-   * Phản hồi chạm nhẹ (8ms) — Dùng cho chuyển tab, click button, filter chips, selection controls.
+   * Chạm nhẹ (8ms): Phản hồi cho các nút bấm thường, chuyển tab, chọn bộ lọc.
    */
   light(): boolean {
-    return triggerVibration(8)
+    return safeVibrate(8)
   },
 
   /**
-   * Phản hồi chạm vừa (16ms) — Dùng cho toggle trạng thái điểm danh, đổi steppers, mở rộng thẻ.
+   * Chạm nhẹ (8ms): Alias cho light().
+   */
+  tap(): boolean {
+    return safeVibrate(8)
+  },
+
+  /**
+   * Chạm vừa (16ms): Phản hồi khi chuyển chế độ, bấm hành động chính.
    */
   medium(): boolean {
-    return triggerVibration(16)
+    return safeVibrate(16)
   },
 
   /**
-   * Phản hồi thành công [12ms, 40ms nghỉ, 20ms] — Dùng khi lưu điểm, lưu điểm danh, bắt QR thành công.
-   */
-  success(): boolean {
-    return triggerVibration([12, 40, 20])
-  },
-
-  /**
-   * Phản hồi cảnh báo [25ms, 40ms nghỉ, 25ms] — Dùng cho cảnh báo khóa sổ, xác nhận xóa, cảnh báo unsaved.
-   */
-  warning(): boolean {
-    return triggerVibration([25, 40, 25])
-  },
-
-  /**
-   * Phản hồi lỗi [35ms, 60ms nghỉ, 35ms] — Dùng khi nhập điểm ngoài khoảng 0-10, quét mã thất bại.
-   */
-  error(): boolean {
-    return triggerVibration([35, 60, 35])
-  },
-
-  /**
-   * Phản hồi vi mô (4ms) — Dùng khi lướt danh sách, trượt con lăn số nhanh.
+   * Chọn trạng thái (4ms): Tích điểm danh nhanh, chuyển công tắc (switch).
    */
   selection(): boolean {
-    return triggerVibration(4)
+    return safeVibrate(4)
+  },
+
+  /**
+   * Thành công [12, 40, 20]: Nhịp kép khi lưu dữ liệu thành công, quét OMR khớp.
+   */
+  success(): boolean {
+    return safeVibrate([12, 40, 20])
+  },
+
+  /**
+   * Cảnh báo [25, 40, 25]: Nhịp cảnh báo khi xung đột dữ liệu, phiên offline.
+   */
+  warning(): boolean {
+    return safeVibrate([25, 40, 25])
+  },
+
+  /**
+   * Lỗi [35, 60, 35]: Nhịp rung khi lỗi biểu mẫu, thao tác nguy hiểm (xóa).
+   */
+  error(): boolean {
+    return safeVibrate([35, 60, 35])
+  },
+
+  /**
+   * Kiểm tra thiết bị hiện tại có hỗ trợ API rung không.
+   */
+  isSupported(): boolean {
+    return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
+  },
+
+  /**
+   * Bật/tắt haptics theo cài đặt của người dùng.
+   */
+  setEnabled(enabled: boolean): void {
+    hapticsEnabled = enabled
+  },
+
+  /**
+   * Kiểm tra haptics có đang được kích hoạt hay không.
+   */
+  isEnabled(): boolean {
+    return hapticsEnabled
   },
 }
+
+export const haptics = hapticFeedback

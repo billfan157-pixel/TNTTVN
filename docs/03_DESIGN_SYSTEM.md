@@ -169,7 +169,7 @@ Việc điều chỉnh foreground Nghĩa Sĩ chỉ sửa contrast của chữ ba
 | **Mã thiếu nhi / tên thánh** | `text-sm` | `font-bold` | `text-parish-primary` / `text-text-muted` |
 | **Tiêu đề cột bảng** | `text-xs` | `font-bold uppercase tracking-wider` | `text-text-muted` |
 | **Chữ phụ / chú thích** | `text-xs` | `font-medium` | `text-text-muted` |
-| Icon tile trang | `w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary` | | |
+| Icon tile trang (PageHeader) | 46px, gradient navy `parish-primary → primary-hover`, icon vàng kem `parish-secondary-light` (CSS sở hữu màu icon) | | |
 
 Cấm: `text-slate-*`, `text-gray-*`, `text-[10px]/[11px]` tùy tiện (dùng `text-xs`/`text-[10px]` chỉ khi thật cần và đồng nhất).
 
@@ -353,7 +353,7 @@ Khi migrate module cũ, dùng bảng này — **không đổi layout, chỉ đ�
 
 **UX/UI Audit Batch 2026-08-16 (Pha 1 — Component Standards, ADR-055)**:
 - Tạo 3 component chuẩn dùng chung (bắt buộc cho code mới):
-  - `src/components/common/PageHeader.tsx` — DS §5: icon tile `bg-parish-primary-light text-parish-primary` + `h1 text-lg font-extrabold text-text-main` + desc `text-xs text-text-muted` + `actions` phải.
+  - `src/components/common/PageHeader.tsx` — DS §5: card khung tiêu đề gradient brand + accent vàng→xanh chuyển sắc mượt, vẽ bằng nền layer bo khít góc card (cập nhật 2026-09-24) + icon tile gradient navy 46px icon vàng kem + `h1.page-header__title` 23px/800 + desc 13px `text-text-secondary` + `actions` phải.
   - `src/components/common/ModalShell.tsx` — wrap `.modal-overlay`/`.modal-content` + `role="dialog"` `aria-modal` `aria-labelledby` (useId) + focus trap (`useFocusTrap`) + Escape + scroll-lock + overlay-click policy (`closeOnOverlay`, default true) + close button `btn btn-icon btn-ghost` aria-label "Đóng". (ConfirmDialog giữ `role="alertdialog"` — đúng semantics confirm.)
   - `src/components/common/FormField.tsx` — `htmlFor` + required marker + error `.form-error` `role="alert"` + `aria-invalid`/`aria-describedby` (ưu tiên error hơn hint).
 - Thêm **domain badge colors** vào `@theme` (AA trên pastel — violet 6.6:1, teal ~7:1, orange 4.6:1, indigo ~7:1, purple ~6:1): `--color-parish-violet/-bg #6D28D9/#EDE9FE`, `--color-parish-teal/-bg #0F766E/#CCFBF1`, `--color-parish-orange/-bg #C2410C/#FFEDD5`, `--color-parish-indigo/-bg #4338CA/#E0E7FF`, `--color-parish-purple/-bg #7E22CE/#F3E8FF` + `.badge-{violet,teal,orange,indigo,purple}` + dark overrides (text sáng trên nền tối).

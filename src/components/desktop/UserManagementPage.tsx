@@ -75,6 +75,9 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
   // dùng chung state `error` (render phía sau overlay) → modal che mất thông báo.
   const [createError, setCreateError] = useState('')
   const [editError, setEditError] = useState('')
+  // UX-WAIT (audit 2026-09-24): khóa nút submit + spinner trong lúc gọi backend.
+  const [creating, setCreating] = useState(false)
+  const [savingAssignments, setSavingAssignments] = useState(false)
 
   const [cpUser, setCpUser] = useState<UserAccount | null>(null)
   const [cpNewPass, setCpNewPass] = useState('')
@@ -250,8 +253,10 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
       return
     }
     if (!newFullName.trim()) return
+    if (creating) return
     setError(null)
     setCreateError('')
+    setCreating(true)
     try {
       const result = await api.createUser({
         // Gửi override (custom) HOẶC để server tự sinh từ holyName+fullName (SSOT).
@@ -280,14 +285,17 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
       const msg = err instanceof Error ? err.message : 'Tạo tài khoản thất bại'
       setCreateError(msg)
       Sentry.captureException(err)
+    } finally {
+      setCreating(false)
     }
   }
 
   const handleEditAssignments = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editingUser) return
+    if (!editingUser || savingAssignments) return
     setError(null)
     setEditError('')
+    setSavingAssignments(true)
     try {
       await api.updateUserAssignments(editingUser.id, selectedClasses)
       await useClassStore.getState().fetchClasses()
@@ -298,6 +306,8 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
       const msg = err instanceof Error && err.message ? err.message : 'Cập nhật phân công thất bại'
       setEditError(msg)
       Sentry.captureException(err)
+    } finally {
+      setSavingAssignments(false)
     }
   }
 
@@ -363,26 +373,26 @@ export const UserManagementPage: React.FC<UserManagementPageProps> = ({ scope = 
   // Xác nhận trước các thao tác account-impact (2026-08-22 audit P0.5):
   // force-logout & lock/unlock trước đây chạy trực tiếp onClick → API.
   const confirmForceLogout = async (user: UserAccount) => {
-    const ok = await askConfirm({
+    await askConfirm({
       title: 'Xác Nhận Force Logout',
       message: `Đăng xuất tài khoản "${user.fullName} (@${user.username})" khỏi mọi thiết bị? Các phiên đang hoạt động sẽ bị ngắt ngay lập tức.`,
       confirmText: 'Đăng Xuất',
       variant: 'warning',
+      action: () => handleForceLogout(user.id),
     })
-    if (ok) await handleForceLogout(user.id)
   }
 
   const confirmToggleUserStatus = async (user: UserAccount) => {
     const locking = user.status === 'ACTIVE'
-    const ok = await askConfirm({
+    await askConfirm({
       title: locking ? 'Xác Nhận Khóa Tài Khoản' : 'Xác Nhận Mở Khóa',
       message: locking
         ? `Khóa tài khoản "${user.fullName} (@${user.username})"? Người dùng sẽ không thể đăng nhập cho đến khi được mở khóa.`
         : `Mở khóa tài khoản "${user.fullName} (@${user.username})"? Người dùng sẽ đăng nhập được trở lại bình thường.`,
       confirmText: locking ? 'Khóa' : 'Mở Khóa',
       variant: locking ? 'danger' : 'info',
+      action: () => toggleUserStatus(user.id),
     })
-    if (ok) await toggleUserStatus(user.id)
   }
 
   const openDeleteUser = (user: UserAccount) => {

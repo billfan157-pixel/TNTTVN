@@ -1,0 +1,119 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "bcrypt-sharded",
+  "beganAt": "2026-09-24T04:38:33.751Z",
+  "endedAt": "2026-09-24T04:38:39.804Z",
+  "count": 20,
+  "concurrency": 5,
+  "validCount": 20,
+  "statusCounts": {
+    "200": 20
+  },
+  "firstRequestMs": 1674.53,
+  "minMs": 707.24,
+  "p50Ms": 1275.55,
+  "p95Ms": 1881.93,
+  "maxMs": 1992.17,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 1674.53,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1881.93,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1573,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1570.35,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1477.09,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1992.17,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1229.87,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1655.66,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1610.23,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1534.51,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1133.15,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1253.59,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 707.24,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 727.18,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1275.55,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 721.44,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1123.31,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1262.65,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1512.74,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1264.42,
+      "valid": true
+    }
+  ]
+}

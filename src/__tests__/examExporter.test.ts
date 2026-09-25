@@ -96,7 +96,7 @@ describe('examExporter', () => {
       expect(html).toContain('Tổng Giáo Phận Sài Gòn')
       expect(html).toContain('Khảo Sát Giáo Lý Khối Thêm Sức')
       expect(html).toContain('Thêm Sức 2')
-      expect(html).toContain('Mã đề: <strong>A</strong>')
+      expect(html).toContain('Mã đề: <strong>A (101)</strong>')
       expect(html).toContain('Thiên Chúa sáng tạo trời đất trong mấy ngày?')
       expect(html).toContain('Bí tích nào là khởi đầu đời sống Kitô hữu?')
       expect(html).toContain('BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN')
@@ -147,8 +147,27 @@ describe('examExporter', () => {
         selectedVersion: 'B',
         includeAnswerKey: false,
       })
-      expect(html).toContain('Mã đề: <strong>A</strong>')
-      expect(html).not.toContain('Mã đề: <strong>B</strong>')
+      expect(html).toContain('Mã đề: <strong>A (101)</strong>')
+      expect(html).not.toContain('Mã đề: <strong>B (102)</strong>')
+    })
+
+    it('generates combined all-variants Word HTML when selectedVersion is ALL', () => {
+      const html = generateExamWordHtml({
+        subject: 'Khảo Sát Đa Mã Đề',
+        classLabel: 'Bao Đồng 1',
+        academicYear: '2025-2026',
+        questions: sampleQuestions,
+        answerVariants: {
+          A: { 1: 'B', 2: 'C' },
+          B: { 1: 'A', 2: 'D' },
+        },
+        selectedVersion: 'ALL',
+        includeAnswerKey: false,
+      })
+
+      expect(html).toContain('Mã đề: <strong>A (101)</strong>')
+      expect(html).toContain('Mã đề: <strong>B (102)</strong>')
+      expect(html).toContain('Bộ Đề Thi Toàn Bộ Mã Đề')
     })
 
     it('generates multi-student batch Word HTML with distinct QR codes and names', () => {
@@ -199,6 +218,42 @@ describe('examExporter', () => {
 
       const qSheet = wb.Sheets['Danh_Sach_Cau_Hoi']
       expect(qSheet).toBeDefined()
+    })
+
+    it('aligns variant answer columns by immutable source question identity', async () => {
+      const manifest = {
+        schemaVersion: 1,
+        algorithmVersion: 'catevia-variant-v1',
+        seed: 'test',
+        sourceHash: 'source',
+        generatedAt: new Date().toISOString(),
+        variants: {
+          A: {
+            version: 'A', sourceQuestionOrder: [1, 2], sourceQuestionIds: ['q1', 'q2'],
+            optionOrders: {}, questions: sampleQuestions, answerKey: { 1: 'B', 2: 'C' }, contentHash: 'a',
+          },
+          B: {
+            version: 'B', sourceQuestionOrder: [2, 1], sourceQuestionIds: ['q2', 'q1'],
+            optionOrders: {},
+            questions: [
+              { ...sampleQuestions[1], index: 1, correctOption: 'A' },
+              { ...sampleQuestions[0], index: 2, correctOption: 'D' },
+            ],
+            answerKey: { 1: 'A', 2: 'D' }, contentHash: 'b',
+          },
+        },
+      }
+      const bytes = await generateExamExcelWorkbook({
+        subject: 'Reordered', classLabel: 'Lớp 1', questions: sampleQuestions,
+        selectedVersion: 'B', variantManifests: manifest as any,
+      })
+      const workbook = XLSX.read(bytes, { type: 'array' })
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets['Bang_Dap_An_Ma_De'], { header: 1 })
+      expect(matrix).toEqual(expect.arrayContaining([
+        ['Câu Số', 'Mã Đề A', 'Mã Đề B'],
+        [1, 'B', 'D'],
+        [2, 'C', 'A'],
+      ]))
     })
   })
 

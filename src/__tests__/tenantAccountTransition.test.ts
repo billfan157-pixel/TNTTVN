@@ -9,6 +9,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { resetAllStoresToDefault } from '../stores/resetStores'
 import { useSyncStore } from '../stores/syncStore'
 import { useFinanceStore } from '../stores/financeStore'
+import { useDailyGradeStore } from '../stores/dailyGradeStore'
 import { useLeaveRequestStore } from '../stores/leaveRequestStore'
 import { usePromotionStore } from '../stores/promotionStore'
 import { useUIStore } from '../stores/uiStore'
@@ -31,11 +32,13 @@ describe('TENANT-P1-001 account transition live-state boundary', () => {
       selectedSessionId: 'EXAM-A',
       results: [{ id: 'RESULT-A' } as any],
       queuedResultMutations: { 'MUT-A': { status: 'queued' } as any },
+      cachedResultsBySession: { 'EXAM-A': [{ id: 'RESULT-A' } as any] },
     })
     useNoticeStore.setState({ notices: [{ id: 'NOTICE-A' } as any] })
     useAcademicYearStore.setState({ currentYear: '2030-2031', academicYears: [{ id: '2030-2031' } as any] })
     useSettingsStore.setState(state => ({ settings: { ...state.settings, parishName: 'Parish A private state' } }))
     useFinanceStore.setState({ transactions: [{ id: 'TX-A' } as any], classFeeRecords: [{ studentId: 'ST-A' } as any] })
+    useDailyGradeStore.setState({ entries: [{ id: 'DAILY-A' } as any], serverEntries: [{ id: 'DAILY-SERVER-A' } as any] })
     useLeaveRequestStore.setState({ requests: [{ id: 'LEAVE-A' } as any], pendingCount: 1 })
     usePromotionStore.setState({ evaluationMap: { 'ST-A': { eligible: true } as any } })
     useUIStore.setState({ isReportModalOpen: true, studentForReport: { id: 'ST-A', fullName: 'Student A' } as any })
@@ -46,11 +49,12 @@ describe('TENANT-P1-001 account transition live-state boundary', () => {
     })
 
     await resetAllStoresToDefault()
-    expect(useExamStore.getState()).toMatchObject({ sessions: [], selectedSessionId: null, results: [], queuedResultMutations: {} })
+    expect(useExamStore.getState()).toMatchObject({ sessions: [], selectedSessionId: null, results: [], cachedResultsBySession: {}, queuedResultMutations: {} })
     expect(useNoticeStore.getState().notices).toEqual([])
     expect(useAcademicYearStore.getState()).toMatchObject({ academicYears: [], currentYear: '' })
     expect(useSettingsStore.getState().settings.parishName).not.toBe('Parish A private state')
     expect(useFinanceStore.getState()).toMatchObject({ transactions: [], classFeeRecords: [] })
+    expect(useDailyGradeStore.getState()).toMatchObject({ entries: [], serverEntries: [] })
     expect(useLeaveRequestStore.getState()).toMatchObject({ requests: [], pendingCount: 0 })
     expect(usePromotionStore.getState().evaluationMap).toEqual({})
     expect(useUIStore.getState()).toMatchObject({ isReportModalOpen: false, studentForReport: null })
@@ -60,7 +64,7 @@ describe('TENANT-P1-001 account transition live-state boundary', () => {
     const persistedExamState = await dexieStorage.getItem('parish_store_exams')
     if (persistedExamState !== null) {
       expect(JSON.parse(persistedExamState).state).toMatchObject({
-        sessions: [], selectedSessionId: null, results: [], queuedResultMutations: {},
+        sessions: [], selectedSessionId: null, results: [], cachedResultsBySession: {}, queuedResultMutations: {},
       })
       expect(persistedExamState).not.toContain('EXAM-A')
       expect(persistedExamState).not.toContain('RESULT-A')
