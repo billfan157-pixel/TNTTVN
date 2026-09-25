@@ -1,0 +1,24 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "apns-transport",
+  "beganAt": "2026-09-24T04:51:58.858Z",
+  "endedAt": "2026-09-24T04:52:00.636Z",
+  "count": 1,
+  "concurrency": 1,
+  "validCount": 1,
+  "statusCounts": {
+    "200": 1
+  },
+  "firstRequestMs": 1777.76,
+  "minMs": 1777.76,
+  "p50Ms": 1777.76,
+  "p95Ms": 1777.76,
+  "maxMs": 1777.76,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 1777.76,
+      "valid": true
+    }
+  ]
+}

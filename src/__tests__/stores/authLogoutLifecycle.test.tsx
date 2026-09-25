@@ -15,6 +15,7 @@ vi.mock('../../lib/tenantScope', async importOriginal => ({
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
 
 import { useAuthStore } from '../../stores/authStore'
+import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { db, AUTH_SNAPSHOT_KEY, dexieStorage } from '../../lib/db'
 import { setTenantScope, getTenantScope, scopedStorageKey } from '../../lib/tenantScope'
 import { setTokens, clearTokens, getAccessToken } from '../../lib/api/core'
@@ -83,6 +84,15 @@ describe('AUTH-P2-001 / AUTH-P3-001 logout across real transport, scope and encr
     expect(getAccessToken()).toBeNull()
     await useAuthStore.getState().loadFromStorage()
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
+  })
+
+  it('tenant cache deletion failure is surfaced on the logout destination', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok()))
+    vi.mocked(resetAllStoresToDefault).mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+
+    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: true, snapshotCleared: true })
+    render(<LoginPage />)
+    expect(screen.getByRole('alert')).toHaveTextContent('toàn bộ dữ liệu tenant')
   })
 
   it('a successful HTTP response without an acknowledgement is not reported as server logout', async () => {

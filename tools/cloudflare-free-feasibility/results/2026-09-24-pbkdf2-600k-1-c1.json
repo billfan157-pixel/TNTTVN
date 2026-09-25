@@ -1,0 +1,25 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "pbkdf2",
+  "beganAt": "2026-09-24T04:47:27.827Z",
+  "endedAt": "2026-09-24T04:47:28.495Z",
+  "count": 1,
+  "concurrency": 1,
+  "validCount": 0,
+  "statusCounts": {
+    "500": 1
+  },
+  "firstRequestMs": 666.24,
+  "minMs": 666.24,
+  "p50Ms": 666.24,
+  "p95Ms": 666.24,
+  "maxMs": 666.24,
+  "samples": [
+    {
+      "status": 500,
+      "wallMs": 666.24,
+      "errorKind": "NotSupportedError",
+      "valid": false
+    }
+  ]
+}

@@ -243,6 +243,27 @@ describe('Operations tenant, authority, OCC, idempotency and delivery boundaries
     expect((await request('/tasks?limit=501', adminToken)).status).toBe(400)
   })
 
+  it('auto-assigns a linked unit leader using exactly one membership identity', async () => {
+    const response = await request('/workstreams', adminToken, 'POST', {
+      name: 'Auto-assigned branch leader',
+      sourceUnitId: branchId,
+      autoAssignLeader: true,
+    }, `auto-assign-leader-${suffix}`)
+    expect(response.status).toBe(201)
+    const created = await data(response)
+    const members = await db.select().from(operationWorkstreamMembers).where(and(
+      eq(operationWorkstreamMembers.parishId, parishA),
+      eq(operationWorkstreamMembers.workstreamId, created.id),
+      isNull(operationWorkstreamMembers.removedAt),
+    ))
+    expect(members).toHaveLength(1)
+    expect(members[0]).toMatchObject({
+      userId: leaderId,
+      personId: null,
+      operationRole: 'WORKSTREAM_LEAD',
+    })
+  })
+
   it('W2.13: pushes q/status/scope filters into GET /events before authz and pagination', async () => {
     const unique = `W213-${suffix}`
     const matchA = await createEvent({ title: `${unique} Trại hè`, location: `Rừng ${unique}`, startsAt: '2027-01-01T08:00:00+07:00', endsAt: '2027-01-01T16:00:00+07:00' })

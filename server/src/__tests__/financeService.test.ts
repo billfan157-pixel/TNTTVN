@@ -8,6 +8,7 @@ import {
   listFunds,
   getFinanceSummary,
   listClassFeeRecords,
+  listTransactions,
 } from '../services/financeService.js'
 import {
   createFund,
@@ -261,6 +262,9 @@ describe('Parish Financial & Fund Management Tests (ADR-039)', () => {
     expect(updatedGeneral.currentBalance).toBe(500000)
     // Charity had 0 -> plus 200k = 200k
     expect(updatedCharity.currentBalance).toBe(200000)
+    const summary = await getFinanceSummary(parishId, '2025-2026')
+    expect(summary.totalIncome).toBe(1000000)
+    expect(summary.totalExpense).toBe(300000)
   })
 
   it('manages class fee records and updates student payment', async () => {
@@ -357,11 +361,11 @@ describe('Parish Financial & Fund Management Tests (ADR-039)', () => {
     expect(leakedAuditRows).toHaveLength(0)
   })
 
-  it('FIN-1: receiptNumber do client cung cấp phải duy nhất trong giáo xứ', async () => {
+  it('FIN-1: receiptNumber do máy chủ cấp và không chấp nhận giá trị từ client', async () => {
     const fundsList = await listFunds(parishId)
     const generalFund = fundsList.find((f) => f.code === 'GENERAL')!
 
-    const first = await createTransaction(
+    await expect(createTransaction(
       {
         fundId: generalFund.id,
         type: 'INCOME',
@@ -376,37 +380,73 @@ describe('Parish Financial & Fund Management Tests (ADR-039)', () => {
       parishId,
       '127.0.0.1',
       'TestAgent',
+    )).rejects.toMatchObject({ status: 400 })
+
+    const first = await createTransaction(
+      {
+        fundId: generalFund.id,
+        type: 'INCOME',
+        amount: 500000,
+        category: 'Ủng hộ',
+        title: 'Phiếu tự phân bổ FIN-1',
+        academicYear: '2025-2026',
+      },
+      adminId,
+      'Admin',
+      parishId,
+      '127.0.0.1',
+      'TestAgent',
     )
-    expect(first.receiptNumber).toBe('PT-FIN1-MANUAL')
+    const second = await createTransaction(
+      {
+        fundId: generalFund.id,
+        type: 'INCOME',
+        amount: 999,
+        category: 'Ủng hộ',
+        title: 'Phiếu tự phân bổ FIN-2',
+        academicYear: '2025-2026',
+      },
+      adminId,
+      'Admin',
+      parishId,
+      '127.0.0.1',
+      'TestAgent',
+    )
 
-    // Trùng số phiếu → từ chối, không ghi ledger
-    await expect(
-      createTransaction(
-        {
-          fundId: generalFund.id,
-          type: 'INCOME',
-          amount: 999,
-          category: 'Ủng hộ',
-          title: 'Phiếu trùng số',
-          receiptNumber: 'PT-FIN1-MANUAL',
-          academicYear: '2025-2026',
-        },
-        adminId,
-        'Admin',
-        parishId,
-        '127.0.0.1',
-        'TestAgent',
-      ),
-    ).rejects.toThrow(/đã tồn tại/)
-
-    const dupCount = await db
-      .select({ count: sql<number>`count(*)` })
+    expect(first.receiptNumber).toMatch(/^PT-\d{4}-\d{4}$/)
+    expect(second.receiptNumber).toMatch(/^PT-\d{4}-\d{4}$/)
+    expect(second.receiptNumber).not.toBe(first.receiptNumber)
+    const manualRows = await db
+      .select()
       .from(financialTransactions)
-      .where(and(eq(financialTransactions.parishId, parishId), eq(financialTransactions.receiptNumber, 'PT-FIN1-MANUAL')))
-    expect(Number(dupCount[0].count)).toBe(1)
+      .where(eq(financialTransactions.parishId, parishId))
+    expect(manualRows.filter(row => row.receiptNumber === 'PT-FIN1-MANUAL')).toHaveLength(0)
+  })
+
+  it('returns the full filtered count when the transaction page is limited', async () => {
+    const result = await listTransactions(parishId, { academicYear: '2025-2026', limit: 1, offset: 0 })
+    expect(result.transactions).toHaveLength(1)
+    expect(result.total).toBeGreaterThan(1)
+  })
+
+  it('allocates receipt suffixes numerically across the 9999 boundary', async () => {
+    const fundsList = await listFunds(parishId)
+    const generalFund = fundsList.find((f) => f.code === 'GENERAL')!
+    await db.insert(financialTransactions).values({
+      id: `boundary-${PREFIX}`, parishId, fundId: generalFund.id, type: 'INCOME', amount: 1,
+      category: 'Boundary', title: 'Receipt boundary', academicYear: '2025-2026',
+      transactionDate: '2026-08-15', receiptNumber: 'PT-2026-9999',
+      recordedBy: adminId, recordedByName: 'Admin', createdAt: new Date().toISOString(),
+    })
+    const next = await createTransaction({
+      fundId: generalFund.id, type: 'INCOME', amount: 1, category: 'Boundary',
+      title: 'Receipt boundary next', academicYear: '2025-2026', transactionDate: '2026-08-15',
+    }, adminId, 'Admin', parishId, '127.0.0.1', 'TestAgent')
+    expect(next.receiptNumber).toBe('PT-2026-10000')
   })
 
   it('enforces RBAC: non-admin roles receive 403 Forbidden on finance routes', async () => {
+
     // Admin request should succeed (200)
     const adminRes = await financesRouter.request('/summary', {
       method: 'GET',

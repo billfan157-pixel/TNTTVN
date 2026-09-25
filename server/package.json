@@ -12,6 +12,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/seed.ts",
     "db:backup": "node ../scripts/backup-db.mjs",
+    "db:preflight:cloudflare": "node --env-file-if-exists=.env --import tsx src/scripts/preflightCloudflareBackend.ts",
     "db:prepare:restore-target": "node --env-file-if-exists=.env --import tsx src/scripts/prepareRemoteRestoreTarget.ts",
     "db:restore:remote": "node --env-file-if-exists=.env --import tsx src/scripts/restoreRemoteBackup.ts",
     "db:audit:promotion-reconciliation": "node --env-file-if-exists=.env --import tsx src/scripts/auditPromotionReconciliation.ts",
@@ -40,10 +41,10 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.9",
-    "@types/node": "^22.15.3",
+    "@types/node": "^26.6.2",
     "@types/web-push": "^3.6.4",
-    "drizzle-kit": "^0.30.6",
-    "tsx": "^4.19.4",
-    "typescript": "~5.8.3"
+    "drizzle-kit": "^0.31.11",
+    "tsx": "^4.23.15",
+    "typescript": "~7.0.2"
   }
 }

@@ -160,6 +160,10 @@ Clients must validate the envelope, remove cached rows outside scope even when l
 ### ADR-015 (Idempotency & Double-Click Protection)
 - All store actions (`approveStudent`, `batchApprove`) MUST set `isSubmitting = true` immediately to lock submit buttons and prevent double-submission.
 
+### Global pending indicator (UX-FEEDBACK-1, 2026-09-24)
+- Mọi call backend đi qua transport `src/lib/api/core.ts` phát một tín hiệu "đang chờ máy chủ" (`src/lib/backendActivity.ts` → `BackendActivityIndicator`, mount ở `src/main.tsx`), chỉ hiển thị khi request vượt ~400 ms. Đây thuần tuý là tín hiệu hiển thị phía client: không đổi authorization, retry, idempotency, tenant continuity hay envelope response.
+- Burst nhiều request song song chỉ tạo một lượt đếm logic mỗi request; retry nội bộ không nhả/đếm lại giữa các lần backoff.
+
 ### Onboarding Gates (`409` — quy trình bắt buộc Năm học → Lớp → Học sinh)
 - `POST /api/classes` → `409 ACADEMIC_YEAR_REQUIRED` ("Vui lòng tạo năm học trước khi tạo lớp học") khi giáo xứ chưa có năm học.
 - `POST /api/students` → `409 CLASS_REQUIRED` ("Vui lòng tạo lớp học trước khi thêm học sinh") khi giáo xứ chưa có lớp học.

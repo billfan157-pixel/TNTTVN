@@ -1,16 +1,31 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'crypto'
 import { createDisposableRestoreTarget } from '../helpers/restoreTarget.js'
-import { createLogicalSnapshot, decryptLogicalSnapshot, encryptLogicalSnapshot, restoreLogicalSnapshot } from '../../services/remoteBackup.js'
+import { createAndStoreRemoteBackup, createLogicalSnapshot, decryptLogicalSnapshot, encryptLogicalSnapshot, readAndVerifyRemoteBackupSet, restoreLogicalSnapshot, restoreRemoteBackupSet } from '../../services/remoteBackup.js'
 import { prepareEmptyRestoreTarget } from '../../db/restorePreparation.js'
 import { assertDatabaseReady } from '../../db/schemaHealth.js'
 import { drizzle } from 'drizzle-orm/libsql'
 import { users, parishEvents, operationEvents, operationWorkstreams, operationTasks } from '../../db/schema.js'
+
+const blobStore = vi.hoisted(() => new Map<string, Buffer>())
+vi.mock('../../services/blobStorage.js', () => ({
+  hasDurableBlobStorage: () => true,
+  putObject: async (key: string, body: Buffer | string) => {
+    blobStore.set(key, typeof body === 'string' ? Buffer.from(body) : Buffer.from(body))
+  },
+  getObject: async (key: string) => blobStore.get(key) ?? null,
+  deleteObject: async (key: string) => { blobStore.delete(key) },
+  listObjects: async (prefix: string) => [...blobStore.entries()]
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([key, body]) => ({ key, size: body.length, lastModified: Date.now() })),
+}))
 
 const TEST_KEY = '11'.repeat(32)
 
 const createMemoryClient = createDisposableRestoreTarget
 
 describe('encrypted Turso logical backup', () => {
+  // Full-schema fixture setup and restore are integrity checks, not a runtime SLO.
   it.each(['ACTIVE', 'LOCKED'] as const)('restores populated Operations and historical organizer state (%s) without replaying command triggers', async status => {
     const source = createMemoryClient(), target = createMemoryClient()
     try {
@@ -37,7 +52,7 @@ describe('encrypted Turso logical backup', () => {
       await assertDatabaseReady(target)
       await expect(drizzle(target).insert(operationEvents).values({ ...event, id: 'invalid', organizerUserId: 'missing' })).rejects.toMatchObject({ cause: { message: expect.stringContaining('INVALID_OPERATION_EVENT_ORGANIZER_USER') } })
     } finally { source.close(); target.close() }
-  }, 30_000)
+  }, 120_000)
 
   it('rejects a checksum-valid snapshot missing a target table before any writes', async () => {
     const target = createMemoryClient()
@@ -182,4 +197,48 @@ describe('encrypted Turso logical backup', () => {
       target.close()
     }
   })
+
+  it('publishes a manifest-last backup set and restores archive bytes into an isolated prefix', async () => {
+    const source = createMemoryClient(), target = createMemoryClient()
+    const previousKey = process.env.BACKUP_ENCRYPTION_KEY
+    const sourceObjectKey = 'archive/source/archive-file.pdf'
+    const archiveBytes = Buffer.from('private archive bytes')
+    try {
+      await prepareEmptyRestoreTarget(source)
+      await prepareEmptyRestoreTarget(target)
+      blobStore.clear()
+      blobStore.set(sourceObjectKey, archiveBytes)
+      await source.execute({
+        sql: `INSERT INTO parish_archive_assets
+          (id, parish_id, asset_type, title, storage_type, object_key, mime_type, size_bytes, checksum_sha256, visibility, created_by, updated_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: ['asset-1', 'gia-ton', 'DOCUMENT', 'Archive', 'UPLOAD', sourceObjectKey, 'application/pdf', archiveBytes.length,
+          createHash('sha256').update(archiveBytes).digest('hex'), 'STAFF', 'admin', 'admin', new Date().toISOString()],
+      })
+      process.env.BACKUP_ENCRYPTION_KEY = TEST_KEY
+
+      const result = await createAndStoreRemoteBackup(source as any)
+      expect(result.objectKey).toMatch(/^backups\/v2\/set-.+\/manifest\.json$/)
+      expect(result.archiveObjectCount).toBe(1)
+      expect(result.archiveBytes).toBe(archiveBytes.length)
+      expect(blobStore.has(result.databaseObjectKey)).toBe(true)
+
+      const verified = await readAndVerifyRemoteBackupSet(result.objectKey)
+      expect(verified.manifest.archive.count).toBe(1)
+      expect(verified.archiveBytes.get('asset-1')).toEqual(archiveBytes)
+
+      const restored = await restoreRemoteBackupSet(target as any, result.objectKey, { archivePrefix: 'restore/drill' })
+      expect(restored.archiveObjectCount).toBe(1)
+      expect(restored.archivePrefix).toMatch(/^restore\/drill\/run-[a-f0-9]{16}$/)
+      const restoredKey = `${restored.archivePrefix}/archive/source/archive-file.pdf`
+      expect(blobStore.get(restoredKey)).toEqual(archiveBytes)
+      const rows = await target.execute('SELECT object_key FROM parish_archive_assets WHERE id = ?', ['asset-1'])
+      expect(rows.rows[0].object_key).toBe(restoredKey)
+    } finally {
+      if (previousKey === undefined) delete process.env.BACKUP_ENCRYPTION_KEY
+      else process.env.BACKUP_ENCRYPTION_KEY = previousKey
+      source.close()
+      target.close()
+    }
+  }, 120_000)
 })

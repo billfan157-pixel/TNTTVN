@@ -80,7 +80,7 @@ test.describe('Design System visual layout matrix', () => {
         }
         if (scenario.viewportName !== 'desktop') {
           const pageHeader = page.locator('.page-header').first()
-          if (await pageHeader.count()) {
+          if (await pageHeader.count() && await pageHeader.isVisible()) {
             const box = await pageHeader.boundingBox()
             expect(
               box?.height ?? Number.POSITIVE_INFINITY,

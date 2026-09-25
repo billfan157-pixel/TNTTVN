@@ -51,3 +51,19 @@ export function getConfiguredExamVersions(answerVariants: unknown, fallbackAnswe
   const variants = normalizeAnswerVariants(answerVariants, fallbackAnswerKey, questionCount)
   return EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
 }
+
+/**
+ * Quy ước ánh xạ mã chữ (A-H) sang mã số 3 chữ số truyền thống (101..108).
+ * Giúp giáo viên và học sinh quen thuộc với định dạng mã đề số học đường
+ * trong khi QR và OMR engine vẫn dùng ký tự A-H chuẩn hóa tốc độ cao.
+ */
+export function getExamVersionNumericAlias(version: ExamVersionCode | string, base = 100): number {
+  const code = (version || 'A').toUpperCase() as ExamVersionCode
+  const index = EXAM_VERSION_CODES.indexOf(code)
+  return index >= 0 ? base + index + 1 : base + 1
+}
+
+export function formatExamVersionLabel(version: ExamVersionCode, includeNumeric = true): string {
+  if (!includeNumeric) return `Mã ${version}`
+  return `Mã ${version} (${getExamVersionNumericAlias(version)})`
+}

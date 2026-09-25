@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { getClientIp } from '../utils/ip.js'
 import type { Context } from 'hono'
 
@@ -58,7 +58,7 @@ describe('getClientIp — A15 policy', () => {
     }
   })
 
-  it('cf-connecting-ip LUÔN bị bỏ qua (không có Cloudflare trong stack)', () => {
+  it('Node runtime: cf-connecting-ip bị bỏ qua', () => {
     process.env.TRUST_PROXY = 'true'
     try {
       const c = makeContext({ 'cf-connecting-ip': '203.0.113.10', 'x-real-ip': '172.68.10.1' })
@@ -96,6 +96,53 @@ describe('getClientIp — A15 policy', () => {
       expect(getClientIp(makeContext({}))).toBe('unknown')
     } finally {
       delete process.env.TRUST_PROXY
+    }
+  })
+
+  it('Cloudflare Worker dùng cf-connecting-ip khi request direct', () => {
+    const originalRuntime = process.env.CATEVIA_RUNTIME
+    vi.stubGlobal('WebSocketPair', class {})
+    process.env.CATEVIA_RUNTIME = 'cloudflare-worker'
+    process.env.TRUST_PROXY = 'true'
+    try {
+      expect(getClientIp(makeContext({ 'cf-connecting-ip': '203.0.113.10' }))).toBe('203.0.113.10')
+    } finally {
+      vi.unstubAllGlobals()
+      if (originalRuntime === undefined) delete process.env.CATEVIA_RUNTIME
+      else process.env.CATEVIA_RUNTIME = originalRuntime
+      delete process.env.TRUST_PROXY
+    }
+  })
+
+  it('Cloudflare Worker fail-closed khi có proxy header', () => {
+    const originalRuntime = process.env.CATEVIA_RUNTIME
+    vi.stubGlobal('WebSocketPair', class {})
+    process.env.CATEVIA_RUNTIME = 'cloudflare-worker'
+    try {
+      expect(getClientIp(makeContext({
+        'cf-connecting-ip': '203.0.113.10',
+        'x-forwarded-for': '1.2.3.4, 172.68.10.1',
+      }))).toBe('unknown')
+    } finally {
+      vi.unstubAllGlobals()
+      if (originalRuntime === undefined) delete process.env.CATEVIA_RUNTIME
+      else process.env.CATEVIA_RUNTIME = originalRuntime
+    }
+  })
+
+  it('Cloudflare Worker không dùng cf-connecting-ip không hợp lệ', () => {
+    const originalRuntime = process.env.CATEVIA_RUNTIME
+    vi.stubGlobal('WebSocketPair', class {})
+    process.env.CATEVIA_RUNTIME = 'cloudflare-worker'
+    try {
+      expect(getClientIp(makeContext({
+        'cf-connecting-ip': 'not-an-ip',
+        'x-forwarded-for': '203.0.113.10',
+      }))).toBe('unknown')
+    } finally {
+      vi.unstubAllGlobals()
+      if (originalRuntime === undefined) delete process.env.CATEVIA_RUNTIME
+      else process.env.CATEVIA_RUNTIME = originalRuntime
     }
   })
 })

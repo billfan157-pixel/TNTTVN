@@ -88,6 +88,12 @@ describe('syncStore', () => {
     expect(useSyncStore.getState().pendingCount).toBe(5)
   })
 
+  it('fails closed when the pending queue cannot be read', async () => {
+    mockTable.toArray.mockRejectedValue(new Error('IndexedDB unavailable'))
+    await expect(useSyncStore.getState().refreshCount()).resolves.toBe(-1)
+    expect(useSyncStore.getState().status).toBe('failed')
+  })
+
   it('getPendingOps returns sorted pending operations', async () => {
     const ops = [
       { id: 'OP-2', createdAt: '2025-01-02T00:00:00Z', ...OWNER },

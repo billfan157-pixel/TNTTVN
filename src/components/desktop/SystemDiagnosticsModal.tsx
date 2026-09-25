@@ -11,6 +11,8 @@ import { useGradeStore } from '../../stores/gradeStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useNoticeStore } from '../../stores/noticeStore'
 import { api } from '../../lib/api'
+import { API_BASE } from '../../lib/api/core'
+
 import { ModalPortal } from '../common/ModalPortal'
 import {
   armOmrSequenceEvidence,
@@ -93,7 +95,9 @@ export const SystemDiagnosticsModal: React.FC<SystemDiagnosticsModalProps> = ({ 
     const conflictList = await getConflicts()
     setConflicts(conflictList)
 
-      const res = await fetch('/health', { signal: AbortSignal.timeout(5000) })
+       const healthUrl = API_BASE.startsWith('http') ? new URL('/health', API_BASE).toString() : '/health'
+       const res = await fetch(healthUrl, { signal: AbortSignal.timeout(5000) })
+
       const duration = Math.round(performance.now() - start)
       if (cancelledRef.current) return
       setApiLatency(duration)

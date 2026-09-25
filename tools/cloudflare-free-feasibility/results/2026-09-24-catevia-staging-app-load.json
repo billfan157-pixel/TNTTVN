@@ -1,0 +1,164 @@
+{
+  "capturedAt": "2026-09-24T10:25:48.539Z",
+  "scope": "disposable-turso-real-hono-routes",
+  "count": 30,
+  "concurrency": 5,
+  "statusCounts": {
+    "200": 30
+  },
+  "p50Ms": 619,
+  "p95Ms": 936,
+  "maxMs": 1241,
+  "samples": [
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 492
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 640
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 693
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 713
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 936
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 368
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 448
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 901
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 686
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 923
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 748
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 619
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 644
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 479
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 435
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 813
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 447
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 396
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 470
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 564
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 445
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 452
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 490
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 1241
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 396
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 689
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 467
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 630
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 761
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 744
+    }
+  ]
+}

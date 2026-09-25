@@ -6,14 +6,14 @@ import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
 import { classifyOnError } from '../utils/onErrorClassification.js'
 
-const indexSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../index.ts'), 'utf8')
+const appSource = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '../app.ts'), 'utf8')
 
 describe('P1-2 app.onError classification', () => {
   it('routes through the shared classifier instead of inline substring sniffing', () => {
-    expect(indexSource).toContain('classifyOnError')
-    const start = indexSource.indexOf('app.onError')
+    expect(appSource).toContain('classifyOnError')
+    const start = appSource.indexOf('app.onError')
     expect(start).toBeGreaterThan(-1)
-    expect(indexSource.slice(start, start + 900)).not.toMatch(/includes\('required'\)/)
+    expect(appSource.slice(start, start + 900)).not.toMatch(/includes\('required'\)/)
   })
 
   it('preserves explicit 4xx statuses and codes instead of forcing 400/500', () => {

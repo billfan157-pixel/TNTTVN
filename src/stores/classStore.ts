@@ -101,7 +101,9 @@ export interface ClassListItem {
   catechistLeader: string
   catechistAssistants: string[]
   academicYear: string
+  academicYearId: string
   assignedToCurrentUser?: boolean
+
 }
 
 function toClassListItem(c: ClassItem): ClassListItem {
@@ -111,7 +113,9 @@ function toClassListItem(c: ClassItem): ClassListItem {
     catechistLeader: c.homeroomTeacher?.fullName || '',
     catechistAssistants: c.assistants?.map(a => a.fullName) || [],
     academicYear: c.academicYear || '',
+    academicYearId: c.academicYearId,
     assignedToCurrentUser: c.assignedToCurrentUser,
+
   }
 }
 
@@ -125,6 +129,38 @@ export function scopeClassesForAssignedWrites(
   return markerContractPresent
     ? classList.filter(item => item.assignedToCurrentUser === true)
     : classList
+}
+
+export function getAssignedClassIds(
+  classes: Array<{ id: string; assignedToCurrentUser?: boolean }>,
+  role: string | undefined,
+): Set<string> {
+  if (role === 'admin') {
+    return new Set(classes.map(c => c.id))
+  }
+  const markerContractPresent = classes.some(item => typeof item.assignedToCurrentUser === 'boolean')
+  return markerContractPresent
+    ? new Set(classes.filter(item => item.assignedToCurrentUser === true).map(item => item.id))
+    : new Set(classes.map(c => c.id))
+}
+
+export function canUserAccessClass(
+  classId: string,
+  classes: Array<{ id: string; assignedToCurrentUser?: boolean }>,
+  role: string | undefined,
+): boolean {
+  if (role === 'admin') return true
+  return getAssignedClassIds(classes, role).has(classId)
+}
+
+export function canUserEditStudent(
+  student: { classId: string } | null | undefined,
+  classes: Array<{ id: string; assignedToCurrentUser?: boolean }>,
+  role: string | undefined,
+): boolean {
+  if (!student) return false
+  if (role === 'admin') return true
+  return getAssignedClassIds(classes, role).has(student.classId)
 }
 
 export function getFilteredClassList(classes: ClassItem[]): ClassListItem[] {

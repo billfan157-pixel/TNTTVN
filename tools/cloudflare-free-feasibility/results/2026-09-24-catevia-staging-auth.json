@@ -1,0 +1,71 @@
+{
+  "capturedAt": "2026-09-24T18:40:39.031Z",
+  "userType": "synthetic-disposable-only",
+  "observations": [
+    {
+      "label": "invalid-existing-login",
+      "status": 401,
+      "elapsedMs": 3577
+    },
+    {
+      "label": "failed-attempts-after-invalid",
+      "value": 1
+    },
+    {
+      "label": "valid-login",
+      "status": 200,
+      "elapsedMs": 2149
+    },
+    {
+      "label": "failed-attempts-after-valid",
+      "value": 0
+    },
+    {
+      "label": "login-artifacts",
+      "accessToken": true,
+      "refreshCookie": true,
+      "httpOnly": true,
+      "secure": true,
+      "sameSiteNone": true
+    },
+    {
+      "label": "authenticated-me",
+      "status": 200,
+      "elapsedMs": 768
+    },
+    {
+      "label": "students-empty-list",
+      "status": 200,
+      "elapsedMs": 624
+    },
+    {
+      "label": "classes-empty-list",
+      "status": 200,
+      "elapsedMs": 501
+    },
+    {
+      "label": "notifications-role-denied",
+      "status": 403,
+      "elapsedMs": 406
+    },
+    {
+      "label": "refresh",
+      "status": 200,
+      "elapsedMs": 525
+    },
+    {
+      "label": "refresh-rotation",
+      "rotatedCookie": true
+    },
+    {
+      "label": "logout",
+      "status": 200,
+      "elapsedMs": 436
+    },
+    {
+      "label": "logout-revocation",
+      "serverConfirmed": true,
+      "sessionRevoked": true
+    }
+  ]
+}

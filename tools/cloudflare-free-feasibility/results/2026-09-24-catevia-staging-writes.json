@@ -1,0 +1,56 @@
+{
+  "capturedAt": "2026-09-24T18:40:52.737Z",
+  "scope": "disposable-turso-synthetic-api-mutations",
+  "passed": true,
+  "observations": [
+    {
+      "label": "login",
+      "status": 200,
+      "code": null
+    },
+    {
+      "label": "unauthorized-create-class",
+      "status": 401,
+      "code": null
+    },
+    {
+      "label": "create-class",
+      "status": 201,
+      "code": null
+    },
+    {
+      "label": "replay-class",
+      "status": 201,
+      "code": null
+    },
+    {
+      "label": "class-idempotent",
+      "sameId": true
+    },
+    {
+      "label": "conflicting-replay",
+      "status": 409,
+      "code": "IDEMPOTENCY_CONFLICT"
+    },
+    {
+      "label": "create-student",
+      "status": 201,
+      "code": null
+    },
+    {
+      "label": "read-student",
+      "status": 200,
+      "code": null
+    },
+    {
+      "label": "update-student",
+      "status": 200,
+      "code": null
+    },
+    {
+      "label": "delete-student",
+      "status": 200,
+      "code": null
+    }
+  ]
+}

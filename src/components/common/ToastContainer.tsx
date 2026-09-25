@@ -1,5 +1,8 @@
+import React, { useEffect, useState } from 'react'
 import { useToastStore } from '../../stores/toastStore'
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react'
+import { haptics } from '../../utils/haptics'
+import type { ToastType } from '../../stores/toastStore'
 
 const typeConfig = {
   success: {
@@ -25,6 +28,72 @@ const typeConfig = {
   },
 }
 
+interface ToastItemProps {
+  id: string
+  message: string
+  type: ToastType
+  duration?: number
+  onClose: (id: string) => void
+}
+
+const ToastItem: React.FC<ToastItemProps> = ({ id, message, type, duration = 4000, onClose }) => {
+  const [isExiting, setIsExiting] = useState(false)
+  const config = typeConfig[type]
+  const Icon = config.icon
+
+  useEffect(() => {
+    if (type === 'success') {
+      haptics.success()
+    } else if (type === 'error') {
+      haptics.error()
+    } else {
+      haptics.tap()
+    }
+
+    if (duration > 300) {
+      const exitTimer = setTimeout(() => {
+        setIsExiting(true)
+      }, duration - 200)
+      return () => clearTimeout(exitTimer)
+    }
+  }, [duration, type])
+
+  const handleManualClose = () => {
+    haptics.tap()
+    setIsExiting(true)
+    setTimeout(() => {
+      onClose(id)
+    }, 200)
+  }
+
+  return (
+    <div
+      className={`pointer-events-auto relative overflow-hidden flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-toast ${
+        isExiting ? 'toast-slide-out' : 'toast-slide-in'
+      } ${config.bg} ${config.border}`}
+    >
+      <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${config.iconColor}`} />
+      <p className={`flex-1 text-sm font-medium leading-snug ${config.text}`}>{message}</p>
+      <button
+        onClick={handleManualClose}
+        className={`toast-close-button shrink-0 ${config.text} opacity-60 hover:opacity-100 transition-opacity p-1 -m-1`}
+        aria-label="Đóng thông báo"
+      >
+        <X size={14} />
+      </button>
+
+      {duration > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 h-0.5 overflow-hidden rounded-b-xl opacity-30" aria-hidden="true">
+          <div
+            className={`h-full ${config.bg.replace('-bg', '')} toast-countdown-bar`}
+            style={{ animationDuration: `${duration}ms` }}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ToastContainer() {
   const toasts = useToastStore((s) => s.toasts)
   const removeToast = useToastStore((s) => s.removeToast)
@@ -38,26 +107,17 @@ export function ToastContainer() {
       aria-live="polite"
       aria-label="Thông báo từ hệ thống"
     >
-      {toasts.map((toast) => {
-        const config = typeConfig[toast.type]
-        const Icon = config.icon
-        return (
-          <div
-            key={toast.id}
-            className={`pointer-events-auto flex items-start gap-2.5 px-4 py-3 rounded-xl border shadow-toast toast-slide-in ${config.bg} ${config.border}`}
-          >
-            <Icon className={`w-5 h-5 shrink-0 mt-0.5 ${config.iconColor}`} />
-            <p className={`flex-1 text-sm font-medium leading-snug ${config.text}`}>{toast.message}</p>
-            <button
-              onClick={() => removeToast(toast.id)}
-              className={`toast-close-button shrink-0 ${config.text} opacity-60 hover:opacity-100 transition-opacity`}
-              aria-label="Đóng thông báo"
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )
-      })}
+      {toasts.map((toast) => (
+        <ToastItem
+          key={toast.id}
+          id={toast.id}
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onClose={removeToast}
+        />
+      ))}
     </div>
   )
 }
+

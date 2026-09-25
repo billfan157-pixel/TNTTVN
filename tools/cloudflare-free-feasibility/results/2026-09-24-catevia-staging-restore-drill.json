@@ -1,0 +1,10 @@
+{
+  "capturedAt": "2026-09-24T18:46:14.657Z",
+  "scope": "downloaded-disposable-r2-to-isolated-temporary-sqlite",
+  "verified": true,
+  "rowCount": 447,
+  "tableCount": 78,
+  "foreignKeyViolations": 0,
+  "quarantineBlocksStartup": true,
+  "durationMs": 10039
+}
