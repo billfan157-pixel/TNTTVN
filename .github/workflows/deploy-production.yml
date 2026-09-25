@@ -73,11 +73,50 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: tools/cloudflare-free-feasibility/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            tools/cloudflare-free-feasibility/package-lock.json
+
+      - name: Install application dependencies for Worker bundle
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Install pinned Wrangler dependencies
         working-directory: tools/cloudflare-free-feasibility
         run: npm ci --no-audit --no-fund
+
+      - name: Run production database preflight
+        shell: bash
+        env:
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          DEPLOYMENT_PARISH_ID: ${{ vars.DEPLOYMENT_PARISH_ID }}
+          PARISH_TIME_ZONE: ${{ vars.PARISH_TIME_ZONE }}
+        run: |
+          set -euo pipefail
+          export DEPLOYMENT_PARISH_ID="${DEPLOYMENT_PARISH_ID:-gia-ton}"
+          export PARISH_TIME_ZONE="${PARISH_TIME_ZONE:-Asia/Ho_Chi_Minh}"
+          test -n "$TURSO_URL"
+          test -n "$TURSO_AUTH_TOKEN"
+          npm --prefix server run db:preflight:cloudflare
+
+      - name: Run production backup storage preflight
+        shell: bash
+        env:
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          for name in TURSO_URL R2_ENDPOINT R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY BACKUP_ENCRYPTION_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required production backup secret: ${name}" >&2
+              exit 1
+            fi
+          done
+          npm --prefix server run db:preflight:backup
 
       - name: Confirm Worker deploy remains closed to public traffic
         shell: bash
@@ -90,6 +129,15 @@ jobs:
             throw new Error('Refusing the CI Worker deployment: traffic must remain closed and Render must remain the maintenance owner.');
           }
           NODE
+
+      - name: Validate Worker bundle from clean dependencies
+        working-directory: tools/cloudflare-free-feasibility
+        run: >-
+          npx --no-install wrangler deploy
+          --config wrangler-catevia-production.jsonc
+          --dry-run
+          --strict
+          --outdir "$RUNNER_TEMP/catevia-worker-bundle"
 
       - name: Deploy exact verified SHA to Cloudflare Worker
         working-directory: tools/cloudflare-free-feasibility
@@ -237,3 +285,6 @@ jobs:
             echo "Production CSP still allows https://vercel.live (Vercel Toolbar); keep the Toolbar Off for Production (CSP-TOOLBAR-1)." >&2
             exit 1
           fi
+
+      - name: Verify Render routing and closed Worker boundary
+        run: node tools/cloudflare-free-feasibility/verify-production-boundary.mjs "$VERIFIED_SHA"

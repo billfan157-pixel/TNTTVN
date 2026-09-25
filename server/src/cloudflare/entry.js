@@ -26,6 +26,9 @@ export default {
       || !env.PASSWORD_CIPHER_KEY) {
       return new Response('Backend configuration incomplete', { status: 503 })
     }
+    if (env.CATEVIA_TRAFFIC_ENABLED === 'yes' && !env.CATEVIA_PROXY_SHARED_SECRET) {
+      return new Response('Backend proxy configuration incomplete', { status: 503 })
+    }
     const gate = gateWorkerRequest(request, env)
     if (gate.response) return gate.response
     const path = new URL(request.url).pathname

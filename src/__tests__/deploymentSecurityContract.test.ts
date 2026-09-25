@@ -26,6 +26,7 @@ describe('deployment and native privacy contracts', () => {
     const script = read('server/src/scripts/restoreRemoteBackup.ts')
     expect(script).toContain("purpose: 'isolated-data-fidelity-drill'")
     expect(script).toContain('cutoverReady: false')
+    expect(script).toContain('RESTORE_EXPECT_BACKUP_ID')
     expect(script).toContain("'credential-and-session-invalidation'")
     expect(script).toContain("'client-generation-and-offline-reconciliation'")
     expect(script).toContain("'delivery-reconciliation'")
@@ -41,6 +42,7 @@ describe('deployment and native privacy contracts', () => {
     const config = JSON.parse(read('vercel.json')) as {
       git: { deploymentEnabled: Record<string, boolean> }
       installCommand: string
+      proxy: { entrypoint: string; matcher: string[] }
       headers: Array<{ source: string; headers: Array<{ key: string; value: string }> }>
       rewrites: Array<{ source: string; destination: string }>
     }
@@ -75,8 +77,9 @@ describe('deployment and native privacy contracts', () => {
     expect(headers['X-Content-Type-Options']).toBe('nosniff')
     expect(headers['Permissions-Policy']).toContain('camera=(self)')
     expect(headers['Permissions-Policy']).toContain('microphone=()')
-    expect(config.git.deploymentEnabled.main).toBe(true)
+    expect(config.git.deploymentEnabled.main).toBe(false)
     expect(config.installCommand).toBe('npm ci --allow-remote=all')
+    expect(config.proxy).toEqual({ entrypoint: 'proxy.ts', matcher: ['/api/:path*', '/health'] })
     expect(config.rewrites[0]).toEqual({ source: '/health', destination: 'https://tnttvn.onrender.com/health' })
   })
 
@@ -109,6 +112,11 @@ describe('deployment and native privacy contracts', () => {
     expect(workflow).toContain('Unauthenticated auth smoke expected 401')
     expect(workflow).toContain("grep -qi '^content-security-policy:'")
     expect(workflow).toContain("grep -qi '^strict-transport-security:'")
+    expect(workflow).toContain('npm ci --ignore-scripts --no-audit --no-fund')
+    expect(workflow).toContain('db:preflight:cloudflare')
+    expect(workflow).toContain('db:preflight:backup')
+    expect(workflow).toContain('R2_ENDPOINT')
+    expect(workflow).toContain('verify-production-boundary.mjs')
   })
 
   it('keeps the Render browser origin allowlist aligned with the production auth policy', () => {

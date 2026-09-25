@@ -1,5 +1,6 @@
 export interface WorkerTrafficEnv {
   OPS_TOKEN?: string
+  CATEVIA_PROXY_SHARED_SECRET?: string
   CATEVIA_TRAFFIC_ENABLED?: string
   APP_RELEASE_ID?: string
 }
