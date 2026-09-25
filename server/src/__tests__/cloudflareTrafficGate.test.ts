@@ -6,8 +6,8 @@ const env = { OPS_TOKEN: token, CATEVIA_TRAFFIC_ENABLED: 'no', APP_RELEASE_ID: '
 
 describe('closed production Worker canary gate', () => {
   it('denies public and invalid-token API requests', () => {
-    for (const headers of [{}, { 'x-catevia-canary-token': 'wrong' },
-      { 'x-catevia-canary-token': 'é'.repeat(token.length) }]) {
+    for (const headers of [new Headers(), new Headers({ 'x-catevia-canary-token': 'wrong' }),
+      new Headers({ 'x-catevia-canary-token': 'é'.repeat(token.length) })]) {
       const result = gateWorkerRequest(new Request('https://catevia-api.example/api/auth/me', { headers }), env)
       expect(result.response?.status).toBe(503)
       expect(result.request).toBeUndefined()
