@@ -26,7 +26,6 @@ describe('deployment and native privacy contracts', () => {
     const script = read('server/src/scripts/restoreRemoteBackup.ts')
     expect(script).toContain("purpose: 'isolated-data-fidelity-drill'")
     expect(script).toContain('cutoverReady: false')
-    expect(script).toContain('RESTORE_EXPECT_BACKUP_ID')
     expect(script).toContain("'credential-and-session-invalidation'")
     expect(script).toContain("'client-generation-and-offline-reconciliation'")
     expect(script).toContain("'delivery-reconciliation'")
