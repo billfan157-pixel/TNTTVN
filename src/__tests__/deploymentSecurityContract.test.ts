@@ -75,7 +75,7 @@ describe('deployment and native privacy contracts', () => {
     expect(headers['X-Content-Type-Options']).toBe('nosniff')
     expect(headers['Permissions-Policy']).toContain('camera=(self)')
     expect(headers['Permissions-Policy']).toContain('microphone=()')
-    expect(config.git.deploymentEnabled.main).toBe(true)
+    expect(config.git.deploymentEnabled.main).toBe(false)
     expect(config.installCommand).toBe('npm ci --allow-remote=all')
     expect(config.rewrites[0]).toEqual({ source: '/health', destination: 'https://tnttvn.onrender.com/health' })
   })
@@ -109,6 +109,9 @@ describe('deployment and native privacy contracts', () => {
     expect(workflow).toContain('Unauthenticated auth smoke expected 401')
     expect(workflow).toContain("grep -qi '^content-security-policy:'")
     expect(workflow).toContain("grep -qi '^strict-transport-security:'")
+    expect(workflow).toContain('npm ci --ignore-scripts --no-audit --no-fund')
+    expect(workflow).toContain('db:preflight:cloudflare')
+    expect(workflow).toContain('verify-production-boundary.mjs')
   })
 
   it('keeps the Render browser origin allowlist aligned with the production auth policy', () => {

@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { client } from '../db/connection.ts'
 import { getObject, withBlobBucket } from '../services/blobStorage.ts'
-import { createAndStoreRemoteBackup, decryptLogicalSnapshot } from '../services/remoteBackup.ts'
+import { createAndStoreRemoteBackup, decryptLogicalSnapshot, readAndVerifyRemoteBackupSet } from '../services/remoteBackup.ts'
 
 // Backup work has a separate invocation budget from the front HTTP Worker.
 // Keep one coordinator per deployment; the database remains the sole data writer.
@@ -19,10 +19,24 @@ export class BackupJob extends DurableObject {
   }
 
   async verifyBackup(objectKey) {
-    if (typeof objectKey !== 'string' || !/^backups\/turso-[A-Za-z0-9-]+\.json\.gz\.enc$/.test(objectKey)) {
-      throw new Error('Invalid backup object key')
-    }
+    if (typeof objectKey !== 'string') throw new Error('Invalid backup object key')
+    const isSetManifest = /^backups\/v2\/[^/]+\/manifest\.json$/.test(objectKey)
+    const isLegacy = /^backups\/turso-[A-Za-z0-9-]+\.json\.gz\.enc$/.test(objectKey)
+    if (!isSetManifest && !isLegacy) throw new Error('Invalid backup object key')
     return withBlobBucket(this.env.BLOB_BUCKET, async () => {
+      if (isSetManifest) {
+        const contents = await readAndVerifyRemoteBackupSet(objectKey)
+        return {
+          objectKey,
+          format: contents.manifest.format,
+          encryptedBytes: contents.encryptedDatabaseBytes,
+          manifestBytes: contents.manifestBytes,
+          rowCount: contents.snapshot.rowCount,
+          tableCount: contents.snapshot.tables.length,
+          archiveObjectCount: contents.manifest.archive.count,
+          checksum: contents.manifest.checksum,
+        }
+      }
       const encrypted = await getObject(objectKey)
       if (!encrypted) throw new Error('Backup object not found')
       const snapshot = decryptLogicalSnapshot(encrypted)

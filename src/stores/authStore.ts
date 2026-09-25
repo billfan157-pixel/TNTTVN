@@ -233,12 +233,18 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       } catch {
         snapshotCleared = false
       }
-      await resetAllStoresToDefault().catch(console.error)
+      let tenantCacheCleared = true
+      try {
+        await resetAllStoresToDefault()
+      } catch {
+        tenantCacheCleared = false
+      }
       setTenantScope(null)
       const serverConfirmed = await serverResult
       const warnings = [
         ...(!serverConfirmed ? ['Đã đăng xuất trên thiết bị này, nhưng chưa xác nhận được thu hồi phiên trên máy chủ.'] : []),
         ...(!snapshotCleared ? ['Không thể xác nhận xóa dữ liệu phiên cục bộ đã mã hóa.'] : []),
+        ...(!tenantCacheCleared ? ['Không thể xác nhận xóa toàn bộ dữ liệu tenant cục bộ.'] : []),
         ...(!queueQuarantined ? ['Các thay đổi offline của phiên đã bị thu hồi đang bị khóa và chưa thể hoàn tất cách ly.'] : []),
       ]
       set({ isLoading: false, error: warnings.length ? warnings.join(' ') : null })
@@ -282,12 +288,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // ADR-045: đọc marker trước (localStorage, đồng bộ) — guard luôn chạy được kể cả
     // khi Dexie chưa init xong (main.tsx: loadFromStorage chạy trước initDB).
     const marker = readMarker()
+    const previousScope = getTenantScope()
     if (!marker) {
+      if (previousScope) await resetAllStoresToDefault({ clearPersisted: false })
       setTenantScope(null)
       set({ user: null, isAuthenticated: false, authReady: true })
       return
     }
     try {
+      if (previousScope && (previousScope.parishId !== marker.parishId || previousScope.userId !== marker.id)) {
+        await resetAllStoresToDefault({ clearPersisted: false })
+      }
       // Cần scope (parishId:userId) TRƯỚC khi đọc snapshot scoped trong Dexie.
       setTenantScope({ parishId: marker.parishId, userId: marker.id })
     } catch {

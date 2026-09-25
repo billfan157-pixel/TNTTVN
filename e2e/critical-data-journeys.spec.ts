@@ -93,8 +93,8 @@ test.describe('Critical persisted business outcomes', () => {
     await expect(scoreInput).toBeVisible()
 
     const currentScore = await scoreInput.inputValue()
-    const nextScore = currentScore === '8.5' ? '9.0' : '8.5'
-    const nextScoreNumber = parseFloat(nextScore)
+    const nextScoreNumber = currentScore === '8.5' ? 9 : 8.5
+    const nextScore = String(nextScoreNumber)
 
     const savedResponse = page.waitForResponse(response => (
       response.url().endsWith('/api/grades/batch')

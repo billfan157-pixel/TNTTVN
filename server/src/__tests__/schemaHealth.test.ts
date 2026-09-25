@@ -78,6 +78,8 @@ const INDEXES: Record<string, string[]> = {
   idx_native_push_tokens_installation: ['installation_id'],
   idx_native_push_tokens_platform_token: ['platform', 'token'],
   idx_native_push_tokens_user: ['parish_id', 'user_id'],
+  idx_push_subscriptions_endpoint_unique: ['parish_id', 'endpoint'],
+  idx_financial_transactions_receipt_parish: ['parish_id', 'receipt_number'],
   idx_notifications_worker: ['status', 'next_attempt_at', 'lease_expires_at'],
   idx_question_bank_list: ['parish_id', 'status', 'updated_at'],
   idx_question_bank_taxonomy: ['parish_id', 'branch_id', 'curriculum_level', 'lesson_order', 'difficulty'],
@@ -154,6 +156,7 @@ const COMPOSITE_PK_TABLES = new Set([
   'feedback_messages',
   'password_reset_requests',
   'native_push_tokens',
+  'push_subscriptions',
   'question_bank_items',
   'question_bank_versions',
   'exam_blueprints',
@@ -214,7 +217,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   parish_organization_units: ['parish_id', 'id', 'parent_id', 'deleted_at'],
   parish_service_terms: ['parish_id', 'id', 'person_id', 'unit_id', 'position_code', 'deleted_at'],
   operation_workstreams: ['parish_id', 'id', 'source_unit_id', 'status', 'blocked_reason', 'version', 'deleted_at'],
-  operation_tasks: ['parish_id', 'id', 'workstream_id', 'scope_unit_id', 'status', 'priority', 'is_required', 'phase', 'due_at', 'scheduled_start_at', 'scheduled_end_at', 'version', 'blocked_reason', 'cancellation_reason', 'deleted_at'],
+  operation_tasks: ['parish_id', 'id', 'operation_event_id', 'workstream_id', 'scope_unit_id', 'parent_task_id', 'status', 'priority', 'is_required', 'phase', 'due_at', 'scheduled_start_at', 'scheduled_end_at', 'completed_by', 'version', 'blocked_reason', 'cancellation_reason', 'deleted_at'],
   operation_task_dependencies: ['parish_id', 'task_id', 'depends_on_task_id', 'dependency_type'],
   operation_task_assignees: ['parish_id', 'id', 'task_id', 'user_id', 'person_id', 'assignment_role', 'acknowledgement_status', 'version', 'removed_at'],
   operation_checklist_items: ['parish_id', 'task_id', 'id', 'is_required', 'is_done'],
@@ -234,6 +237,7 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   feedback_messages: ['parish_id', 'id', 'target_type', 'target_user_id', 'visibility', 'sender_user_id', 'subject', 'content', 'status'],
   password_reset_requests: ['parish_id', 'id', 'user_id', 'status', 'request_count', 'last_requested_at', 'resolved_at', 'resolved_by'],
   native_push_tokens: ['parish_id', 'id', 'installation_id', 'platform', 'token', 'user_id', 'created_at', 'updated_at'],
+  push_subscriptions: ['parish_id', 'id', 'endpoint', 'p256dh', 'auth', 'user_id', 'created_at'],
   question_bank_items: ['parish_id', 'id', 'status', 'current_version', 'branch_id', 'curriculum_level', 'difficulty', 'provenance', 'created_by'],
   question_bank_versions: ['parish_id', 'id', 'question_id', 'version', 'question_type', 'stem', 'answer_data', 'metadata_snapshot', 'content_hash'],
   exam_blueprints: ['parish_id', 'id', 'name', 'status', 'total_questions', 'max_score', 'version', 'created_by'],
@@ -326,7 +330,29 @@ function createHealthyClient(
         return { rows }
       }
 
-      if (statement === 'PRAGMA foreign_key_check') return { rows: [] }
+       if (statement === 'PRAGMA foreign_key_list("operation_tasks")') {
+         return { rows: [
+           { id: 0, seq: 0, table: 'operation_events', from: 'parish_id', to: 'parish_id', on_delete: 'RESTRICT' },
+           { id: 0, seq: 1, table: 'operation_events', from: 'operation_event_id', to: 'id', on_delete: 'RESTRICT' },
+           { id: 1, seq: 0, table: 'operation_workstreams', from: 'parish_id', to: 'parish_id', on_delete: 'RESTRICT' },
+           { id: 1, seq: 1, table: 'operation_workstreams', from: 'workstream_id', to: 'id', on_delete: 'RESTRICT' },
+           { id: 2, seq: 0, table: 'parish_organization_units', from: 'parish_id', to: 'parish_id', on_delete: 'RESTRICT' },
+           { id: 2, seq: 1, table: 'parish_organization_units', from: 'scope_unit_id', to: 'id', on_delete: 'RESTRICT' },
+           { id: 3, seq: 0, table: 'operation_tasks', from: 'parish_id', to: 'parish_id', on_delete: 'RESTRICT' },
+           { id: 3, seq: 1, table: 'operation_tasks', from: 'parent_task_id', to: 'id', on_delete: 'RESTRICT' },
+           { id: 4, seq: 0, table: 'users', from: 'parish_id', to: 'parish_id', on_delete: 'RESTRICT' },
+           { id: 4, seq: 1, table: 'users', from: 'completed_by', to: 'id', on_delete: 'RESTRICT' },
+         ] }
+       }
+       if (statement === 'PRAGMA foreign_key_list("push_subscriptions")') {
+         return { rows: [
+           { id: 0, seq: 0, table: 'users', from: 'parish_id', to: 'parish_id', on_delete: 'CASCADE' },
+           { id: 0, seq: 1, table: 'users', from: 'user_id', to: 'id', on_delete: 'CASCADE' },
+         ] }
+       }
+
+       if (statement === 'PRAGMA foreign_key_check') return { rows: [] }
+
 
       throw new Error(`Unexpected SQL in schema-health test: ${statement}`)
     },

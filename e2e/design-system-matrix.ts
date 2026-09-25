@@ -64,6 +64,7 @@ const protectedRouteNavigation: Record<RepresentativeProtectedRoute, { label: st
   '/finances': { label: 'Quỹ & Thu Chi', workspace: 'organization' },
   '/parish': { label: 'Tổng Quan Xứ Đoàn', workspace: 'organization' },
   '/parish-profile': { label: 'Hồ Sơ Xứ Đoàn', workspace: 'organization' },
+  '/operations': { label: 'Công Việc', workspace: 'organization' },
 }
 
 const workspaceLabels = {
@@ -138,14 +139,14 @@ export async function openProtectedObservation(
 
 export async function openParishRecordEditor(page: Page) {
   await page.getByRole('button', { name: 'Thêm bản ghi', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Bản ghi Xứ đoàn' })
+  const dialog = page.getByRole('dialog', { name: /(Bản ghi Xứ đoàn|Thêm Cột Mốc Lịch Sử Mới|Cột mốc lịch sử)/i })
   await expect(dialog).toBeVisible()
   await settleFiniteAnimations(page)
   return dialog
 }
 
 export async function assertParishRecordEditorLayout(page: Page) {
-  const dialog = page.getByRole('dialog', { name: 'Bản ghi Xứ đoàn' })
+  const dialog = page.getByRole('dialog', { name: /(Bản ghi Xứ đoàn|Thêm Cột Mốc Lịch Sử Mới|Cột mốc lịch sử)/i })
   const layout = await dialog.evaluate(element => {
     const content = element.querySelector<HTMLElement>('.modal-content')
     const groups = Array.from(element.querySelectorAll<HTMLElement>('.form-group'))

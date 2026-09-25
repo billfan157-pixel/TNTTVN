@@ -1,6 +1,6 @@
 import { db, type DbExecutor } from '../db/index.js'
-import { academicYears } from '../db/schema.js'
-import { eq } from 'drizzle-orm'
+import { academicYears, classes } from '../db/schema.js'
+import { and, eq, isNull } from 'drizzle-orm'
 import { normalizeAcademicYear, computeAcademicYearDateRange, getCurrentAcademicYear, resolveAcademicYear, resolveSemester, isAcademicYearClosedForWrite } from '../utils/academicYear.js'
 import { drizzleSemesterLockRepository } from '../repositories/DrizzleSemesterLockRepository.js'
 import { finalizationPolicySchema, historicalEvidenceRequired, parseHistoricalEvidence } from '../utils/academicYearHistory.js'
@@ -34,6 +34,61 @@ export async function isAttendanceDateLocked(parishId: string, date: string, exe
     if (await drizzleSemesterLockRepository.isLocked(id, resolveSemester(date), parishId, executor)) return true
   }
   return false
+}
+
+function academicYearWriteError(message: string, code: string): Error {
+  return Object.assign(new Error(message), { code, status: 409 })
+}
+
+export async function resolveWritableAcademicYear(
+  parishId: string,
+  requestedYear: string | null | undefined,
+  executor: DbExecutor = db,
+  classId?: string,
+): Promise<string> {
+  let canonicalYear = requestedYear?.trim() || undefined
+
+  if (classId) {
+    const [classRow] = await executor
+      .select({ academicYearId: classes.academicYearId })
+      .from(classes)
+      .where(and(eq(classes.parishId, parishId), eq(classes.id, classId), isNull(classes.deletedAt)))
+      .limit(1)
+    if (!classRow) {
+      throw academicYearWriteError('Lớp học không tồn tại trong giáo xứ hiện tại', 'CLASS_NOT_FOUND')
+    }
+    if (canonicalYear && normalizeAcademicYear(canonicalYear) !== normalizeAcademicYear(classRow.academicYearId)) {
+      throw academicYearWriteError('Năm học không khớp với năm học của lớp', 'ACADEMIC_YEAR_MISMATCH')
+    }
+    canonicalYear = classRow.academicYearId
+  }
+
+  const rows = await executor
+    .select()
+    .from(academicYears)
+    .where(eq(academicYears.parishId, parishId))
+
+  if (canonicalYear) {
+    const match = rows.find(row => normalizeAcademicYear(row.id) === normalizeAcademicYear(canonicalYear!))
+    if (!match) {
+      throw academicYearWriteError('Năm học không tồn tại trong giáo xứ hiện tại', 'ACADEMIC_YEAR_NOT_FOUND')
+    }
+    if (isAcademicYearClosedForWrite(match)) {
+      throw academicYearWriteError('Năm học đã đóng, không thể ghi dữ liệu mới', 'ACADEMIC_YEAR_CLOSED')
+    }
+    return match.id
+  }
+
+  const openYears = rows
+    .filter(row => !isAcademicYearClosedForWrite(row))
+    .sort((left, right) => new Date(right.startDate).getTime() - new Date(left.startDate).getTime())
+  const now = Date.now()
+  const containing = openYears.find(row => new Date(row.startDate).getTime() <= now && new Date(row.endDate).getTime() >= now)
+  const selected = containing || openYears[0]
+  if (!selected) {
+    throw academicYearWriteError('Giáo xứ chưa có năm học đang mở để ghi dữ liệu', 'NO_OPEN_ACADEMIC_YEAR')
+  }
+  return selected.id
 }
 
 /**

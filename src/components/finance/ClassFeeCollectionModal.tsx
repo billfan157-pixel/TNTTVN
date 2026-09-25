@@ -32,6 +32,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   const [filterStatus, setFilterStatus] = useState<string>('ALL')
   const [isCollectAllConfirmOpen, setIsCollectAllConfirmOpen] = useState(false)
   const [pendingCollectAll, setPendingCollectAll] = useState(false)
+  const feeAcademicYear = classesList.find((item) => item.id === selectedClassId)?.academicYearId || currentYear
 
   useEffect(() => {
     if (isOpen) {
@@ -44,10 +45,10 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   }, [isOpen, funds, classesList, selectedClassId])
 
   useEffect(() => {
-    if (selectedClassId && isOpen) {
-      fetchClassFeeRecords(selectedClassId, currentYear || '2025-2026', feeType)
+    if (selectedClassId && isOpen && feeAcademicYear) {
+      fetchClassFeeRecords(selectedClassId, feeAcademicYear, feeType)
     }
-  }, [selectedClassId, feeType, isOpen, currentYear, fetchClassFeeRecords])
+  }, [selectedClassId, feeType, isOpen, feeAcademicYear, fetchClassFeeRecords])
 
   if (!isOpen) return null
 
@@ -59,7 +60,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     await updateStudentFee(selectedClassId, {
       studentId: record.studentId,
       classId: selectedClassId,
-      academicYear: currentYear || '2025-2026',
+      academicYear: feeAcademicYear,
       feeType,
       title: feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
       expectedAmount: record.expectedAmount || defaultAmount,
@@ -74,7 +75,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     await updateStudentFee(selectedClassId, {
       studentId: record.studentId,
       classId: selectedClassId,
-      academicYear: currentYear || '2025-2026',
+      academicYear: feeAcademicYear,
       feeType,
       title: feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
       expectedAmount: record.expectedAmount || defaultAmount,
@@ -98,7 +99,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     const records = unpaid.map((r) => ({
         studentId: r.studentId,
         classId: selectedClassId,
-        academicYear: currentYear || '2025-2026',
+        academicYear: feeAcademicYear,
         feeType,
         title: feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
         expectedAmount: r.expectedAmount || defaultAmount,

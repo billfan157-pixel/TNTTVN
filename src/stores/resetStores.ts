@@ -29,7 +29,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
   useGradeStore.setState({ grades: [] })
   useAttendanceStore.setState({ attendance: [] })
   
-  useDailyGradeStore.getState().setEntries([])
+  useDailyGradeStore.setState({ entries: [], serverEntries: [] })
   useSacramentStore.setState({ promotionQueue: [] })
   useClassStore.setState({ classes: [], branches: [], academicYears: [] })
   useFilterStore.setState({
@@ -46,6 +46,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
     sessions: [],
     selectedSessionId: null,
     results: [],
+    cachedResultsBySession: {},
     loading: false,
     saving: false,
     finalizing: false,
@@ -78,7 +79,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
     transactions: [],
     classFeeRecords: [],
     selectedFundId: 'ALL',
-    selectedAcademicYear: '2025-2026',
+    selectedAcademicYear: '',
     ledgerFilters: { type: 'ALL', startDate: '', endDate: '' },
     isLoading: false,
     error: null,
@@ -153,5 +154,6 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
     }
   } catch (err) {
     console.error('Failed to clear Dexie DB:', err)
+    throw new Error('Không thể xóa toàn bộ dữ liệu tenant cục bộ', { cause: err })
   }
 }

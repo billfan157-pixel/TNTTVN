@@ -25,7 +25,7 @@ workflows:
       xcode: latest
       node: 22
       vars:
-        VITE_API_BASE: https://tnttvn.onrender.com/api
+        VITE_API_BASE: https://tnttvn.vercel.app/api
     scripts:
       - name: Install dependencies
         script: npm ci
@@ -67,7 +67,7 @@ workflows:
       node: 22
       java: 21
       vars:
-        VITE_API_BASE: https://tnttvn.onrender.com/api
+        VITE_API_BASE: https://tnttvn.vercel.app/api
         GRADLE_WRAPPER_VERSION: 8.14.3
     scripts:
       - name: Install dependencies

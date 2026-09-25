@@ -1,5 +1,6 @@
 import type { Context } from 'hono'
 import { getConnInfo } from '@hono/node-server/conninfo'
+import { isCloudflareWorkerRuntime } from './cloudflareRuntime.js'
 
 /**
  * Trích xuất Client IP chính xác, chống spoof qua proxy headers.
@@ -16,14 +17,21 @@ import { getConnInfo } from '@hono/node-server/conninfo'
  *   1. x-real-ip (nginx luôn ghi đè bằng $remote_addr — đáng tin)
  *   2. x-forwarded-for → lấy giá trị CUỐI (được proxy đáng tin APPEND/ghi đè),
  *      KHÔNG lấy giá trị đầu (client tự đặt).
- * - cf-connecting-ip: BỎ — không có Cloudflare trong stack; header này chưa từng
- *   được proxy nào verify nên chỉ là công cụ spoof.
  *
  * Triển khai:
  * - docker-compose (Nginx): set TRUST_PROXY=true.
  * - Railway/VPS (DOCKERFILE trực tiếp, không proxy): KHÔNG set TRUST_PROXY —
  *   socket IP thật vẫn chính xác vì không có proxy nào ở giữa.
  */
+function cloudflareWorkerIp(c: Context): string {
+  const hasProxyHeaders = ['x-forwarded-for', 'x-real-ip']
+    .some((name) => Boolean(c.req.header(name)?.trim()))
+  if (hasProxyHeaders) return 'unknown'
+
+  const value = c.req.header('cf-connecting-ip')?.trim()
+  return value && /^[0-9a-f:.]{2,45}$/i.test(value) ? value : 'unknown'
+}
+
 function socketIp(c: Context): string {
   try {
     const addr = getConnInfo(c).remote.address
@@ -35,6 +43,10 @@ function socketIp(c: Context): string {
 }
 
 export function getClientIp(c: Context): string {
+  if (isCloudflareWorkerRuntime()) {
+    return cloudflareWorkerIp(c)
+  }
+
   if (!(process.env.TRUST_PROXY === 'true' || process.env.TRUST_PROXY === '1')) {
     return socketIp(c)
   }

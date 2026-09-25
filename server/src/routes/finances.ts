@@ -18,6 +18,8 @@ import {
   updateStudentFeesBatch,
 } from '../services/FinanceApplicationService.js'
 import { isValidIsoDate } from '../utils/date.js'
+import { getActiveAcademicYearId } from '../services/academicYearService.js'
+
 
 export const financesRouter = new Hono()
 
@@ -202,7 +204,7 @@ financesRouter.delete('/transactions/:id', async (c) => {
 financesRouter.get('/classes/:classId/fees', async (c) => {
   const user = c.get('user')
   const classId = c.req.param('classId')
-  const academicYear = c.req.query('academicYear') || '2025-2026'
+  const academicYear = c.req.query('academicYear') || await getActiveAcademicYearId(user.parishId)
   const feeType = (c.req.query('feeType') as any) || 'NIEN_LIEM'
 
   const records = await listClassFeeRecords(user.parishId, classId, academicYear, feeType)

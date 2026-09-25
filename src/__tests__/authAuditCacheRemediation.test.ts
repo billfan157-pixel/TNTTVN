@@ -112,7 +112,8 @@ describe('D9 client cache retirement and parent sync', () => {
 })
 
 function mockPull() {
-  vi.spyOn(api, 'probePurgeVersion').mockResolvedValue(null)
+  localStorage.setItem('parish_purge_version', '1')
+  vi.spyOn(api, 'probePurgeVersion').mockResolvedValue(1)
   vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-09-05T00:00:00.000Z', cursorVersion: 1 })
   return {
     grades: vi.spyOn(useGradeStore.getState(), 'fetchGrades').mockResolvedValue(undefined),

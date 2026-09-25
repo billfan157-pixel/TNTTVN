@@ -11,7 +11,7 @@ import { useClassStore } from '../stores/classStore'
 import { useExamStore } from '../stores/examStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useAcademicYearStore } from '../stores/academicYearStore'
-import { decryptQueueValue } from '../lib/offlineCipher'
+import { decryptQueueValue, decryptValue } from '../lib/offlineCipher'
 import { runWithSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
 import { captureTenantScope, getTenantScope, type TenantScopeSnapshot } from '../lib/tenantScope'
@@ -212,9 +212,6 @@ async function preserveLegacyCreateEdits(op: SyncQueueItem): Promise<void> {
 
 /** Initial pull/push sequence formerly embedded in the React hook. */
 export async function runInitialSync(): Promise<void> {
-  // Authenticated bootstrap has one owner. These reference stores used to be
-  // fetched once from main.tsx before a fresh login had established a session,
-  // leaving server policy/year defaults stale until a reload.
   await Promise.all([
     useSettingsStore.getState().fetchSettings(),
     useAcademicYearStore.getState().fetchAcademicYears(),
@@ -222,22 +219,30 @@ export async function runInitialSync(): Promise<void> {
 
   const state = useSyncStore.getState()
   const count = await state.refreshCount()
+  if (count < 0) {
+    throw new Error('Không thể đọc hàng đợi đồng bộ; không được phép tải dữ liệu')
+  }
   if (count > 0) {
     await runSyncFlow()
-  } else {
+    return
+  }
+
+  const acquired = await runWithSyncLease(async () => {
     const pullScopeKey = captureSyncCursorScope()
-    // A persisted delta cursor is not a valid base when the staff roster was
-    // lost locally. Choose one authoritative full pull up front, rather than
-    // first pulling a delta and then repeating every endpoint as a repair.
     const { useAuthStore } = await import('../stores/authStore')
     const isParent = useAuthStore.getState().user?.role === 'phuhuynh'
     const needsFullRoster = !isParent && useStudentStore.getState().students.length === 0
-    const pullResult = await fetchAllData(!needsFullRoster)
-    if (pullResult.ok && pullResult.queryTime) {
-      await commitPullCursor(pullResult.queryTime, pullScopeKey)
+    const pullResult = await fetchAllData(!needsFullRoster, true)
+    if (!pullResult.ok || !pullResult.queryTime) {
+      throw new Error('Không thể xác minh hoặc tải dữ liệu ban đầu; giữ nguyên dữ liệu cục bộ')
     }
-  }
+    if (!await commitPullCursor(pullResult.queryTime, pullScopeKey)) {
+      throw new Error('Chủ sở hữu dữ liệu đã thay đổi trong lúc tải ban đầu')
+    }
+  })
+  if (!acquired) state.setStatus('idle')
 }
+
 
 export async function runSyncFlow(leaseHeld = false) {
   const store = useSyncStore.getState()
@@ -606,6 +611,11 @@ export async function runSyncFlow(leaseHeld = false) {
     // OFF-TENANT-1: thông báo lỗi chỉ đếm failed ops đúng scope phiên hiện tại.
     const failedCount = await db.syncQueue.where('status').equals('failed').filter((item) => isOwnOp(item)).count()
     const totalConflicts = syncState.mergedConflictCount
+    if (finalCount < 0) {
+      s.setStatus('failed')
+      s.setLastError('Không thể xác minh hàng đợi sau khi đồng bộ; dừng trước khi kéo dữ liệu mới.')
+      return
+    }
     if (finalCount === 0) {
       const pullScopeKey = captureSyncCursorScope()
       const pullResult = await fetchAllData(true)
@@ -642,6 +652,37 @@ export async function runSyncFlow(leaseHeld = false) {
   }
 }
 
+async function hasLocalTenantState(): Promise<boolean> {
+  try {
+    const database = getDB()
+    const metaKeys = await database.syncMeta.toCollection().primaryKeys() as string[]
+    if (metaKeys.length > 0) return true
+    const rows = await database.stores.toArray()
+    const materialFields = [
+      'students', 'grades', 'attendance', 'entries', 'serverEntries', 'sessions', 'results',
+      'cachedResultsBySession', 'classes', 'branches', 'notices', 'transactions', 'classFeeRecords',
+      'requests', 'promotionQueue', 'academicYears',
+    ]
+    for (const row of rows) {
+      if (row.key.includes('parish_store_theme') || row.key.includes('parish_auth_user') || row.key.includes('parish_store_settings')) continue
+      const decrypted = await decryptValue(row.value, `stores:${row.key}`)
+      let parsed: unknown = decrypted ?? row.value
+      try { parsed = JSON.parse(String(parsed)) } catch { return true }
+      const state = parsed && typeof parsed === 'object' && 'state' in parsed
+        ? (parsed as { state?: unknown }).state
+        : parsed
+      if (!state || typeof state !== 'object') return true
+      const values = state as Record<string, unknown>
+      if (materialFields.some(field => Array.isArray(values[field]) ? values[field].length > 0 : values[field] && typeof values[field] === 'object' && Object.keys(values[field] as object).length > 0)) return true
+      if (row.key.startsWith('parish_store_')) continue
+      return true
+    }
+    return false
+  } catch {
+    return true
+  }
+}
+
 export async function verifyClientDataGeneration(requireEvidence = false): Promise<boolean> {
   const owner = captureTenantScope()
     // PURGE v2.3 (ghost data): nếu server đã purge (purge_version > bản local) thì toàn bộ
@@ -666,8 +707,9 @@ export async function verifyClientDataGeneration(requireEvidence = false): Promi
         // A legacy/offline device with an owned queue is not clean: accepting a
         // new baseline would let pre-purge/restore intent replay into the new DB.
         const unsettled = await getOwnUnsettledSyncOperations()
+        const hasLocalState = await hasLocalTenantState()
         if (!isSyncOwnerCurrent(owner)) return false
-        if (unsettled.length > 0) {
+        if (unsettled.length > 0 || hasLocalState) {
           try {
             await resetClientData(purgeVersion)
           } catch (resetErr) {
@@ -703,16 +745,20 @@ export async function verifyClientDataGeneration(requireEvidence = false): Promi
   return !!owner && isSyncOwnerCurrent(owner)
 }
 
-export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: string; ok: boolean }> {
+export async function fetchAllData(incremental?: boolean, requireGenerationEvidence = false): Promise<{ queryTime: string; ok: boolean }> {
   try {
     if (!isAuthenticated()) return { queryTime: '', ok: false }
+    const owner = captureTenantScope()
+    if (!owner) return { queryTime: '', ok: false }
 
     const persistedCursor = incremental ? await readSyncCursor() : null
     const lastSync = persistedCursor || undefined
 
-    if (!await verifyClientDataGeneration()) return { queryTime: '', ok: false }
+    if (!await verifyClientDataGeneration(requireGenerationEvidence)) return { queryTime: '', ok: false }
+    if (!isSyncOwnerCurrent(owner)) return { queryTime: '', ok: false }
 
     const { serverTime: queryTime } = await api.getSyncWatermark()
+    if (!isSyncOwnerCurrent(owner)) return { queryTime: '', ok: false }
     const { useAuthStore } = await import('../stores/authStore')
     const isParent = useAuthStore.getState().user?.role === 'phuhuynh'
     const results = await Promise.allSettled([
@@ -724,7 +770,7 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
       useClassStore.getState().fetchClasses(lastSync, queryTime, true),
       useNoticeStore.getState().fetchNotices(lastSync, true),
     ])
-    const ok = results.every(r => r.status === 'fulfilled')
+    const ok = results.every(r => r.status === 'fulfilled') && isSyncOwnerCurrent(owner)
     if (!ok) {
       for (const r of results) {
         if (r.status === 'rejected') Sentry.captureException(r.reason)

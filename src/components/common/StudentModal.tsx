@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { Student, BranchType } from '../../types';
 import { useStudentStore } from '../../stores/studentStore';
-import { useClassStore, getFilteredClassList } from '../../stores/classStore';
+import { useClassStore, getFilteredClassList, canUserEditStudent, canUserAccessClass, scopeClassesForAssignedWrites } from '../../stores/classStore';
 import { BRANCHES } from '../../constants/branches';
 import {
   Save,
@@ -18,6 +18,7 @@ import {
   FileText,
   Layers,
   Info,
+  Lock,
 } from 'lucide-react';
 import { SacramentSection } from './SacramentSection';
 import { useToastStore } from '../../stores/toastStore';
@@ -84,6 +85,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
   const [membershipChangeReason, setMembershipChangeReason] = useState('');
   const { user: currentUser } = useAuth();
   const isAdmin = currentUser?.role === 'admin';
+  const canEditCurrent = !studentToEdit || canUserEditStudent(studentToEdit, rawClasses, currentUser?.role);
   const [parentAccount, setParentAccount] = useState<ParentAccountState>({ status: 'idle' });
 
   // A8-04 (audit 2026-09-19): mirror the backend/import rule (plus-84 or
@@ -166,8 +168,11 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         notes: studentToEdit.notes || '',
       });
     } else {
-      const defaultBranch = (liveClasses[0]?.branchId as BranchType) || 'AuNhi';
-      const defaultClassId = liveClasses[0]?.id || 'AU1';
+      const liveClassList = getFilteredClassList(liveClasses);
+      const writableLiveClasses = scopeClassesForAssignedWrites(liveClassList, currentUser?.role);
+      const defaultClass = writableLiveClasses[0] || liveClassList[0];
+      const defaultBranch = (defaultClass?.branch as BranchType) || 'AuNhi';
+      const defaultClassId = defaultClass?.id || 'AU1';
       setFormData({
         holyName: '',
         fullName: '',
@@ -185,14 +190,14 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
         notes: '',
       });
     }
-  }, [studentToEdit, isOpen]);
+  }, [studentToEdit, isOpen, currentUser?.role]);
 
   const classList = useMemo(() => getFilteredClassList(rawClasses), [rawClasses]);
-  const currentBranch = BRANCHES[formData.branch] || BRANCHES.AuNhi;
-  const filteredClasses = useMemo(
-    () => classList.filter((c) => c.branch === formData.branch),
-    [classList, formData.branch],
+  const writableClassList = useMemo(
+    () => scopeClassesForAssignedWrites(classList, currentUser?.role),
+    [classList, currentUser?.role],
   );
+  const currentBranch = BRANCHES[formData.branch] || BRANCHES.AuNhi;
 
   const membershipChanged = Boolean(
     studentToEdit && (formData.classId !== studentToEdit.classId || formData.branch !== studentToEdit.branch),
@@ -258,6 +263,16 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
     }
 
     const addToast = useToastStore.getState().addToast;
+
+    if (studentToEdit && !canUserEditStudent(studentToEdit, rawClasses, currentUser?.role)) {
+      addToast('Bạn không có quyền sửa thông tin học sinh của lớp khác.', 'error');
+      return;
+    }
+    if (!canUserAccessClass(formData.classId, rawClasses, currentUser?.role)) {
+      addToast('Bạn chỉ có thể gán học sinh vào lớp mình phụ trách.', 'error');
+      return;
+    }
+
     const studentPayload = {
       ...formData,
       gender: formData.gender as 'Nam' | 'Nữ',
@@ -359,7 +374,7 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
               type="submit"
               form="student-modal-form"
               className="btn btn-primary min-h-10 w-full sm:w-auto font-bold"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !canEditCurrent}
               aria-busy={isSubmitting}
             >
               {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
@@ -370,6 +385,12 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
       }
     >
       <form id="student-modal-form" onSubmit={handleSubmit} className="flex flex-col gap-4 sm:gap-5">
+        {!canEditCurrent && (
+          <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-2">
+            <Lock size={16} className="shrink-0" />
+            <span>Bạn không có quyền chỉnh sửa học sinh này vì không phụ trách lớp của em.</span>
+          </div>
+        )}
         {/* HERO IDENTITY BANNER — Đồng bộ nhận diện với StudentProfileModal */}
         <Surface
           variant="card"
@@ -586,9 +607,10 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                 <select
                   className="form-select"
                   value={formData.branch}
+                  disabled={!canEditCurrent}
                   onChange={(e) => {
                     const b = e.target.value as BranchType;
-                    const firstCls = classList.find((c) => c.branch === b);
+                    const firstCls = writableClassList.find((c) => c.branch === b) || classList.find((c) => c.branch === b);
                     setFormData({ ...formData, branch: b, classId: firstCls ? firstCls.id : '' });
                   }}
                 >
@@ -605,19 +627,61 @@ export const StudentModal: React.FC<StudentModalProps> = ({ isOpen, onClose, stu
                 <select
                   className="form-select"
                   value={formData.classId}
-                  onChange={(e) => setFormData({ ...formData, classId: e.target.value })}
+                  disabled={!canEditCurrent}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    const foundClass = rawClasses.find((c) => c.id === nextId) || classList.find((c) => c.id === nextId);
+                    const nextBranch = (foundClass ? ('branch' in foundClass ? foundClass.branch : foundClass.branchId) : undefined) as BranchType | undefined;
+                    setFormData({
+                      ...formData,
+                      classId: nextId,
+                      ...(nextBranch ? { branch: nextBranch } : {}),
+                    });
+                  }}
                 >
-                  {filteredClasses.length > 0
-                    ? filteredClasses.map((c) => (
+                  {formData.classId && !writableClassList.some(c => c.id === formData.classId) && (
+                    <option value={formData.classId}>
+                      {rawClasses.find(c => c.id === formData.classId)?.name || formData.classId} (Không phụ trách)
+                    </option>
+                  )}
+                  {(() => {
+                    const knownBranchClassIds = new Set<string>();
+                    const groups = Object.values(BRANCHES).map((b) => {
+                      const branchClasses = writableClassList.filter((c) => c.branch === b.id);
+                      if (branchClasses.length === 0) return null;
+                      branchClasses.forEach((c) => knownBranchClassIds.add(c.id));
+                      return (
+                        <optgroup key={b.id} label={`Ngành ${b.name}`}>
+                          {branchClasses.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    }).filter(Boolean);
+
+                    const otherClasses = writableClassList.filter((c) => !knownBranchClassIds.has(c.id));
+                    if (otherClasses.length > 0) {
+                      groups.push(
+                        <optgroup key="other" label="Khác">
+                          {otherClasses.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    }
+                    if (groups.length === 0) {
+                      return writableClassList.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}
                         </option>
-                      ))
-                    : classList.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
+                      ));
+                    }
+                    return groups;
+                  })()}
                 </select>
               </div>
 

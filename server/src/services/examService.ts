@@ -6,7 +6,7 @@ import { generateId } from '../utils/id.js'
 import { createSemesterLockSpecification } from './policyAdapters.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
 import { upsertGrade } from './gradeService.js'
-import { getActiveAcademicYearId } from './academicYearService.js'
+import { getActiveAcademicYearId, resolveWritableAcademicYear } from './academicYearService.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 import type { ActorRole } from '../types/actor.js'
 import { assertCreateReplayMatches, createIntentHash, normalizeJsonCreateField, readCreateIntentHash } from './createIdempotency.js'
@@ -526,18 +526,22 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
   // EXAM-AUDIT F6 (2026-08-21): insert + audit trong 1 transaction; request song
   // song cùng idempotencyKey thắng UNIQUE → trả về bản ghi của request thắng
   // (cùng pattern IDEM-F3 của studentService) thay vì 500.
+  let persistedRow: typeof row
   try {
-    await runDbTransaction(async (tx) => {
+    persistedRow = await runDbTransaction(async (tx) => {
       await assertExamWriter(tx, userId, parishId, data.classId, expected)
-      await tx.insert(examSessions).values(row)
+      const canonicalYear = await resolveWritableAcademicYear(parishId, explicitYear, tx, data.classId)
+      const nextRow = { ...row, academicYear: canonicalYear }
+      await tx.insert(examSessions).values(nextRow)
       await audit(tx as DbTransaction, {
         userId, parishId, ip, userAgent,
         action: 'EXAM_CREATE',
         entityType: 'exam_session',
         entityId: id,
         oldValue: null,
-        newValue: JSON.stringify({ ...row, createIntentHash: createIntentHash(requestedIntent) }),
+        newValue: JSON.stringify({ ...nextRow, createIntentHash: createIntentHash(requestedIntent) }),
       })
+      return nextRow
     })
   } catch (err) {
     const messages = `${String((err as any)?.message ?? '')} ${String((err as any)?.cause?.message ?? '')}`
@@ -556,7 +560,7 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
     }
     throw err
   }
-  return row
+  return persistedRow
 }
 
 export async function listExamSessions(parishId: string, classIds: string[] | null, filters?: { subject?: string; scoreType?: ExamScoreType; status?: ExamSessionStatus }) {

@@ -11,25 +11,36 @@ test.describe('TINI manual attendance import', () => {
     const externalClassId = `l_${key}`
     const date = '2026-09-19'
 
-    const candidatesResponse = await authorizedRequest(
-      page.request, session, 'GET', '/api/tini-attendance-import/candidates?year=2026-2027',
-    )
-    expect(candidatesResponse.status(), await candidatesResponse.text()).toBe(200)
-    const candidates = (await candidatesResponse.json()).data as {
-      classes: { id: string; name: string }[]
-      students: { id: string; classId: string; fullName: string }[]
-    }
-    const targetStudent = candidates.students.find(item => item.id === 'student-e2e-002')
-    expect(targetStudent).toBeTruthy()
-    const targetClass = candidates.classes.find(item => item.id === targetStudent!.classId)
-    expect(targetClass).toBeTruthy()
-    const studentResponse = await authorizedRequest(page.request, session, 'GET', `/api/students/${targetStudent!.id}`)
-    expect(studentResponse.status(), await studentResponse.text()).toBe(200)
-    const studentProfile = (await studentResponse.json()).data as { dateOfBirth: string }
+    const classCode = `TINI${key.replace(/-/g, '').slice(-8)}`
+    const classResponse = await authorizedRequest(page.request, session, 'POST', '/api/classes', {
+      code: classCode,
+      name: `Lớp TINI ${key}`,
+      branchId: 'AuNhi',
+      academicYearId: '2026-2027',
+      idempotencyKey: `${key}-class`,
+    })
+    expect(classResponse.status()).toBe(201)
+    const targetClass = (await classResponse.json()).data as { id: string; name: string }
+
+    const studentResponse = await authorizedRequest(page.request, session, 'POST', '/api/students', {
+      holyName: 'Maria',
+      fullName: `Thiếu Nhi TINI ${key}`,
+      gender: 'Nữ',
+      dateOfBirth: '2015-02-02',
+      parentName: 'Synthetic Parent',
+      parentPhone: `090${String(1000000 + Number.parseInt(key.slice(-6), 16) % 9000000)}`,
+      address: 'E2E address',
+      branch: 'AuNhi',
+      classId: targetClass.id,
+      status: 'Đang học',
+      idempotencyKey: `${key}-student`,
+    })
+    expect(studentResponse.status()).toBe(201)
+    const targetStudent = (await studentResponse.json()).data as { id: string; fullName: string; dateOfBirth: string }
 
     const observation = {
       externalStudentId, studentName: targetStudent!.fullName, externalClassId,
-      dateOfBirth: studentProfile.dateOfBirth, className: targetClass!.name,
+      dateOfBirth: targetStudent.dateOfBirth, className: targetClass.name,
       date, sourceTitle: 'Có mặt Thánh lễ', late: false,
       sourceFingerprint: '',
     }

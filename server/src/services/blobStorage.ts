@@ -236,11 +236,23 @@ export async function listObjects(prefix: string): Promise<StoredObject[]> {
       ? getBackupDir()
       : process.env.BLOB_LOCAL_DIR || path.join(process.cwd(), 'blobs')
   if (!fs.existsSync(dirPrefix)) return []
-  return fs.readdirSync(dirPrefix).filter(name => !/\.(?:tmp|partial)-/.test(name)).map((name) => {
-    const p = path.join(dirPrefix, name)
-    const st = fs.statSync(p)
-    return { key: `${prefix}${name}`, size: st.size, lastModified: st.mtimeMs }
-  })
+  const objects: StoredObject[] = []
+  const walk = (directory: string, relative: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.includes('.tmp-') || entry.name.includes('.partial-')) continue
+      const absolute = path.join(directory, entry.name)
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        walk(absolute, childRelative)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const stat = fs.statSync(absolute)
+      objects.push({ key: `${prefix}${childRelative}`, size: stat.size, lastModified: stat.mtimeMs })
+    }
+  }
+  walk(dirPrefix, '')
+  return objects
 }
 
 export async function deleteObject(key: string): Promise<void> {
