@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   deploy-production:
-    name: Deploy verified SHA to Vercel and Render
+    name: Deploy verified SHA to Cloudflare, Vercel, and Render
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
@@ -54,6 +54,94 @@ jobs:
           latest_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
           if [ "$latest_sha" != "$VERIFIED_SHA" ]; then
             echo "A newer main commit exists; skip stale deployment $VERIFIED_SHA."
+            exit 1
+          fi
+
+      - name: Validate Cloudflare deployment credentials
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFIED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Setup Node.js 22 for Wrangler
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/cloudflare-free-feasibility/package-lock.json
+
+      - name: Install application dependencies for Worker bundle
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install pinned Wrangler dependencies
+        working-directory: tools/cloudflare-free-feasibility
+        run: npm ci --no-audit --no-fund
+
+      - name: Run production database preflight
+        shell: bash
+        env:
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          DEPLOYMENT_PARISH_ID: ${{ vars.DEPLOYMENT_PARISH_ID }}
+          PARISH_TIME_ZONE: ${{ vars.PARISH_TIME_ZONE }}
+        run: |
+          set -euo pipefail
+          export DEPLOYMENT_PARISH_ID="${DEPLOYMENT_PARISH_ID:-gia-ton}"
+          export PARISH_TIME_ZONE="${PARISH_TIME_ZONE:-Asia/Ho_Chi_Minh}"
+          test -n "$TURSO_URL"
+          test -n "$TURSO_AUTH_TOKEN"
+          npm --prefix server run db:preflight:cloudflare
+
+      - name: Confirm Worker deploy remains closed to public traffic
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync('tools/cloudflare-free-feasibility/wrangler-catevia-production.jsonc', 'utf8'));
+          if (config.vars.CATEVIA_TRAFFIC_ENABLED !== 'no' || config.vars.CATEVIA_MAINTENANCE_OWNER !== 'render') {
+            throw new Error('Refusing the CI Worker deployment: traffic must remain closed and Render must remain the maintenance owner.');
+          }
+          NODE
+
+      - name: Validate Worker bundle from clean dependencies
+        working-directory: tools/cloudflare-free-feasibility
+        run: >-
+          npx --no-install wrangler deploy
+          --config wrangler-catevia-production.jsonc
+          --dry-run
+          --strict
+          --outdir "$RUNNER_TEMP/catevia-worker-bundle"
+
+      - name: Deploy exact verified SHA to Cloudflare Worker
+        working-directory: tools/cloudflare-free-feasibility
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          npx --no-install wrangler deploy
+          --config wrangler-catevia-production.jsonc
+          --strict
+          --var APP_RELEASE_ID:${{ env.VERIFIED_SHA }}
+          --message verified-sha-${{ env.VERIFIED_SHA }}
+
+      - name: Verify Worker stays gated until cutover
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+            --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/api/auth/me)"
+          status="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          if [ "$status" != "503" ] || [ "$body" != "Backend cutover pending" ]; then
+            echo "Cloudflare Worker is not in its expected closed state (HTTP $status)." >&2
             exit 1
           fi
 
@@ -178,3 +266,6 @@ jobs:
             echo "Production CSP still allows https://vercel.live (Vercel Toolbar); keep the Toolbar Off for Production (CSP-TOOLBAR-1)." >&2
             exit 1
           fi
+
+      - name: Verify Render routing and closed Worker boundary
+        run: node tools/cloudflare-free-feasibility/verify-production-boundary.mjs "$VERIFIED_SHA"

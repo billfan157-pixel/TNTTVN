@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { runDbTransaction, type DbTransaction } from '../db/index.js'
 import {
   auditLogs,
@@ -9,7 +9,8 @@ import {
   students,
 } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
-import { getCurrentAcademicYear } from '../utils/academicYear.js'
+import { resolveWritableAcademicYear } from './academicYearService.js'
+import { normalizeAcademicYear } from '../utils/academicYear.js'
 import { maskPhoneForAudit } from '../utils/auditRedact.js'
 import type {
   CreateFundInput,
@@ -84,14 +85,15 @@ async function assertActiveFundInParish(tx: DbTransaction, fundId: string, paris
   }
 }
 
-async function assertClassInParish(tx: DbTransaction, classId: string, parishId: string): Promise<void> {
+async function assertClassInParish(tx: DbTransaction, classId: string, parishId: string): Promise<string> {
   const [cls] = await tx
-    .select({ id: classes.id })
+    .select({ id: classes.id, academicYearId: classes.academicYearId })
     .from(classes)
     .where(and(eq(classes.id, classId), eq(classes.parishId, parishId), isNull(classes.deletedAt)))
     .limit(1)
 
   if (!cls) financeBadRequest('Lớp học không tồn tại trong giáo xứ hiện tại')
+  return cls.academicYearId
 }
 
 async function assertStudentClassInParish(
@@ -99,7 +101,7 @@ async function assertStudentClassInParish(
   studentId: string,
   classId: string | undefined,
   parishId: string,
-): Promise<void> {
+): Promise<{ classId: string; academicYearId: string }> {
   const [student] = await tx
     .select({ id: students.id, classId: students.classId })
     .from(students)
@@ -108,14 +110,16 @@ async function assertStudentClassInParish(
 
   if (!student) financeBadRequest('Thiếu nhi không tồn tại trong giáo xứ hiện tại')
   if (classId && student.classId !== classId) financeBadRequest('Thiếu nhi không thuộc lớp học đã chọn')
-  await assertClassInParish(tx, classId || student.classId, parishId)
+  const effectiveClassId = classId || student.classId
+  const academicYearId = await assertClassInParish(tx, effectiveClassId, parishId)
+  return { classId: effectiveClassId, academicYearId }
 }
 
 async function assertTransactionReferences(
   tx: DbTransaction,
   data: CreateTransactionInput,
   parishId: string,
-): Promise<void> {
+): Promise<{ academicYear: string; classId?: string }> {
   await assertActiveFundInParish(tx, data.fundId, parishId)
 
   if (data.type === 'TRANSFER') {
@@ -124,10 +128,16 @@ async function assertTransactionReferences(
     await assertActiveFundInParish(tx, data.targetFundId, parishId)
   }
 
+  let classId = data.classId
   if (data.studentId) {
-    await assertStudentClassInParish(tx, data.studentId, data.classId, parishId)
+    classId = (await assertStudentClassInParish(tx, data.studentId, data.classId, parishId)).classId
   } else if (data.classId) {
+    classId = data.classId
     await assertClassInParish(tx, data.classId, parishId)
+  }
+  return {
+    academicYear: await resolveWritableAcademicYear(parishId, data.academicYear, tx, classId),
+    classId,
   }
 }
 
@@ -140,59 +150,33 @@ async function createTransactionInTx(
   ip: string,
   userAgent: string,
 ): Promise<FinancialTransaction> {
-  await assertTransactionReferences(tx, data, parishId)
-
-  // FIN-1 (audit 2026-08-21): receiptNumber do client cung cấp phải duy nhất trong
-  // giáo xứ — trước đây insert im lặng chấp nhận trùng. Auto-allocation (không có
-  // client receiptNumber) KHÔNG cần check: runDbTransaction = BEGIN IMMEDIATE
-  // (@libsql/core transactionModeToBegin) nên SELECT-max → INSERT được serialize,
-  // không thể hai tx cùng tính ra một số.
+  const { academicYear, classId: canonicalClassId } = await assertTransactionReferences(tx, data, parishId)
   if (data.receiptNumber) {
-    const [dupReceipt] = await tx
-      .select({ id: financialTransactions.id })
-      .from(financialTransactions)
-      .where(
-        and(
-          eq(financialTransactions.parishId, parishId),
-          eq(financialTransactions.receiptNumber, data.receiptNumber),
-        ),
-      )
-      .limit(1)
-    if (dupReceipt) {
-      financeBadRequest(`Số phiếu "${data.receiptNumber}" đã tồn tại trong giáo xứ`)
-    }
+    financeBadRequest('Số phiếu do máy chủ cấp; không được gửi receiptNumber từ client')
   }
 
   const id = generateId('TXN')
   const now = new Date().toISOString()
-  const academicYear = data.academicYear || getCurrentAcademicYear()
   const transactionDate = data.transactionDate || now.slice(0, 10)
 
-  let receiptNumber = data.receiptNumber
-  if (!receiptNumber) {
-    const prefix = data.type === 'INCOME' ? 'PT' : data.type === 'EXPENSE' ? 'PC' : 'UNC'
-    const yearSuffix = transactionDate.slice(0, 4)
-    const pattern = `${prefix}-${yearSuffix}-%`
+  const prefix = data.type === 'INCOME' ? 'PT' : data.type === 'EXPENSE' ? 'PC' : 'UNC'
+  const yearSuffix = transactionDate.slice(0, 4)
+  const pattern = `${prefix}-${yearSuffix}-%`
 
-    const maxTxResult = await tx
-      .select({ receiptNumber: financialTransactions.receiptNumber })
-      .from(financialTransactions)
-      .where(
-        and(
-          eq(financialTransactions.parishId, parishId),
-          sql`${financialTransactions.receiptNumber} LIKE ${pattern}`,
-        ),
-      )
-      .orderBy(desc(financialTransactions.receiptNumber))
-      .limit(1)
+  const existingReceipts = await tx
+    .select({ receiptNumber: financialTransactions.receiptNumber })
+    .from(financialTransactions)
+    .where(and(
+      eq(financialTransactions.parishId, parishId),
+      sql`${financialTransactions.receiptNumber} LIKE ${pattern}`,
+    ))
 
-    let nextNum = 1
-    if (maxTxResult.length > 0 && maxTxResult[0].receiptNumber) {
-      const match = maxTxResult[0].receiptNumber.match(/-(\d+)$/)
-      if (match) nextNum = Number.parseInt(match[1], 10) + 1
-    }
-    receiptNumber = `${prefix}-${yearSuffix}-${nextNum.toString().padStart(4, '0')}`
+  let nextNum = 1
+  for (const row of existingReceipts) {
+    const match = row.receiptNumber?.match(/-(\d+)$/)
+    if (match) nextNum = Math.max(nextNum, Number.parseInt(match[1], 10) + 1)
   }
+  const receiptNumber = `${prefix}-${yearSuffix}-${nextNum.toString().padStart(4, '0')}`
 
   const row = {
     id,
@@ -206,7 +190,7 @@ async function createTransactionInTx(
     personName: data.personName?.trim() || null,
     personPhone: data.personPhone?.trim() || null,
     studentId: data.studentId || null,
-    classId: data.classId || null,
+    classId: canonicalClassId || null,
     academicYear,
     transactionDate,
     receiptNumber,
@@ -315,6 +299,15 @@ export async function deleteTransaction(
       .limit(1)
 
     if (!existing) return false
+
+    const [linkedFee] = await tx
+      .select({ id: studentFeeRecords.id })
+      .from(studentFeeRecords)
+      .where(and(eq(studentFeeRecords.transactionId, id), eq(studentFeeRecords.parishId, parishId)))
+      .limit(1)
+    if (linkedFee) {
+      financeBadRequest('Giao dịch đang được liên kết với khoản phí; cần cập nhật trạng thái khoản phí trước')
+    }
 
     await tx
       .delete(financialTransactions)
@@ -520,7 +513,8 @@ async function updateStudentFeeInTx(
   userAgent: string,
 ): Promise<StudentFeeRecord> {
     assertFeeCommandConsistency(data)
-    await assertStudentClassInParish(tx, data.studentId, data.classId, parishId)
+    const { academicYearId: classAcademicYear } = await assertStudentClassInParish(tx, data.studentId, data.classId, parishId)
+    const lookupYear = data.academicYear || classAcademicYear
 
     const existingRows = await tx
       .select()
@@ -528,24 +522,39 @@ async function updateStudentFeeInTx(
       .where(and(
         eq(studentFeeRecords.studentId, data.studentId),
         eq(studentFeeRecords.parishId, parishId),
-        eq(studentFeeRecords.academicYear, data.academicYear),
+        eq(studentFeeRecords.classId, data.classId),
+        eq(studentFeeRecords.academicYear, lookupYear),
         eq(studentFeeRecords.feeType, data.feeType),
       ))
       .limit(1)
     const existing = existingRows[0]
+    const isReplay = Boolean(
+      existing &&
+      (!data.academicYear || normalizeAcademicYear(data.academicYear) === normalizeAcademicYear(classAcademicYear)) &&
+      existing.status === data.status &&
+      existing.expectedAmount === data.expectedAmount &&
+      existing.paidAmount === data.paidAmount &&
+      existing.title === data.title &&
+      existing.note === (data.note || null),
+    )
+    if (isReplay && (data.status !== 'PAID' || (existing.transactionId && !data.fundId))) return existing
+
+    const academicYear = await resolveWritableAcademicYear(parishId, data.academicYear, tx, data.classId)
+    const canonicalData = { ...data, academicYear }
     const now = new Date().toISOString()
     const today = now.slice(0, 10)
     const transactionId = await reconcileFeeTransactionInTx(
-      tx, existing, data, userId, userName, parishId, ip, userAgent, now,
+      tx, existing, canonicalData, userId, userName, parishId, ip, userAgent, now,
     )
 
     const id = existing?.id || generateId('FEE')
+
     const row = {
       id,
       parishId,
       studentId: data.studentId,
       classId: data.classId,
-      academicYear: data.academicYear,
+      academicYear,
       feeType: data.feeType,
       title: data.title,
       expectedAmount: data.expectedAmount,

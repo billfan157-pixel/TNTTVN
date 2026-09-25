@@ -1,9 +1,7 @@
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { chmodSync } from 'fs'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+import { isCloudflareWorkerRuntime } from './cloudflareRuntime.js'
 
 /**
  * Thư mục chứa safety snapshot (backup tự động trước purge/restore).
@@ -16,9 +14,12 @@ const __dirname = dirname(__filename)
  * (lỗi thực tế trên Railway: "EACCES: permission denied, mkdir '/app/server/data/backups/safety'").
  */
 export function getSafetyBackupDir(): string {
+  if (isCloudflareWorkerRuntime()) {
+    throw new Error('Worker cannot use a local safety backup directory')
+  }
   if (process.env.SAFETY_BACKUP_DIR) return process.env.SAFETY_BACKUP_DIR
   if (process.env.DB_PATH) return join(dirname(process.env.DB_PATH), 'backups', 'safety')
-  return join(__dirname, '../../data/backups/safety')
+  return join(dirname(fileURLToPath(import.meta.url)), '../../data/backups/safety')
 }
 
 /**

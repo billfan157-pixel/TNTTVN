@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken'
 import type { AppPushPayload, NativeProviderResult } from './pushTypes.js'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging'
 const DEFAULT_TOKEN_URI = 'https://oauth2.googleapis.com/token'
@@ -11,6 +12,25 @@ interface FirebaseServiceAccount {
   private_key: string
   project_id: string
   token_uri?: string
+}
+
+function base64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url')
+}
+
+async function workerOAuthAssertion(account: FirebaseServiceAccount, tokenUri: string): Promise<string> {
+  const pem = account.private_key.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, '')
+  const keyBytes = Uint8Array.from(atob(pem), char => char.charCodeAt(0))
+  const key = await crypto.subtle.importKey('pkcs8', keyBytes,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
+  const now = Math.floor(Date.now() / 1000)
+  const encoder = new TextEncoder()
+  const header = base64Url(encoder.encode(JSON.stringify({ alg: 'RS256', typ: 'JWT' })))
+  const claims = base64Url(encoder.encode(JSON.stringify({ iss: account.client_email,
+    scope: FCM_SCOPE, aud: tokenUri, iat: now, exp: now + 3600 })))
+  const input = `${header}.${claims}`
+  const signature = new Uint8Array(await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, encoder.encode(input)))
+  return `${input}.${base64Url(signature)}`
 }
 
 export function isFcmConfigured(): boolean {
@@ -41,12 +61,14 @@ async function accessToken(account: FirebaseServiceAccount): Promise<string> {
   }
 
   const tokenUri = account.token_uri || DEFAULT_TOKEN_URI
-  const assertion = jwt.sign({ scope: FCM_SCOPE }, account.private_key, {
-    algorithm: 'RS256',
-    issuer: account.client_email,
-    audience: tokenUri,
-    expiresIn: '1h',
-  })
+  const assertion = isCloudflareWorkerRuntime()
+    ? await workerOAuthAssertion(account, tokenUri)
+    : jwt.sign({ scope: FCM_SCOPE }, account.private_key, {
+      algorithm: 'RS256',
+      issuer: account.client_email,
+      audience: tokenUri,
+      expiresIn: '1h',
+    })
   const response = await fetch(tokenUri, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -124,9 +146,10 @@ export async function sendFcmPush(tokens: string[], payload: AppPushPayload): Pr
   const account = serviceAccount()
   const authorization = await accessToken(account)
   const responses: Array<{ ok: boolean; dead: boolean; errorReason?: string }> = []
-  for (let offset = 0; offset < tokens.length; offset += FCM_CONCURRENCY) {
+  const batchSize = isCloudflareWorkerRuntime() ? 4 : FCM_CONCURRENCY
+  for (let offset = 0; offset < tokens.length; offset += batchSize) {
     responses.push(...await Promise.all(
-      tokens.slice(offset, offset + FCM_CONCURRENCY).map(token => sendOne(account, authorization, token, payload)),
+      tokens.slice(offset, offset + batchSize).map(token => sendOne(account, authorization, token, payload)),
     ))
   }
   const deadTokens = responses.flatMap((response, index) => response.dead ? [tokens[index]] : [])

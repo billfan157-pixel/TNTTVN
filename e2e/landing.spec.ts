@@ -30,7 +30,7 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     await page.goto('/')
 
     const portals = page.locator('#cong-dang-nhap')
-    await portals.getByRole('button', { name: 'Đăng nhập phụ huynh' }).click()
+    await portals.getByRole('button', { name: /đăng nhập phụ huynh/i }).click()
     await expect(page).toHaveURL(/\/login\/phuhuynh$/, { timeout: 15_000 })
 
     await page.goto('/')
@@ -71,16 +71,15 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     expect(box?.height).toBeGreaterThanOrEqual(44)
   })
 
-  test('hiển thị dải số liệu 5/3/2/1, FAQ tương tác và cam kết dữ liệu giáo xứ', async ({ page }) => {
+  test('hiển thị trụ cột tin cậy, FAQ tương tác và cam kết dữ liệu giáo xứ', async ({ page }) => {
     await page.goto('/')
 
-    // Stats strip
-    const stats = page.getByRole('region', { name: 'Thông số hệ thống' })
-    await expect(stats).toBeVisible()
-    await expect(stats.getByText('5', { exact: true })).toBeVisible()
-    await expect(stats.getByText('3', { exact: true })).toBeVisible()
-    await expect(stats.getByText('2', { exact: true })).toBeVisible()
-    await expect(stats.getByText('1', { exact: true })).toBeVisible()
+    // Trust pillars
+    await expect(page.getByRole('heading', { level: 2, name: /bền bỉ, an toàn và tôn trọng quyền riêng tư/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 3, name: /ngoại tuyến \(offline-first\)/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 3, name: /phân quyền theo vai trò/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 3, name: /máy tính & điện thoại pwa/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 3, name: /dữ liệu thuộc về giáo xứ/i })).toBeVisible()
 
     // FAQ Accordion
     const faqHeading = page.getByRole('heading', { level: 2, name: /câu hỏi thường gặp/i })

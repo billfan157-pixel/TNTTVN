@@ -22,7 +22,7 @@ import { useSyncStore, getOwnUnsettledSyncOperations } from '../stores/syncStore
 import { runSyncFlow } from '../lib/syncCoordinator'
 import { api } from '../lib/api'
 import { PURGE_VERSION_KEY, resetClientData } from '../lib/resetClientData'
-import { setTenantScope } from '../lib/tenantScope'
+import { setTenantScope, scopedStorageKey } from '../lib/tenantScope'
 
 const resetClientDataMock = vi.mocked(resetClientData)
 
@@ -79,6 +79,19 @@ describe('Sync Engine — PURGE v2.3 trên device mới (A-NEW-46)', () => {
       id: 'legacy-pending', entity: 'grade', entityId: 'grade-1', operation: 'UPDATE', payload: '{}',
       retryCount: 0, lastError: null, createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
       status: 'pending', deviceId: 'device', userId: 'U-TEST', parishId: 'PARISH-TEST',
+    })
+    mockApiMethods(4)
+
+    await runSyncFlow()
+
+    expect(resetClientDataMock).toHaveBeenCalledWith(4)
+    expect(api.getSyncWatermark).not.toHaveBeenCalled()
+  })
+
+  it('device thiếu generation key nhưng có cache tenant phải reset trước khi sync', async () => {
+    await getDB().stores.put({
+      key: scopedStorageKey('parish_store_students')!,
+      value: JSON.stringify({ state: { students: [{ id: 'stale-student' }] } }),
     })
     mockApiMethods(4)
 

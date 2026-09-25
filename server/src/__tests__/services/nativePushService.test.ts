@@ -76,6 +76,21 @@ describe('nativePushService — targeting, tenant isolation and dead-token clean
     expect(result.sent).toBe(1)
   })
 
+  it('caps a native delivery batch and resumes without sending the first device twice', async () => {
+    const tokens = [`batch-android-${suffix}`, `batch-ios-${suffix}`]
+    await insertToken(`batch-android-id-${suffix}`, `batch-android-install-${suffix}`, 'android', tokens[0], userA1, parishA)
+    await insertToken(`batch-ios-id-${suffix}`, `batch-ios-install-${suffix}`, 'ios', tokens[1], userA1, parishA)
+    providers.fcm.mockResolvedValue({ sent: 1, failed: 0, deadTokens: [], successfulTokens: [tokens[0]] })
+    providers.apns.mockResolvedValue({ sent: 1, failed: 0, deadTokens: [], successfulTokens: [tokens[1]] })
+    const { sendNativePushToUsers } = await import('../../services/nativePushService.js')
+    const first = await sendNativePushToUsers(parishA, [userA1], { title: 'T', body: 'B' }, [], 1)
+    expect(first).toMatchObject({ sent: 1, deferred: 1 })
+    const second = await sendNativePushToUsers(parishA, [userA1], { title: 'T', body: 'B' }, first.successfulTokens, 1)
+    expect(second).toMatchObject({ sent: 1, deferred: 0 })
+    expect(providers.fcm).toHaveBeenCalledTimes(1)
+    expect(providers.apns).toHaveBeenCalledTimes(1)
+  })
+
   it('xóa token chết nhưng giữ token còn sống và token của parish khác', async () => {
     const dead = `token-dead-a-${suffix}`
     const alive = `token-alive-a-${suffix}`

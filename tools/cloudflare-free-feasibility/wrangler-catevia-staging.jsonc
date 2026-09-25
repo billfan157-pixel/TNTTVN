@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "catevia-api-staging",
+  "main": "src/catevia-dryrun.js",
+  "compatibility_date": "2026-09-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": { "@libsql/client": "@libsql/client/web" },
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": { "crons": [] },
+  "placement": { "region": "aws:us-east-1" },
+  "vars": {
+    "CATEVIA_RUNTIME": "cloudflare-worker",
+    "CATEVIA_CF_DISPOSABLE_PROBE": "yes",
+    "CATEVIA_MAINTENANCE_OWNER": "disabled",
+    "NODE_ENV": "production",
+    "DEPLOYMENT_PARISH_ID": "gia-ton",
+    "PARISH_TIME_ZONE": "Asia/Ho_Chi_Minh",
+    "TURSO_URL": "libsql://catevia-cloudflare-probe-20260924-billfan157-pixel.aws-us-east-1.turso.io",
+    "CLIENT_ORIGIN": "https://tnttvn.vercel.app"
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "PASSWORD_CPU", "class_name": "PasswordCpu" },
+      { "name": "BACKUP_JOB", "class_name": "BackupJob" },
+      { "name": "PDF_JOB", "class_name": "PdfJob" },
+      { "name": "BACKEND_SHARD", "class_name": "BackendShard" },
+      { "name": "MAINTENANCE_JOB", "class_name": "MaintenanceJob" }
+    ]
+  },
+  "r2_buckets": [
+    { "binding": "BLOB_BUCKET", "bucket_name": "catevia-cf-backup-probe-20260924" }
+  ],
+  "browser": { "binding": "BROWSER" },
+  "migrations": [
+    { "tag": "password-cpu-v1", "new_sqlite_classes": ["PasswordCpu"] },
+    { "tag": "backup-job-v1", "new_sqlite_classes": ["BackupJob"] },
+    { "tag": "pdf-job-v1", "new_sqlite_classes": ["PdfJob"] },
+    { "tag": "backend-shard-v1", "new_sqlite_classes": ["BackendShard"] },
+    { "tag": "maintenance-job-v1", "new_sqlite_classes": ["MaintenanceJob"] }
+  ],
+  "observability": { "enabled": true }
+}

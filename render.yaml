@@ -19,6 +19,11 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Change to cloudflare only after the Worker maintenance alarms pass the
+      # production cutover gate. Render then serves legacy clients without
+      # running a second set of scheduled writers.
+      - key: CATEVIA_MAINTENANCE_OWNER
+        value: render
       # One Render service owns exactly one parish namespace.
       - key: DEPLOYMENT_PARISH_ID
         value: gia-ton

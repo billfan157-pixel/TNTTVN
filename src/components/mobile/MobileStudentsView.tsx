@@ -3,7 +3,7 @@ import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useFilterStore } from '../../stores/filterStore';
 import type { Student, StudentWorkspace } from '../../types';
-import { useClassStore } from '../../stores/classStore';
+import { useClassStore, canUserAccessClass, canUserEditStudent } from '../../stores/classStore';
 import { BRANCHES } from '../../constants/branches';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { useAuth } from '../../hooks/useAuth';
@@ -17,7 +17,7 @@ import {
   Phone, UserPlus, Search, Edit3, 
   Trash2, Printer, Upload, ChevronLeft, ChevronRight, CheckSquare,
   Users, TrendingUp, Send, AlertCircle, ArrowDownAZ, ArrowDownZA, X,
-  ArrowRightLeft, UserRound
+  ArrowRightLeft, UserRound, Lock
 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { sortStudentsByClassHierarchy } from '../../utils/classSort';
@@ -136,9 +136,10 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(new Set());
   const [confirmSendCards, setConfirmSendCards] = React.useState(false);
 
-  const { can } = useAuth();
+  const { role, can } = useAuth();
+  const isCurrentClassAssigned = canUserAccessClass(selectedClassId, classList, role);
   const canDelete = can('admin');
-  const canTransfer = can('admin', 'chunhiem');
+  const canTransfer = can('admin') || (can('chunhiem') && isCurrentClassAssigned);
   const canPromoteAction = can('admin', 'chunhiem');
   const managementActionCount = [
     canDelete && onOpenAddStudent,
@@ -331,9 +332,16 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         </section>
       )}
       {selectedClassId !== 'all' && (
-        <button onClick={() => setSelectedClassId('all')} className="flex items-center gap-1.5 text-xs font-bold text-parish-primary">
-          <ChevronLeft size={14} /> Quay lại lưới lớp
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <button onClick={() => setSelectedClassId('all')} className="flex items-center gap-1.5 text-xs font-bold text-parish-primary">
+            <ChevronLeft size={14} /> Quay lại lưới lớp
+          </button>
+          {!can('admin') && !isCurrentClassAssigned && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-xs font-bold">
+              <Lock size={12} /> Chỉ xem
+            </span>
+          )}
+        </div>
       )}
 
       {/* Class Selector Pill Bar — all staff can browse the parish-wide roster. */}
@@ -478,9 +486,11 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
                   <button onClick={() => onPrintReport(s)} className="btn btn-secondary min-h-[44px] px-3 text-xs font-bold rounded-xl inline-flex items-center gap-1">
                     <Printer size={13} /> In Phiếu
                   </button>
-                  <button onClick={() => onEditStudent(s)} className="btn btn-secondary min-h-[44px] px-3 text-xs font-bold rounded-xl inline-flex items-center gap-1">
-                    <Edit3 size={13} /> Sửa
-                  </button>
+                  {((can('admin') || can('chunhiem')) && canUserEditStudent(s, classList, role)) && (
+                    <button onClick={() => onEditStudent(s)} className="btn btn-secondary min-h-[44px] px-3 text-xs font-bold rounded-xl inline-flex items-center gap-1">
+                      <Edit3 size={13} /> Sửa
+                    </button>
+                  )}
                   {!selectionMode && canDelete && (
                     <button onClick={() => handleDelete(s)} className="btn btn-secondary min-h-[44px] min-w-[44px] p-0 rounded-xl flex items-center justify-center" aria-label={`Xóa ${s.fullName}`}>
                       <Trash2 size={14} className="text-parish-danger" />

@@ -57,6 +57,7 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
   const [isOpen, setIsOpen] = useState(false)
   const [showDiagnostics, setShowDiagnostics] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
   const { canInstall, install } = useInstallPrompt()
 
   // E1-E3: sync/online hooks must be unconditional (Rules of Hooks). Previously inside IIFE in JSX.
@@ -403,13 +404,19 @@ export const MobileTopBar: React.FC<MobileTopBarProps> = ({ activeWorkspace = 'a
         confirmText="Xóa bộ nhớ đệm & tải lại"
         cancelText="Hủy"
         variant="warning"
+        isBusy={isResetting}
         onConfirm={async () => {
-          await resetAllStoresToDefault()
-          setShowResetConfirm(false)
-          closeMenu()
-          window.location.reload()
+          if (isResetting) return
+          setIsResetting(true)
+          try {
+            await resetAllStoresToDefault()
+          } finally {
+            setShowResetConfirm(false)
+            closeMenu()
+            window.location.reload()
+          }
         }}
-        onCancel={() => setShowResetConfirm(false)}
+        onCancel={() => { if (!isResetting) setShowResetConfirm(false) }}
       />
 
       {showDiagnostics && (

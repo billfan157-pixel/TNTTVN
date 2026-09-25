@@ -83,6 +83,14 @@ describe('finance tenant reference isolation', () => {
     }, 'FIN-USER-A', 'Admin A', PARISH_A, '127.0.0.1', 'vitest')).rejects.toMatchObject({ status: 400 })
   })
 
+  it('persists the student-derived class on a transaction when client omits classId', async () => {
+    const transaction = await createTransaction({
+      fundId: 'FIN-FUND-A', type: 'INCOME', amount: 50000,
+      category: 'Fee', title: 'Student class attribution', studentId: 'FIN-ST-A',
+    }, 'FIN-USER-A', 'Admin A', PARISH_A, '127.0.0.1', 'vitest')
+    expect(transaction.classId).toBe(classA1)
+  })
+
   it('rejects fee updates that reference another parish and leaves fee/transaction tables unchanged', async () => {
     const beforeFees = await db.select().from(studentFeeRecords).where(eq(studentFeeRecords.parishId, PARISH_A))
     const beforeTx = await db.select().from(financialTransactions).where(eq(financialTransactions.parishId, PARISH_A))

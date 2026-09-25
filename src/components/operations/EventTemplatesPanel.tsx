@@ -332,7 +332,7 @@ export function EventTemplatesPanel({
         if (!current()) return
         restoreCommand.current = null
         setRestoreReason(''); setMessage('Đã khôi phục mẫu vào catalog hoạt động.')
-        await loadTemplates(); onTemplatesChanged?.()
+        await loadTemplates(); setTemplateId(selectedArchivedTemplate.id); onTemplatesChanged?.()
       }, 'restore')
     }}>
       <div className="sm:col-span-2"><h3 className="m-0 text-sm font-extrabold text-text-main">Mẫu đang lưu trữ</h3><p className="mb-0 mt-1 text-xs text-text-muted">Mẫu lưu trữ không thể xem trước, tạo phiên bản hay tạo event mới cho đến khi được khôi phục.</p></div>

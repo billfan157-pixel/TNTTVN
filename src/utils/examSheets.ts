@@ -1,6 +1,7 @@
 import { generateExamQrSvg, generateExamQrDataUrl, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
 import { PARISH_LOGO_DATA_URI } from './parishLogo'
 import type { ExamVersionCode } from '../types'
+import { getExamVersionNumericAlias } from '../lib/examVariants'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
 import {
   CORNER_MARKERS,
@@ -234,7 +235,7 @@ export function buildSingleAnswerSheetSvgString(
 
     <!-- Tiêu đề Header -->
     <text x="${px(0.04)}" y="${py(0.045)}" font-size="24" font-weight="900" fill="#1E3A8A" letter-spacing="0.5">PHIẾU TRẢ LỜI KIỂM TRA</text>
-    <text x="${px(0.04)}" y="${py(0.075)}" font-size="15" font-weight="700" fill="#475569">${escapeHtml(subject)} — ${escapeHtml(scoreTypeLabel)} · Lớp: ${escapeHtml(classLabel)} · Mã đề: ${examVersion}</text>
+    <text x="${px(0.04)}" y="${py(0.075)}" font-size="15" font-weight="700" fill="#475569">${escapeHtml(subject)} — ${escapeHtml(scoreTypeLabel)} · Lớp: ${escapeHtml(classLabel)} · Mã đề: ${examVersion} (${getExamVersionNumericAlias(examVersion)})</text>
 
     <!-- Khung thông tin học viên -->
     <rect x="${px(0.04)}" y="${py(0.100)}" width="${px(0.63)}" height="${py(0.125)}" rx="8" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1" />
@@ -1048,7 +1049,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     answerKeyTableHtml = `
       <div class="answer-key-summary">
         <div class="key-header">
-          📋 BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN — MÃ ĐỀ: <strong>${examVersion}</strong> (${mcQuestions.length} CÂU TN${essayQuestions.length > 0 ? ` + ${essayQuestions.length} CÂU TL` : ''})
+          📋 BẢNG ĐÁP ÁN CHUẨN DÀNH CHO GIÁO LÝ VIÊN — MÃ ĐỀ: <strong>${examVersion} (${getExamVersionNumericAlias(examVersion)})</strong> (${mcQuestions.length} CÂU TN${essayQuestions.length > 0 ? ` + ${essayQuestions.length} CÂU TL` : ''})
         </div>
         <div class="key-grid">
           ${mcQuestions.map(q => `
@@ -1122,7 +1123,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           <div class="org-top">${escapeHtml(dioceseName)}</div>
           <div class="org-parish">${escapeHtml(parishName)}</div>
           <div>XỨ ĐOÀN THIẾU NHI THÁNH THỂ</div>
-          <div>Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${examVersion}</strong></div>
+          <div>Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${examVersion} (${getExamVersionNumericAlias(examVersion)})</strong></div>
         </div>
         <div class="header-right">
           <div class="exam-title">${escapeHtml(displaySubject)}</div>
@@ -1304,4 +1305,115 @@ export function printBatchExamPapers(
   if (!students.length || !options.questions?.length) return
   const htmlContent = buildBatchExamPapersHtml(students, options)
   ReportExportService.print(htmlContent)
+}
+
+export interface AllVariantsExamPapersParams extends Omit<ExamPaperPrintOptions, 'questions' | 'examVersion'> {
+  variants: Array<{
+    examVersion: ExamVersionCode
+    questions: ExamQuestion[]
+  }>
+}
+
+/** Tạo HTML gộp toàn bộ các mã đề thi độc lập, mỗi mã đề tự ngắt trang sạch sẽ */
+export function buildAllVariantsExamPapersHtml(params: AllVariantsExamPapersParams): string {
+  const { subject, classLabel, variants, ...commonOptions } = params
+  const title = `Bộ Đề Thi Toàn Bộ Mã Đề — ${subject} (${classLabel})`
+  const baseStyles = getExamPaperStyles()
+
+  const pagesHtml = variants.map(({ examVersion, questions }) => {
+    const singleHtml = buildExamPaperHtml({
+      ...commonOptions,
+      subject,
+      classLabel,
+      examVersion,
+      questions,
+    })
+    const bodyMatch = singleHtml.match(/<body[^>]*>([\s\S]*)<\/body>/i)
+    const content = bodyMatch ? bodyMatch[1] : singleHtml
+    return `<div class="batch-exam-page">${content}</div>`
+  }).join('')
+
+  return withPreviewStylesheet(`<!DOCTYPE html><html lang="vi" xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset="utf-8" /><title>${escapeHtml(title)}</title>
+  <!--[if gte mso 9]>
+  <xml><w:WordDocument><w:View>Print</w:View><w:DoNotOptimizeForBrowser/></w:WordDocument></xml>
+  <![endif]-->
+  <style>
+    ${baseStyles}
+    @page {
+      size: A4 portrait;
+      margin: 12mm 12mm 12mm 12mm;
+    }
+    .batch-exam-page {
+      page-break-after: always;
+      break-after: page;
+      position: relative;
+    }
+    .batch-exam-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+  </style></head><body>${pagesHtml}</body></html>`, 'print-exam-batch.css')
+}
+
+export function printAllVariantsExamPapers(params: AllVariantsExamPapersParams): void {
+  if (!params.variants || !params.variants.length) return
+  const htmlContent = buildAllVariantsExamPapersHtml(params)
+  ReportExportService.print(htmlContent)
+}
+
+/** Tạo HTML gộp toàn bộ phiếu trả lời cho các mã đề */
+export function buildAllVariantsAnswerSheetsHtml(
+  versions: ExamVersionCode[],
+  params: BatchAnswerSheetParams,
+  student: StudentSheetInfo = { id: 'GENERIC', code: '', name: '' }
+): string {
+  const title = `Phiếu Trả Lời Toàn Bộ Mã Đề — ${params.subject} (${params.classLabel})`
+  const pagesHtml = versions.map(examVersion => {
+    const svgString = buildSingleAnswerSheetSvgString(student, { ...params, examVersion })
+    return `<div class="answer-sheet-page">${svgString}</div>`
+  }).join('')
+
+  return withPreviewStylesheet(`<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>
+    @page { size: A4 portrait; margin: 0; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; background: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .answer-sheet-page {
+      width: 210mm;
+      height: 297mm;
+      padding: 10mm;
+      margin: 0 auto 8mm auto;
+      background: #ffffff;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+      page-break-after: always;
+      break-after: page;
+    }
+    .answer-sheet-page:last-child {
+      page-break-after: auto;
+      break-after: auto;
+    }
+    @media print {
+      body { background: transparent; }
+      .answer-sheet-page {
+        margin: 0;
+        box-shadow: none;
+        width: 100vw;
+        height: 100vh;
+        page-break-after: always;
+        break-after: page;
+      }
+      .answer-sheet-page:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+    }
+  </style></head><body>${pagesHtml}</body></html>`, 'print-answer-sheet.css')
+}
+
+export function printAllVariantsAnswerSheets(
+  versions: ExamVersionCode[],
+  params: BatchAnswerSheetParams,
+  student?: StudentSheetInfo
+): void {
+  const html = buildAllVariantsAnswerSheetsHtml(versions, params, student)
+  ReportExportService.print(html)
 }

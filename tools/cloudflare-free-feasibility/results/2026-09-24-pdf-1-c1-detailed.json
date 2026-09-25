@@ -1,0 +1,25 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "pdf",
+  "beganAt": "2026-09-24T04:11:02.198Z",
+  "endedAt": "2026-09-24T04:11:22.221Z",
+  "count": 1,
+  "concurrency": 1,
+  "validCount": 0,
+  "statusCounts": {
+    "TimeoutError": 1
+  },
+  "firstRequestMs": 20021.03,
+  "minMs": 20021.03,
+  "p50Ms": 20021.03,
+  "p95Ms": 20021.03,
+  "maxMs": 20021.03,
+  "samples": [
+    {
+      "status": null,
+      "wallMs": 20021.03,
+      "valid": false,
+      "error": "TimeoutError"
+    }
+  ]
+}
