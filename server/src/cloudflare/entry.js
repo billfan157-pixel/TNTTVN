@@ -14,8 +14,12 @@ function appShard(env) {
     { locationHint: 'enam' })
 }
 
+function backupJob(env) {
+  return env.BACKUP_JOB.get(env.BACKUP_JOB.idFromName('catevia-production-backup'))
+}
+
 export default {
-  fetch(request, env) {
+  async fetch(request, env) {
     if (env.TURSO_URL !== PRODUCTION_DATABASE_URL || !env.TURSO_AUTH_TOKEN
       || !env.JWT_SECRET || !env.JWT_REFRESH_SECRET || !env.REPORT_HMAC_SECRET
       || !env.SUPER_ADMIN_ID || !env.OPS_TOKEN || !env.BACKUP_ENCRYPTION_KEY
@@ -23,7 +27,28 @@ export default {
       return new Response('Backend configuration incomplete', { status: 503 })
     }
     const gate = gateWorkerRequest(request, env)
-    return gate.response || appShard(env).fetch(gate.request)
+    if (gate.response) return gate.response
+    const path = new URL(request.url).pathname
+    if (env.CATEVIA_TRAFFIC_ENABLED !== 'yes' && path === '/__ops/precutover-backup') {
+      if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+      try {
+        return Response.json(await backupJob(env).createBackup())
+      } catch (error) {
+        console.error(JSON.stringify({ type: 'PRECUTOVER_BACKUP_FAILED', errorClass: error?.name || 'UnknownError' }))
+        return new Response('Backup probe failed', { status: 503 })
+      }
+    }
+    if (env.CATEVIA_TRAFFIC_ENABLED !== 'yes' && path === '/__ops/precutover-backup/verify') {
+      if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+      try {
+        const objectKey = request.headers.get('x-catevia-backup-key')
+        return Response.json(await backupJob(env).verifyBackup(objectKey))
+      } catch (error) {
+        console.error(JSON.stringify({ type: 'PRECUTOVER_BACKUP_VERIFY_FAILED', errorClass: error?.name || 'UnknownError' }))
+        return new Response('Backup verification failed', { status: 503 })
+      }
+    }
+    return appShard(env).fetch(gate.request)
   },
   scheduled(_event, env, ctx) {
     if (env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') return
