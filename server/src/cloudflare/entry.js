@@ -1,5 +1,5 @@
-import { timingSafeEqual } from 'node:crypto'
 import { MAINTENANCE_INTERVALS_MS } from './maintenanceJob.js'
+import { gateWorkerRequest } from './trafficGate.js'
 
 const PRODUCTION_DATABASE_URL = 'libsql://tnttvn-billfan157-pixel.aws-us-east-1.turso.io'
 
@@ -8,14 +8,6 @@ export { BackupJob } from './backupJob.js'
 export { BackendShard } from './backendShard.js'
 export { MaintenanceJob } from './maintenanceJob.js'
 export { PdfJob } from '../../../tools/cloudflare-free-feasibility/src/pdfJob.js'
-
-function hasOpsToken(request, env) {
-  const expected = env.OPS_TOKEN
-  const presented = request.headers.get('authorization')?.replace(/^Bearer /, '') || ''
-  return typeof expected === 'string' && expected.length >= 32
-    && presented.length === expected.length
-    && timingSafeEqual(Buffer.from(presented), Buffer.from(expected))
-}
 
 function appShard(env) {
   return env.BACKEND_SHARD.get(env.BACKEND_SHARD.idFromName('catevia-production'),
@@ -30,16 +22,8 @@ export default {
       || !env.PASSWORD_CIPHER_KEY) {
       return new Response('Backend configuration incomplete', { status: 503 })
     }
-    if (env.CATEVIA_TRAFFIC_ENABLED === 'yes' && !/^[a-f0-9]{40}$/.test(env.APP_RELEASE_ID || '')) {
-      return new Response('Backend release not pinned', { status: 503 })
-    }
-    if (env.CATEVIA_TRAFFIC_ENABLED !== 'yes') {
-      if (request.method !== 'GET' || new URL(request.url).pathname !== '/health'
-        || !hasOpsToken(request, env)) {
-        return new Response('Backend cutover pending', { status: 503 })
-      }
-    }
-    return appShard(env).fetch(request)
+    const gate = gateWorkerRequest(request, env)
+    return gate.response || appShard(env).fetch(gate.request)
   },
   scheduled(_event, env, ctx) {
     if (env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') return
