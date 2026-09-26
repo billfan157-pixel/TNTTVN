@@ -63,7 +63,7 @@ export function LandingBranchJourney() {
           {branches.map((branch, index) => (
             <li key={branch.id} className="flex">
               <article
-                className={`card card-interactive p-4 sm:p-5 flex flex-col gap-2.5 sm:gap-3 w-full border-t-4 ${
+                className={`card card-interactive p-4 sm:p-5 flex flex-col gap-2.5 sm:gap-3 w-full border-t-4 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:shadow-card-hover ${
                   BRANCH_BORDER_CLASS[branch.id] ?? 'border-t-parish-primary'
                 } ${BRANCH_BADGE_BORDER[branch.id] ?? ''}`}
               >
@@ -95,6 +95,11 @@ export function LandingBranchJourney() {
             </li>
           ))}
         </ul>
+
+        {/* Cầu nối quang phổ dẫn vào Khoảnh khắc Đức Tin (Scene 3 -> Scene 4 Handoff Bridge) */}
+        <div className="hidden lg:flex justify-center pt-6 pb-2" aria-hidden="true">
+          <div className="w-0.5 h-10 bg-gradient-to-b from-surface-border via-parish-primary/40 to-transparent rounded-full" />
+        </div>
       </div>
     </section>
   )

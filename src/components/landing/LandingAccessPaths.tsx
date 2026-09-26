@@ -31,7 +31,7 @@ export function LandingAccessPaths() {
       {/* ── 2 Cổng Xác Thực Chính Thức ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-5xl mx-auto w-full">
         {/* Cổng 1: GLV & Huynh Trưởng */}
-        <article className="card card-interactive p-6 sm:p-8 flex flex-col justify-between gap-5 border border-surface-border">
+        <article className="card card-interactive p-4 sm:p-6 lg:p-8 flex flex-col justify-between gap-5 border border-surface-border transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:shadow-card-hover">
           <div className="flex flex-col gap-4">
             <div className="w-12 h-12 rounded-2xl bg-parish-primary-light text-parish-primary flex items-center justify-center">
               <GraduationCap className="w-6 h-6" aria-hidden="true" />
@@ -41,7 +41,7 @@ export function LandingAccessPaths() {
                 Cổng GLV &amp; Huynh Trưởng
               </h3>
               <p className="m-0 mt-1 text-xs sm:text-sm text-text-secondary leading-relaxed">
-                Dành cho Giáo Lý Viên, Huynh Trưởng và Ban Điều Hành xứ đoàn. Sau khi đăng nhập, hệ thống sẽ tự động mở đúng không gian thuộc thẩm quyền:
+                Dành cho Giáo Lý Viên, Huynh Trưởng và Ban Điều Hành Xứ Đoàn. Sau khi đăng nhập, hệ thống sẽ tự động mở đúng không gian thuộc thẩm quyền:
               </p>
             </div>
 
@@ -67,7 +67,8 @@ export function LandingAccessPaths() {
           <div className="pt-2">
             <button
               type="button"
-              onClick={() => navigate({ to: '/login/nhan-su' })}
+              onClick={() => navigate({ to: '/login/nhan-su', viewTransition: true })}
+              style={{ viewTransitionName: 'portal-staff-button' }}
               className="btn btn-primary w-full min-h-11 flex items-center justify-center gap-2"
             >
               <span>Đăng nhập GLV &amp; Huynh Trưởng</span>
@@ -77,7 +78,7 @@ export function LandingAccessPaths() {
         </article>
 
         {/* Cổng 2: Phụ Huynh */}
-        <article className="card card-interactive p-6 sm:p-8 flex flex-col justify-between gap-5 border border-surface-border">
+        <article className="card card-interactive p-4 sm:p-6 lg:p-8 flex flex-col justify-between gap-5 border border-surface-border transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:shadow-card-hover">
           <div className="flex flex-col gap-4">
             <div className="w-12 h-12 rounded-2xl bg-parish-info-bg text-parish-info flex items-center justify-center">
               <HeartHandshake className="w-6 h-6" aria-hidden="true" />
@@ -110,7 +111,8 @@ export function LandingAccessPaths() {
           <div className="pt-2">
             <button
               type="button"
-              onClick={() => navigate({ to: '/login/phuhuynh' })}
+              onClick={() => navigate({ to: '/login/phuhuynh', viewTransition: true })}
+              style={{ viewTransitionName: 'portal-parent-button' }}
               className="btn btn-secondary w-full min-h-11 flex items-center justify-center gap-2"
             >
               <span>Đăng nhập Phụ huynh</span>
@@ -121,13 +123,13 @@ export function LandingAccessPaths() {
       </div>
 
       {/* ── Compact Onboarding ── */}
-      <div className="card p-6 sm:p-8 flex flex-col gap-5 max-w-5xl mx-auto w-full border border-surface-border">
+      <div className="card p-4 sm:p-6 lg:p-8 flex flex-col gap-5 max-w-5xl mx-auto w-full border border-surface-border">
         <div>
           <h2 id="tieu-de-bat-dau" className="m-0 text-lg sm:text-xl font-extrabold text-text-main">
             Lần đầu đến với Catevia?
           </h2>
           <p className="m-0 mt-1 text-xs sm:text-sm text-text-secondary">
-            Tài khoản do xứ đoàn cấp phát — thông tin của các em luôn thuộc về xứ đoàn và được bảo vệ.
+            Tài khoản do Xứ Đoàn cấp phát — thông tin của các em luôn thuộc về Xứ Đoàn và được bảo vệ.
           </p>
         </div>
 
@@ -138,7 +140,7 @@ export function LandingAccessPaths() {
             </span>
             <p className="m-0 text-xs sm:text-sm font-bold text-text-main">Nhận tài khoản</p>
             <p className="m-0 text-xs text-text-secondary leading-relaxed">
-              Do Ban Giáo Lý và Ban Điều Hành Xứ Đoàn cấp phát theo danh sách lớp và ban huynh trưởng đã duyệt.
+              Do Ban Giáo Lý và Ban Điều Hành Xứ Đoàn cấp phát theo danh sách lớp và Ban Huynh Trưởng đã duyệt.
             </p>
           </li>
 
@@ -166,7 +168,7 @@ export function LandingAccessPaths() {
         <p className="m-0 flex items-start gap-2 text-xs text-text-muted pt-1 border-t border-surface-border">
           <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-parish-success" aria-hidden="true" />
           <span>
-            Đăng nhập được bảo vệ bằng mật khẩu mã hóa và phân quyền chặt chẽ: bảo mật dữ liệu xứ đoàn, an toàn tuyệt đối và tôn trọng sự riêng tư của gia đình.
+            Đăng nhập được bảo vệ bằng mật khẩu mã hóa và phân quyền chặt chẽ: bảo mật dữ liệu Xứ Đoàn, an toàn tuyệt đối và tôn trọng sự riêng tư của gia đình.
           </span>
         </p>
       </div>

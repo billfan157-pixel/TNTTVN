@@ -1037,6 +1037,27 @@ table td {
 .scene-hero-stage {
   position: relative;
   width: 100%;
+  min-height: calc(100vh - 4rem);
+  min-height: calc(100svh - 4rem);
+  min-height: calc(100dvh - 4rem);
+}
+
+@media (min-width: 640px) {
+  .scene-hero-stage {
+    min-height: 640px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .scene-hero-stage {
+    min-height: 720px;
+  }
+}
+
+@media (min-width: 1536px) {
+  .scene-hero-stage {
+    min-height: 800px;
+  }
 }
 
 .scene-hero-content {
@@ -1052,10 +1073,10 @@ table td {
   bottom: 0;
   left: 0;
   right: 0;
-  height: clamp(3rem, 8vw, 6rem);
+  height: clamp(1rem, 2vw, 1.75rem);
   background: linear-gradient(to bottom, transparent, var(--color-surface-app));
   pointer-events: none;
-  z-index: 15;
+  z-index: 1;
 }
 
 @supports (animation-timeline: view()) {
@@ -1136,7 +1157,7 @@ table td {
 
 @keyframes storyBeatFocus {
   0% {
-    opacity: 0.55;
+    opacity: 1;
     transform: translateY(16px);
   }
   50% {
@@ -1204,6 +1225,26 @@ table td {
   }
 }
 
+/* Tier 2: Finite Motion Fallback for Firefox & Non-Scroll-Timeline Browsers */
+@supports not (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .branch-track-animated {
+      animation: branchTrackGrowFinite 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both;
+    }
+
+    @keyframes branchTrackGrowFinite {
+      from {
+        transform: scaleX(0);
+        opacity: 0.2;
+      }
+      to {
+        transform: scaleX(1);
+        opacity: 0.85;
+      }
+    }
+  }
+}
+
 .faith-handoff-gradient {
   background: linear-gradient(
     180deg,
@@ -1211,6 +1252,240 @@ table td {
     color-mix(in srgb, var(--color-parish-primary) 6%, transparent) 50%,
     transparent 100%
   );
+}
+
+/* ═══════════════════════════════════════════════════
+   CINEMATIC V3 — ADVANCED ATMOSPHERIC & MOTION STYLES
+   Apple/Linear/Stripe-grade Craftsmanship
+   ═══════════════════════════════════════════════════ */
+
+/* 1. Atmospheric Caustics & Contrast Scrim */
+.hero-caustic-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: radial-gradient(
+    ellipse 65% 50% at 50% 0%,
+    color-mix(in srgb, var(--color-parish-primary-light) 18%, transparent),
+    transparent 70%
+  );
+  pointer-events: none;
+}
+
+.hero-text-scrim {
+  position: absolute;
+  inset: -2.5rem -2rem;
+  background: radial-gradient(
+    ellipse 80% 70% at 50% 50%,
+    rgba(0, 0, 0, 0.78) 0%,
+    rgba(0, 0, 0, 0.45) 55%,
+    transparent 85%
+  );
+  pointer-events: none;
+  z-index: -1;
+  border-radius: 9999px;
+  filter: blur(12px);
+}
+
+.text-metallic-gold {
+  background: linear-gradient(180deg, #FFFFFF 0%, #FFFFFF 60%, var(--color-parish-secondary-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-inverse) 0%,
+    var(--color-parish-secondary-light) 50%,
+    var(--color-text-inverse) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: goldTextShimmer 6s ease-in-out infinite;
+}
+
+@keyframes goldTextShimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* 2. Hero Staggered Entrance Choreography */
+@keyframes heroEntranceFade {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-enter-1 {
+  animation: heroEntranceFade 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both;
+}
+
+.hero-enter-2 {
+  animation: heroEntranceFade 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both;
+}
+
+.hero-enter-3 {
+  animation: heroEntranceFade 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.32s both;
+}
+
+.hero-enter-4 {
+  animation: heroEntranceFade 0.9s cubic-bezier(0.16, 1, 0.3, 1) 0.46s both;
+}
+
+/* 3. Living Mockup Micro-Simulations */
+@keyframes mockupLaserScan {
+  0% {
+    top: 15%;
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.9;
+  }
+  100% {
+    top: 85%;
+    opacity: 0;
+  }
+}
+
+.mockup-scanner-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-parish-success), transparent);
+  box-shadow: 0 0 10px var(--color-parish-success);
+  animation: mockupLaserScan 3.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.mockup-tab-pill {
+  transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 4. Vertical Narrative Step Rail (Scrolly Spine) */
+.scrolly-spine {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  .scrolly-spine::before {
+    content: '';
+    position: absolute;
+    top: 2rem;
+    bottom: 2rem;
+    left: -1.75rem;
+    width: 2px;
+    background: var(--color-surface-border);
+  }
+}
+
+.scrolly-spine-step {
+  position: relative;
+}
+
+@media (min-width: 1024px) {
+  .scrolly-spine-dot {
+    position: absolute;
+    left: -2.125rem;
+    top: 2rem;
+    width: 14px;
+    height: 14px;
+    border-radius: 9999px;
+    border: 2px solid var(--color-surface-border);
+    background: var(--color-surface-app);
+    transition: border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .scrolly-spine-dot.is-active {
+    border-color: var(--color-parish-primary);
+    background: var(--color-parish-primary);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--color-parish-primary) 60%, transparent);
+  }
+}
+
+/* 5. Border Beam Specular Highlight */
+@keyframes borderGleamSweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.card-border-beam {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-border-beam::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-parish-secondary-light), transparent);
+  animation: borderGleamSweep 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* 6. Native View Transitions for Smooth Route Changes (TanStack Router) */
+@supports (view-transition-name: root) {
+  ::view-transition-old(root) {
+    animation: pageExitFade 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  ::view-transition-new(root) {
+    animation: pageEnterFade 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  ::view-transition-old(parish-brand-logo),
+  ::view-transition-new(parish-brand-logo) {
+    animation-duration: 0.32s;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  ::view-transition-old(portal-staff-button),
+  ::view-transition-new(portal-staff-button),
+  ::view-transition-old(portal-parent-button),
+  ::view-transition-new(portal-parent-button) {
+    animation-duration: 0.3s;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+@keyframes pageExitFade {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+@keyframes pageEnterFade {
+  from {
+    opacity: 0;
+    transform: scale(1.015);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1222,7 +1497,14 @@ table td {
   .scene-hero-bg,
   .scrolly-story-beat,
   .preview-panel-fade,
-  .branch-track-animated {
+  .branch-track-animated,
+  .gold-shimmer-text,
+  .hero-enter-1,
+  .hero-enter-2,
+  .hero-enter-3,
+  .hero-enter-4,
+  .mockup-scanner-line,
+  .card-border-beam::after {
     animation: none !important;
     transform: none !important;
     filter: none !important;
@@ -1235,5 +1517,12 @@ table td {
   }
   .scrolly-pinned-preview {
     position: static !important;
+  }
+  .mockup-tab-pill {
+    transition: none !important;
+  }
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }

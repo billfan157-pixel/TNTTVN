@@ -85,7 +85,7 @@ export function LandingPage() {
       const el = document.querySelector(href)
       if (el) el.scrollIntoView({ behavior: 'smooth' })
     } else {
-      navigate({ to: href as any })
+      navigate({ to: href as any, viewTransition: true })
     }
   }
 
@@ -97,7 +97,12 @@ export function LandingPage() {
       <header className="sticky top-0 z-40 bg-parish-primary text-text-inverse border-b border-white/15 backdrop-blur-md shadow-sm">
         <div className="w-full max-w-7xl 2xl:max-w-[1720px] mx-auto px-4 sm:px-8 lg:px-12 2xl:px-16 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
-            <img src={parishLogo} alt="Logo Giáo Xứ Gia Tôn" className="w-10 h-10 rounded-full object-contain bg-white/10 p-0.5 shrink-0" />
+            <img
+              src={parishLogo}
+              alt="Logo Giáo Xứ Gia Tôn"
+              className="w-10 h-10 rounded-full object-contain bg-white/10 p-0.5 shrink-0"
+              style={{ viewTransitionName: 'parish-brand-logo' }}
+            />
             <div className="min-w-0">
               <p className="text-sm sm:text-base font-black tracking-wider text-text-inverse uppercase truncate">
                 Xứ Đoàn Đức Mẹ Fatima
@@ -136,7 +141,7 @@ export function LandingPage() {
             </a>
             <button
               type="button"
-              onClick={() => navigate({ to: homeTo })}
+              onClick={() => navigate({ to: homeTo, viewTransition: true })}
               className="btn bg-surface-card hover:bg-surface-hover text-parish-primary font-bold btn-sm min-h-11 rounded-lg shadow-sm"
             >
               {user ? 'Vào hệ thống' : 'Đăng nhập'}
@@ -147,8 +152,8 @@ export function LandingPage() {
           <div className="flex items-center gap-2 sm:hidden">
             <button
               type="button"
-              onClick={() => navigate({ to: homeTo })}
-              className="btn bg-surface-card hover:bg-surface-hover text-parish-primary font-bold btn-sm min-h-10 text-xs px-3 rounded-lg"
+              onClick={() => navigate({ to: homeTo, viewTransition: true })}
+              className="btn bg-surface-card hover:bg-surface-hover text-parish-primary font-bold btn-sm min-h-11 text-xs px-3.5 rounded-lg"
             >
               {user ? 'Vào hệ thống' : 'Đăng nhập'}
             </button>
@@ -157,7 +162,7 @@ export function LandingPage() {
               aria-expanded={isMobileMenuOpen}
               aria-label={isMobileMenuOpen ? 'Đóng menu' : 'Mở menu điều hướng'}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="border border-white/40 rounded-lg p-2 text-text-inverse hover:bg-white/10 flex items-center justify-center min-h-10 min-w-10"
+              className="border border-white/40 rounded-lg p-2 text-text-inverse hover:bg-white/10 flex items-center justify-center min-h-11 min-w-11"
             >
               {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -211,11 +216,11 @@ export function LandingPage() {
 
       {/* ── 02. Unified Catevia x Parish Hero ── */}
       <section aria-label="Hình ảnh tập thể Xứ Đoàn Đức Mẹ Fatima" className="w-full">
-        <LandingParishGlassCard onLogin={() => navigate({ to: homeTo })} isLoggedIn={!!user} />
+        <LandingParishGlassCard onLogin={() => navigate({ to: homeTo, viewTransition: true })} isLoggedIn={!!user} />
       </section>
 
       {/* ── 03. Thân bài narrative phân cấp ── */}
-      <div id="gioi-thieu-noi-dung" className="w-full max-w-7xl 2xl:max-w-[1720px] mx-auto px-4 sm:px-8 lg:px-12 2xl:px-16 pb-20 flex flex-col gap-16 lg:gap-24 pt-12 sm:pt-16">
+      <div id="gioi-thieu-noi-dung" className="w-full max-w-7xl 2xl:max-w-[1720px] mx-auto px-3.5 sm:px-8 lg:px-12 2xl:px-16 pb-16 sm:pb-20 flex flex-col gap-10 sm:gap-16 lg:gap-24 pt-8 sm:pt-16">
         
         {/* ── 03. Product Stage & Workspace Scrollytelling (Scene 2) ── */}
         <section id="san-pham" aria-labelledby="tieu-de-san-pham" className="flex flex-col gap-10 lg:gap-14 scroll-mt-24">
@@ -253,7 +258,7 @@ export function LandingPage() {
         <LandingBranchJourney />
 
         {/* ── 05. Parish / Faith Moment (Sanctuary Handoff) ── */}
-        <div className="faith-handoff-gradient -mx-4 sm:-mx-8 lg:-mx-12 2xl:-mx-16 px-4 sm:px-8 lg:px-12 2xl:px-16 py-4 sm:py-6">
+        <div className="faith-handoff-gradient -mx-3.5 sm:-mx-8 lg:-mx-12 2xl:-mx-16 px-3.5 sm:px-8 lg:px-12 2xl:px-16 py-4 sm:py-6">
           <LandingFaithMoment />
         </div>
 
@@ -267,22 +272,22 @@ export function LandingPage() {
         <LandingFAQ />
 
         {/* ── 10. Final CTA ── */}
-        <section aria-labelledby="tieu-de-cta" className="card p-8 sm:p-12 text-center flex flex-col items-center gap-5 max-w-3xl mx-auto w-full border border-surface-border">
-          <div className="w-16 h-16 rounded-2xl overflow-hidden shadow-card">
+        <section aria-labelledby="tieu-de-cta" className="card p-5 sm:p-10 lg:p-12 text-center flex flex-col items-center gap-4 sm:gap-5 max-w-3xl mx-auto w-full border border-surface-border">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden shadow-card">
             <img src={appLogo} alt="" aria-hidden="true" className="w-full h-full object-cover" />
           </div>
-          <h2 id="tieu-de-cta" className="m-0 text-2xl sm:text-3xl font-black tracking-tight text-text-main">
-            Sẵn sàng đồng hành cùng xứ đoàn?
+          <h2 id="tieu-de-cta" className="m-0 text-xl sm:text-3xl font-black tracking-tight text-text-main">
+            Sẵn sàng đồng hành cùng Xứ Đoàn?
           </h2>
-          <p className="m-0 max-w-xl text-sm sm:text-base text-text-secondary leading-relaxed">
+          <p className="m-0 max-w-xl text-xs sm:text-base text-text-secondary leading-relaxed">
             Đăng nhập để điểm danh, xem điểm, nhận thông báo và cùng nhau xây dựng đời sống đức tin cho các em thiếu nhi.
           </p>
-          <div className="flex flex-wrap justify-center gap-3 pt-2">
-            <button type="button" onClick={() => navigate({ to: '/login/phuhuynh' })} className="btn btn-primary btn-lg min-h-11">
+          <div className="flex flex-col sm:flex-row justify-center gap-2.5 sm:gap-3 w-full max-w-xs sm:max-w-none pt-2">
+            <button type="button" onClick={() => navigate({ to: '/login/phuhuynh', viewTransition: true })} className="btn btn-primary btn-lg min-h-11 w-full sm:w-auto flex items-center justify-center gap-2">
               <HeartHandshake aria-hidden="true" className="w-4 h-4" />
               Cổng Phụ Huynh
             </button>
-            <button type="button" onClick={() => navigate({ to: '/login/nhan-su' })} className="btn btn-secondary btn-lg min-h-11">
+            <button type="button" onClick={() => navigate({ to: '/login/nhan-su', viewTransition: true })} className="btn btn-secondary btn-lg min-h-11 w-full sm:w-auto flex items-center justify-center gap-2">
               <GraduationCap aria-hidden="true" className="w-4 h-4" />
               Cổng GLV &amp; Huynh Trưởng
             </button>

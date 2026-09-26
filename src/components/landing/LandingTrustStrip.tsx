@@ -54,7 +54,7 @@ export function LandingTrustStrip() {
         {PILLARS.map(pillar => (
           <article
             key={pillar.title}
-            className="card p-5 sm:p-6 flex flex-col gap-3 border border-surface-border bg-surface-card"
+            className="card card-interactive p-4 sm:p-5 lg:p-6 flex flex-col gap-3 border border-surface-border bg-surface-card transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:shadow-card-hover"
           >
             <div className="w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center shrink-0">
               <pillar.icon className="w-5 h-5" aria-hidden="true" />

@@ -122,10 +122,10 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     render(<LandingPage />)
 
     const photo = screen.getByRole('img', { name: /tập thể huynh trưởng và thiếu nhi/i })
-    expect(photo).toHaveAttribute('src', '/images/xu-doan-tap-the.jpg')
+    expect(photo).toHaveAttribute('src', '/images/xu-doan-tap-the-original.jpg')
     // Kích thước tường minh giữ chỗ trước khi ảnh tải → không giật layout
-    expect(photo).toHaveAttribute('width', '1600')
-    expect(photo).toHaveAttribute('height', '1143')
+    expect(photo).toHaveAttribute('width', '2480')
+    expect(photo).toHaveAttribute('height', '1772')
     // Ảnh hero trên màn hình đầu → ưu tiên tải, không lazy
     expect(photo).toHaveAttribute('decoding', 'async')
     expect(photo).toHaveAttribute('fetchpriority', 'high')
@@ -136,6 +136,7 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     expect(within(glassFigure).getByText(/Giáo Xứ Gia Tôn/)).toBeInTheDocument()
     expect(within(glassFigure).getByText(/Bổn mạng Xứ Đoàn/)).toBeInTheDocument()
     expect(within(glassFigure).getByText('4 Tôn Chỉ TNTT')).toBeInTheDocument()
+    expect(within(glassFigure).getByText(/Cầu nguyện · Rước lễ · Hy sinh · Làm việc tông đồ/)).toBeInTheDocument()
     expect(within(glassFigure).getByText(/Niên khóa 2025–2026/)).toBeInTheDocument()
   })
 

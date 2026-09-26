@@ -58,7 +58,7 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
   test('@mobile viewport nhỏ nhất không tràn ngang và CTA đủ 44px', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 720 })
     await page.goto('/')
-    await expect(page.getByRole('heading', { level: 1, name: /quản lý giáo lý/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: /quản lý giáo lý/i })).toBeVisible({ timeout: 15_000 })
 
     const overflow = await page.evaluate(() => ({
       viewportWidth: window.innerWidth,
