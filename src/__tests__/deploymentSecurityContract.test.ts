@@ -133,6 +133,27 @@ describe('deployment and native privacy contracts', () => {
     expect(clientOrigin).not.toContain('http://localhost')
   })
 
+  it('keeps the password compute retry observable and watched', () => {
+    const alert = read('.github/workflows/alert-password-cpu-retries.yml')
+    const detector = read('tools/cloudflare-free-feasibility/detect-password-cpu-retries.mjs')
+    const adapter = read('server/src/utils/passwordCompute.ts')
+
+    // The 2026-09-24 intermittent HTTP 500 stayed unattributed because the retry branch
+    // was invisible and the code-update reset cannot be reproduced on demand. The log
+    // line, its parser, and a scheduled watcher must all exist together.
+    expect(adapter).toContain('PASSWORD_CPU_RETRY')
+    expect(detector).toContain('PASSWORD_CPU_RETRY')
+    // The retry must never log credential material. String literals are stripped first
+    // so the event type name itself does not count as a credential reference.
+    const adapterCode = adapter.replace(/'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g, "''")
+    expect(adapterCode).not.toMatch(/console\.log\([^)]*\b(password|hash)\b/i)
+    expect(alert).toContain('schedule:')
+    expect(alert).toContain('detect-password-cpu-retries.mjs')
+    expect(alert).toContain('issues: write')
+    // A quiet window must stay green; only a real event may fail the run.
+    expect(alert).toContain("steps.detect.outputs.detected == 'true'")
+  })
+
   it('probes the deployed Vercel artifact instead of trusting the routing config', () => {
     const deploy = read('.github/workflows/deploy-production.yml')
 
