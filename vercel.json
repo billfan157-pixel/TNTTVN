@@ -45,14 +45,6 @@
   ],
   "rewrites": [
     {
-      "source": "/health",
-      "destination": "https://tnttvn.onrender.com/health"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "https://tnttvn.onrender.com/api/:path*"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

@@ -79,7 +79,10 @@ describe('deployment and native privacy contracts', () => {
     expect(config.git.deploymentEnabled.main).toBe(false)
     expect(config.installCommand).toBe('npm ci --allow-remote=all')
     expect(config.proxy).toEqual({ entrypoint: 'proxy.ts', matcher: ['/api/:path*', '/health'] })
-    expect(config.rewrites[0]).toEqual({ source: '/health', destination: 'https://tnttvn.onrender.com/health' })
+    // One owner per path. An external rewrite for /api or /health competes with the
+    // Routing Middleware and, in practice, left both inert: the SPA catch-all served
+    // index.html for API requests. The proxy is the only backend ingress.
+    expect(config.rewrites).toEqual([{ source: '/(.*)', destination: '/index.html' }])
   })
 
   it('excludes native PII from backup and requests only the camera capability', () => {
