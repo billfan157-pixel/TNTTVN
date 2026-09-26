@@ -133,6 +133,19 @@ describe('deployment and native privacy contracts', () => {
     expect(clientOrigin).not.toContain('http://localhost')
   })
 
+  it('verifies live Vercel ingress ownership on every pull request', () => {
+    const ci = read('.github/workflows/ci.yml')
+
+    // Unit tests cannot see which Vercel layer answered a request, so the preview
+    // deployment itself has to be probed before a routing change can merge.
+    expect(ci).toContain('preview-ingress:')
+    expect(ci).toContain("if: github.event_name == 'pull_request'")
+    expect(ci).toContain('verify-preview-ingress.mjs')
+    expect(ci).toContain('checks: read')
+    expect(read('tools/cloudflare-free-feasibility/verify-preview-ingress.mjs'))
+      .toContain("x-catevia-ingress'")
+  })
+
   it('moves production ingress only through a recorded, reversible cutover', () => {
     const deploy = read('.github/workflows/deploy-production.yml')
     const cutover = read('.github/workflows/cutover-production.yml')

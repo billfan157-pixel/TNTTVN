@@ -8,6 +8,68 @@ on:
     branches: [main, develop]
 
 jobs:
+  preview-ingress:
+    # vercel.json can give two layers ownership of the same path (Routing Middleware
+    # and an external rewrite). When both claimed /api and /health, API requests were
+    # answered with the SPA index.html on the preview while production still used the
+    # legacy rewrite, so unit tests stayed green and only a live probe exposed it.
+    name: Preview ingress ownership
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Wait for the Vercel preview deployment of this commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha="${{ github.event.pull_request.head.sha }}"
+          for attempt in $(seq 1 60); do
+            state="$(gh api "repos/${{ github.repository }}/commits/${sha}/check-runs" \
+              --jq '[.check_runs[] | select(.name == "Vercel")] | last | .status + "/" + (.conclusion // "pending")')"
+            case "$state" in
+              completed/success) echo "Vercel deployment ready."; exit 0 ;;
+              completed/*) echo "Vercel deployment ended in $state" >&2; exit 1 ;;
+            esac
+            sleep 20
+          done
+          echo "Timed out waiting for the Vercel preview deployment." >&2
+          exit 1
+
+      - name: Resolve the preview deployment URL
+        id: preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Prefer the URL the Vercel app published for this pull request; fall back to
+          # the branch alias when the comment has not landed yet.
+          url="$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --paginate --jq 'map(select(.user.login == "vercel[bot]")) | last | .body' \
+            | grep -oE 'https://[a-z0-9-]+\.vercel\.app' | tail -n 1 || true)"
+          if [ -z "$url" ]; then
+            echo "Could not resolve a Vercel preview URL from the pull request." >&2
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Probing $url"
+
+      - name: Prove proxy.ts owns the API and health paths
+        run: >-
+          node tools/cloudflare-free-feasibility/verify-preview-ingress.mjs
+          "${{ steps.preview.outputs.url }}"
+
   secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
