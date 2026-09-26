@@ -37,11 +37,14 @@ jobs:
           set -euo pipefail
           sha="${{ github.event.pull_request.head.sha }}"
           for attempt in $(seq 1 60); do
-            state="$(gh api "repos/${{ github.repository }}/commits/${sha}/check-runs" \
-              --jq '[.check_runs[] | select(.name == "Vercel")] | last | .status + "/" + (.conclusion // "pending")')"
+            # The Vercel GitHub app reports its deployment as a commit *status*
+            # (context "Vercel"), not as a check run, so poll the status API.
+            state="$(gh api "repos/${{ github.repository }}/commits/${sha}/status" \
+              --jq '[.statuses[] | select(.context == "Vercel")] | last | .state // "pending"')"
             case "$state" in
-              completed/success) echo "Vercel deployment ready."; exit 0 ;;
-              completed/*) echo "Vercel deployment ended in $state" >&2; exit 1 ;;
+              success) echo "Vercel deployment ready."; exit 0 ;;
+              pending) ;;
+              *) echo "Vercel deployment ended in $state" >&2; exit 1 ;;
             esac
             sleep 20
           done
