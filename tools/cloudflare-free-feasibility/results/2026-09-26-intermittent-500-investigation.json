@@ -1,0 +1,76 @@
+{
+  "capturedAt": "2026-09-26T08:52:30Z",
+  "scope": "Intermittent HTTP 500 investigation on the isolated catevia-free-feasibility Worker plus live fault-injection attempts against the real application password adapter. No Catevia credential, user, database, or production route was used.",
+  "question": "The 2026-09-24 record listed an unexplained intermittent HTTP 500 under concurrent bcrypt load. Is there a single root cause, and does the bounded retry convert it into a success?",
+
+  "faultInjection": {
+    "target": "/probe/catevia-password-adapter, which calls server/src/utils/passwordCompute.ts",
+    "attempt1": {
+      "change": "redeploy with identical Durable Object class code",
+      "requests": 18,
+      "http200": 18,
+      "durableObjectInvocations": 54,
+      "durableObjectOutcomesOk": 54,
+      "resetEventsInTail": 0,
+      "conclusion": "A redeploy that does not change the object class code performs no Durable Object reset, so this attempt did not exercise the hypothesis."
+    },
+    "attempt2": {
+      "change": "added PASSWORD_CPU_VERSION and a computeVersion method to the PasswordCpu class so the deployed object code genuinely differs, plus a structured PASSWORD_CPU_RETRY log",
+      "requests": 20,
+      "http200": 12,
+      "clientSideFailures": 8,
+      "clientSideFailureMode": "TypeError fetch failed after about 42 s with no HTTP status",
+      "resetEventsInTail": 0,
+      "retryLogsInTail": 0,
+      "conclusion": "Even with a real object-code change, no code-update reset was observed while requests were in flight. The reset is a rare, non-deterministic event rather than a routine consequence of deploying."
+    }
+  },
+
+  "rootCausesIdentified": [
+    {
+      "id": "do-code-update-reset",
+      "status": "proven once, by Cloudflare Observability on 2026-09-24",
+      "evidence": "Durable Object AuthCpuProbe event at 13:30:12.410 GMT+7 with the exact message 'Durable Object reset because its code was updated.', trace 0fb8c979c2c84d02cabe71f65b64c71d also containing the parent /probe/bcrypt-sharded HTTP error",
+      "classification": "deploy lifecycle, not a defect in Catevia code",
+      "mitigation": "server/src/utils/passwordCompute.ts retries exactly one retryable RPC error, matches that exact message, never retries .overloaded, and never retries a database write, session, lockout, or audit event",
+      "residual": "the retry branch has unit evidence and is now observable in tail, but no live proof exists because the reset cannot be forced on demand"
+    },
+    {
+      "id": "turso-upstream-connectivity",
+      "status": "proven on 2026-09-24",
+      "evidence": "A real unknown-account login on staging returned HTTP 500 traced by wrangler tail to LibsqlError SERVER_ERROR HTTP status 522 in the DB-backed rate limiter, with 19,469 ms wall time and 21 ms Worker CPU; a direct Node query to the same database also failed once with a TypeError after 10,666 ms",
+      "classification": "upstream database path, not Workers CPU and not bcrypt",
+      "mitigation": "placement.region aws:us-east-1 on the Worker; after placement, health 336-962 ms and unknown-account login 401 in 1,827-4,375 ms, 4 of 4 cycles clean",
+      "residual": "eight requests in one sample do not establish a failure rate"
+    },
+    {
+      "id": "client-side-network-failure",
+      "status": "reproduced directly on 2026-09-26",
+      "evidence": "8 of 20 requests failed client-side with TypeError fetch failed after about 42 s and no HTTP status, in the same window where 12 requests returned 200 and the Worker tail recorded zero errors or exceptions",
+      "classification": "client to edge network path; not a Worker HTTP 500 at all",
+      "mitigation": "no server change; these requests never reached application code, so they must not be counted as backend errors",
+      "residual": "the 2026-09-24 no-status TypeError is now explained as the same class of failure"
+    },
+    {
+      "id": "unattributed-parent-500",
+      "status": "still unknown",
+      "evidence": "Two HTTP 500s at 2026-09-24T03:39:59.974Z and 2026-09-24T04:56:27.261Z have only parent HTTP errors and the probe's old generic catch log; the raw tail was not retained",
+      "classification": "unknown",
+      "mitigation": "none available; the probe now keeps a structured error record instead of a generic catch log",
+      "residual": "cannot be attributed without retained evidence; deployment history shows updates before both, but timing alone does not prove a reset"
+    }
+  ],
+
+  "conclusions": [
+    "There is no single bcrypt CPU root cause. The measured front-Worker CPU for this work is 0-1 ms against a 10 ms cap, and the Durable Object used 354-669 ms p50 CPU with zero exceeded-CPU events.",
+    "The 500s seen during bcrypt load were caused by a deploy lifecycle reset and by Turso upstream connectivity, not by password hashing running out of CPU.",
+    "A further class of failure that was recorded as a possible server error is actually a client-side network failure with no HTTP response.",
+    "Two early 500s remain unattributable and are reported as unknown rather than assigned to a cause."
+  ],
+
+  "codeChangesMadeForDiagnosability": [
+    "server/src/cloudflare/passwordCpu.js: PASSWORD_CPU_VERSION marker and computeVersion so a probe can prove which object code served a request",
+    "server/src/utils/passwordCompute.ts: structured PASSWORD_CPU_RETRY log with reason, error class, and attempt, containing no secret material",
+    "server/src/__tests__/passwordCompute.test.ts: retry log assertions plus a retryable-RPC retry case, 6 of 6 passing"
+  ]
+}

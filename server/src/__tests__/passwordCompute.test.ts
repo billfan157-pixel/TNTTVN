@@ -28,6 +28,8 @@ describe('password compute boundary', () => {
 
   it('recreates a stub once after a code-update reset and preserves the shard', async () => {
     workerRuntime()
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation(message => { logs.push(String(message)) })
     const names: string[] = []
     const namespace: PasswordCpuNamespace = {
       getByName(name) {
@@ -45,6 +47,34 @@ describe('password compute boundary', () => {
     expect(names).toHaveLength(2)
     expect(names[0]).toMatch(/^password-cpu-\d+$/)
     expect(names[1]).toBe(names[0])
+    // The retry must be observable: an invisible retry is what left the 2026-09-24
+    // intermittent HTTP 500 unexplained.
+    const retry = logs.map(line => JSON.parse(line) as Record<string, unknown>)
+      .find(entry => entry.type === 'PASSWORD_CPU_RETRY')
+    expect(retry).toMatchObject({ reason: 'code-update-reset', errorClass: 'Error', attempt: 1 })
+    expect(String(logs.join(' '))).not.toContain('secret')
+  })
+
+  it('retries a retryable RPC error and reports overload as non-retryable', async () => {
+    workerRuntime()
+    const logs: string[] = []
+    vi.spyOn(console, 'log').mockImplementation(message => { logs.push(String(message)) })
+    const retryable = Object.assign(new Error('rpc transport'), { retryable: true })
+    let calls = 0
+    const namespace: PasswordCpuNamespace = {
+      getByName: () => ({
+        hashPassword: async () => 'unused',
+        comparePassword: async () => {
+          calls += 1
+          if (calls === 1) throw retryable
+          return true
+        },
+      }),
+    }
+    expect(await withPasswordCpuNamespace(namespace, () => comparePassword('secret', 'hash'))).toBe(true)
+    expect(calls).toBe(2)
+    const reasons = logs.map(line => (JSON.parse(line) as Record<string, unknown>).reason)
+    expect(reasons).toContain('retryable-rpc')
   })
 
   it('does not retry overload and keeps concurrent request bindings separate', async () => {
