@@ -251,6 +251,23 @@ jobs:
           echo "Timed out waiting for Vercel deployment." >&2
           exit 1
 
+      - name: Verify Vercel ingress is owned by the proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Two layers can claim /api and /health (Routing Middleware and an external
+          # rewrite). Whichever wins silently decides where production traffic goes, so
+          # the deployed artifact is probed directly instead of trusted. This runs in
+          # both backend-target modes because the proxy owns ingress either way.
+          deployment_url="$(curl --fail-with-body --silent --show-error \
+            --url "https://api.vercel.com/v13/deployments/${{ steps.vercel.outputs.deployment_id }}?teamId=${VERCEL_TEAM_ID}" \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" | jq -r '.url // empty')"
+          if [ -z "$deployment_url" ]; then
+            echo "Vercel did not report a deployment URL." >&2
+            exit 1
+          fi
+          node tools/cloudflare-free-feasibility/verify-preview-ingress.mjs "$deployment_url"
+
       - name: Deploy exact SHA to Render production
         id: render
         if: env.CATEVIA_BACKEND_TARGET == '' || env.CATEVIA_BACKEND_TARGET == 'render'

@@ -133,17 +133,19 @@ describe('deployment and native privacy contracts', () => {
     expect(clientOrigin).not.toContain('http://localhost')
   })
 
-  it('verifies live Vercel ingress ownership on every pull request', () => {
-    const ci = read('.github/workflows/ci.yml')
+  it('probes the deployed Vercel artifact instead of trusting the routing config', () => {
+    const deploy = read('.github/workflows/deploy-production.yml')
 
-    // Unit tests cannot see which Vercel layer answered a request, so the preview
-    // deployment itself has to be probed before a routing change can merge.
-    expect(ci).toContain('preview-ingress:')
-    expect(ci).toContain("if: github.event_name == 'pull_request'")
-    expect(ci).toContain('verify-preview-ingress.mjs')
-    expect(ci).toContain('checks: read')
-    expect(read('tools/cloudflare-free-feasibility/verify-preview-ingress.mjs'))
-      .toContain("x-catevia-ingress'")
+    // Routing Middleware and an external rewrite can both claim /api and /health.
+    // Which one wins is invisible to unit tests, so the deployment gate probes the
+    // artifact it just published and fails before Render is touched.
+    expect(deploy).toContain('Verify Vercel ingress is owned by the proxy')
+    expect(deploy).toContain('verify-preview-ingress.mjs')
+    expect(deploy).toContain('${{ steps.vercel.outputs.deployment_id }}')
+    // The ingress proof must precede the Render deploy so a broken ingress can never
+    // leave a half-applied release in production.
+    expect(deploy.indexOf('verify-preview-ingress.mjs'))
+      .toBeLessThan(deploy.indexOf('Deploy exact SHA to Render production'))
   })
 
   it('moves production ingress only through a recorded, reversible cutover', () => {
