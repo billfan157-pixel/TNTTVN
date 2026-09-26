@@ -85,4 +85,46 @@ describe('Vercel backend proxy', () => {
 
     expect(response.status).toBe(204)
   })
+
+  it('marks Worker answers so the public boundary can prove the routing target', async () => {
+    const fetchMock = vi.fn(async () => new Response('worker', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    process.env.CATEVIA_PROXY_TARGET = 'https://catevia-api.billfan157.workers.dev'
+    process.env.CATEVIA_PROXY_SHARED_SECRET = proxySecret
+
+    const response = await proxy(new Request('https://tnttvn.vercel.app/api/auth/me', {
+      headers: { 'x-forwarded-for': '203.0.113.10' },
+    }))
+
+    expect(response.headers.get('x-catevia-backend')).toBe('cloudflare-worker')
+  })
+
+  it('never lets a client spoof or strip the backend marker', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('worker', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    process.env.CATEVIA_PROXY_TARGET = 'https://catevia-api.billfan157.workers.dev'
+    process.env.CATEVIA_PROXY_SHARED_SECRET = proxySecret
+
+    const response = await proxy(new Request('https://tnttvn.vercel.app/api/auth/me', {
+      headers: { 'x-forwarded-for': '203.0.113.10', 'x-catevia-backend': 'render' },
+    }))
+
+    expect(response.headers.get('x-catevia-backend')).toBe('cloudflare-worker')
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    expect(new Headers(init?.headers).get('x-catevia-backend')).toBeNull()
+  })
+
+  it('leaves the Render route unmarked so the pre-cutover boundary keeps its evidence', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('render', {
+      status: 200, headers: { 'x-render-origin-server': 'Render' },
+    })))
+    delete process.env.CATEVIA_PROXY_TARGET
+
+    const response = await proxy(new Request('https://tnttvn.vercel.app/api/auth/me', {
+      headers: { 'x-forwarded-for': '203.0.113.10' },
+    }))
+
+    expect(response.headers.get('x-render-origin-server')).toBe('Render')
+    expect(response.headers.get('x-catevia-backend')).toBeNull()
+  })
 })

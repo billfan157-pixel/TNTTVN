@@ -23,6 +23,10 @@ jobs:
     environment: production
     env:
       VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+      # Recorded backend target. 'render' keeps Vercel on Render with the Worker
+      # closed; 'worker' is the post-cutover truth where Vercel ingress reaches the
+      # Worker. The value lives in the Production environment, never in a secret.
+      CATEVIA_BACKEND_TARGET: ${{ vars.CATEVIA_BACKEND_TARGET }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -118,15 +122,32 @@ jobs:
           done
           npm --prefix server run db:preflight:backup
 
-      - name: Confirm Worker deploy remains closed to public traffic
+      - name: Resolve and validate the recorded backend target
         shell: bash
         run: |
           set -euo pipefail
-          node --input-type=module <<'NODE'
+          case "${CATEVIA_BACKEND_TARGET:-}" in
+            render|worker) ;;
+            "") CATEVIA_BACKEND_TARGET=render ;;
+            *) echo "CATEVIA_BACKEND_TARGET must be render or worker, got '${CATEVIA_BACKEND_TARGET}'." >&2; exit 1 ;;
+          esac
+          echo "CATEVIA_BACKEND_TARGET=$CATEVIA_BACKEND_TARGET" >> "$GITHUB_ENV"
+          if [ "$CATEVIA_BACKEND_TARGET" = "render" ]; then
+            expected_traffic=no
+            expected_owner=render
+          else
+            expected_traffic=yes
+            expected_owner=cloudflare
+          fi
+          # The repository config is the single source of truth for the deployment
+          # shape; CI refuses to publish a Worker that disagrees with the recorded
+          # backend target, so a half-applied cutover can never reach production.
+          node --input-type=module <<NODE
           import fs from 'node:fs';
           const config = JSON.parse(fs.readFileSync('tools/cloudflare-free-feasibility/wrangler-catevia-production.jsonc', 'utf8'));
-          if (config.vars.CATEVIA_TRAFFIC_ENABLED !== 'no' || config.vars.CATEVIA_MAINTENANCE_OWNER !== 'render') {
-            throw new Error('Refusing the CI Worker deployment: traffic must remain closed and Render must remain the maintenance owner.');
+          if (config.vars.CATEVIA_TRAFFIC_ENABLED !== '$expected_traffic'
+            || config.vars.CATEVIA_MAINTENANCE_OWNER !== '$expected_owner') {
+            throw new Error('Refusing the CI Worker deployment: CATEVIA_TRAFFIC_ENABLED must be $expected_traffic and CATEVIA_MAINTENANCE_OWNER must be $expected_owner for backend target $CATEVIA_BACKEND_TARGET.');
           }
           NODE
 
@@ -151,16 +172,39 @@ jobs:
           --var APP_RELEASE_ID:${{ env.VERIFIED_SHA }}
           --message verified-sha-${{ env.VERIFIED_SHA }}
 
-      - name: Verify Worker stays gated until cutover
+      - name: Verify the deployed Worker matches the recorded backend target
         shell: bash
+        env:
+          OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
         run: |
           set -euo pipefail
+          if [ "$CATEVIA_BACKEND_TARGET" != "worker" ]; then
+            response="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+              --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/api/auth/me)"
+            status="${response##*$'\n'}"
+            body="${response%$'\n'*}"
+            if [ "$status" != "503" ] || [ "$body" != "Backend cutover pending" ]; then
+              echo "Cloudflare Worker is not in its expected closed state (HTTP $status)." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+          test -n "${OPS_TOKEN:-}"
+          # The open Worker serves ops health only to the operator token, so this
+          # proves the deployed release without opening direct public API traffic.
           response="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
-            --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/api/auth/me)"
+            --header "Authorization: Bearer ${OPS_TOKEN}" \
+            --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/health)"
           status="${response##*$'\n'}"
           body="${response%$'\n'*}"
-          if [ "$status" != "503" ] || [ "$body" != "Backend cutover pending" ]; then
-            echo "Cloudflare Worker is not in its expected closed state (HTTP $status)." >&2
+          if [ "$status" != "200" ]; then
+            echo "Open Worker health failed (HTTP $status)." >&2
+            exit 1
+          fi
+          worker_release="$(jq -r '.releaseId // empty' <<<"$body")"
+          worker_database="$(jq -r '.database // empty' <<<"$body")"
+          if [ "$worker_release" != "$VERIFIED_SHA" ] || [ "$worker_database" != "connected" ]; then
+            echo "Worker release mismatch: expected $VERIFIED_SHA, got ${worker_release:-missing} (database ${worker_database:-unknown})." >&2
             exit 1
           fi
 
@@ -209,6 +253,7 @@ jobs:
 
       - name: Deploy exact SHA to Render production
         id: render
+        if: env.CATEVIA_BACKEND_TARGET == '' || env.CATEVIA_BACKEND_TARGET == 'render'
         shell: bash
         run: |
           set -euo pipefail
@@ -226,6 +271,7 @@ jobs:
           echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for Render readiness
+        if: env.CATEVIA_BACKEND_TARGET == '' || env.CATEVIA_BACKEND_TARGET == 'render'
         shell: bash
         run: |
           set -euo pipefail
@@ -249,12 +295,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backend_health="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
-            --retry-delay 10 https://tnttvn.onrender.com/health)"
-          backend_release="$(jq -r '.releaseId // empty' <<<"$backend_health")"
-          if [ "$backend_release" != "$VERIFIED_SHA" ]; then
-            echo "Backend release mismatch: expected $VERIFIED_SHA, got ${backend_release:-missing}." >&2
-            exit 1
+          if [ "$CATEVIA_BACKEND_TARGET" = "render" ]; then
+            backend_health="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
+              --retry-delay 10 https://tnttvn.onrender.com/health)"
+            backend_release="$(jq -r '.releaseId // empty' <<<"$backend_health")"
+            if [ "$backend_release" != "$VERIFIED_SHA" ]; then
+              echo "Backend release mismatch: expected $VERIFIED_SHA, got ${backend_release:-missing}." >&2
+              exit 1
+            fi
+            auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              https://tnttvn.onrender.com/api/auth/me)"
+            if [ "$auth_status" != "401" ]; then
+              echo "Unauthenticated auth smoke expected 401, got $auth_status." >&2
+              exit 1
+            fi
           fi
 
           frontend_html="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
@@ -263,13 +317,6 @@ jobs:
             | sed -E 's/.*content="([^"]+)"/\1/' | head -n 1)"
           if [ "$frontend_release" != "$VERIFIED_SHA" ]; then
             echo "Frontend release mismatch: expected $VERIFIED_SHA, got ${frontend_release:-missing}." >&2
-            exit 1
-          fi
-
-          auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            https://tnttvn.onrender.com/api/auth/me)"
-          if [ "$auth_status" != "401" ]; then
-            echo "Unauthenticated auth smoke expected 401, got $auth_status." >&2
             exit 1
           fi
 
@@ -286,5 +333,9 @@ jobs:
             exit 1
           fi
 
-      - name: Verify Render routing and closed Worker boundary
-        run: node tools/cloudflare-free-feasibility/verify-production-boundary.mjs "$VERIFIED_SHA"
+      - name: Verify the recorded backend boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/cloudflare-free-feasibility/verify-production-boundary.mjs \
+            "$VERIFIED_SHA" "$CATEVIA_BACKEND_TARGET"

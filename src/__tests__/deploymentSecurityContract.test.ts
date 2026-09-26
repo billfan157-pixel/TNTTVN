@@ -129,4 +129,29 @@ describe('deployment and native privacy contracts', () => {
     ])
     expect(clientOrigin).not.toContain('http://localhost')
   })
+
+  it('moves production ingress only through a recorded, reversible cutover', () => {
+    const deploy = read('.github/workflows/deploy-production.yml')
+    const cutover = read('.github/workflows/cutover-production.yml')
+
+    // One recorded truth for the backend target drives CI, so a half-applied
+    // cutover can never be published or verified against the wrong boundary.
+    expect(deploy).toContain('CATEVIA_BACKEND_TARGET: ${{ vars.CATEVIA_BACKEND_TARGET }}')
+    expect(deploy).toContain('CATEVIA_BACKEND_TARGET must be render or worker')
+    expect(deploy).toContain('"$VERIFIED_SHA" "$CATEVIA_BACKEND_TARGET"')
+    // The closed-Worker proof is a pre-cutover fact; post-cutover it asserts the
+    // open Worker serves the exact release through the operator token instead.
+    expect(deploy).toContain('Backend cutover pending')
+    expect(deploy).toContain('Authorization: Bearer ${OPS_TOKEN}')
+
+    // Ingress moves only by hand, only to the recorded target, and only after the
+    // owner has stopped Render's scheduled writers.
+    expect(cutover).toContain('workflow_dispatch:')
+    expect(cutover).not.toContain('push:')
+    expect(cutover).toContain('CATEVIA_BACKEND_TARGET is')
+    expect(cutover).toContain('CATEVIA_MAINTENANCE_OWNER')
+    expect(cutover).toContain('verify-production-boundary.mjs')
+    // Rollback must not need the Worker credential that rollback removes.
+    expect(cutover).toContain('secret_value=""')
+  })
 })

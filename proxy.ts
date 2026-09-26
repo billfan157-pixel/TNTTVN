@@ -2,6 +2,8 @@ const DEFAULT_TARGET = 'https://tnttvn.onrender.com'
 const WORKER_HOST = 'catevia-api.billfan157.workers.dev'
 const PROXY_SECRET_HEADER = 'x-catevia-proxy-secret'
 const CLIENT_IP_HEADER = 'x-catevia-client-ip'
+const BACKEND_HEADER = 'x-catevia-backend'
+const WORKER_BACKEND_MARKER = 'cloudflare-worker'
 const CLIENT_IP_PATTERN = /^[0-9a-f:.]{2,45}$/i
 const DROPPED_HEADERS = [
   'host',
@@ -16,6 +18,7 @@ const DROPPED_HEADERS = [
   'trailer',
   PROXY_SECRET_HEADER,
   CLIENT_IP_HEADER,
+  BACKEND_HEADER,
   'x-forwarded-for',
   'x-real-ip',
   'x-vercel-forwarded-for',
@@ -59,13 +62,25 @@ export default async function proxy(request: Request): Promise<Response> {
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD'
+  const isWorkerTarget = target.hostname === WORKER_HOST
   try {
-    return await fetch(targetUrl, {
+    const response = await fetch(targetUrl, {
       method: request.method,
       headers,
       body: hasBody ? await request.arrayBuffer() : undefined,
       redirect: 'manual',
       signal: request.signal,
+    })
+    // The public boundary verifier needs an unforgeable signal for which backend
+    // answered. A client cannot set it: DROPPED_HEADERS strips the inbound value,
+    // and the backend never emits this header itself.
+    if (!isWorkerTarget) return response
+    const responseHeaders = new Headers(response.headers)
+    responseHeaders.set(BACKEND_HEADER, WORKER_BACKEND_MARKER)
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders,
     })
   } catch {
     return new Response('Backend unavailable', { status: 502 })
