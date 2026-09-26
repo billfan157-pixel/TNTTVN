@@ -183,6 +183,27 @@ describe('EventTemplatesPanel', () => {
     await waitFor(() => expect(onTemplatesChanged).toHaveBeenCalled())
   })
 
+  it('selects the restored template after the active catalog reloads', async () => {
+    const sourceEvent: OperationEventDetail = {
+      event: { id: 'source-1', parishId: 'parish-a', title: 'Nguồn', eventType: 'MEETING', startsAt: '2027-01-01T01:00:00Z', endsAt: '2027-01-01T02:00:00Z', timezone: 'Asia/Ho_Chi_Minh', status: 'PLANNING', visibility: 'INTERNAL', scopeUnitId: 'branch-1', version: 5 },
+      workstreams: [], tasks: [], assignees: [], readiness: { percent: 100, blockers: [] }, permissions: { 'operations.event.create': true },
+    }
+    const archivedTemplate = { ...template, isActive: false, version: 2 }
+    let restored = false
+    mocks.getEventTemplates.mockImplementation(async (_page = 1, _limit = 100, archived = false) => ({
+      success: true,
+      data: archived ? (restored ? [] : [archivedTemplate]) : (restored ? [template] : []),
+      meta: { page: 1, limit: 100, total: restored ? 1 : 0, totalPages: 1 },
+      error: null,
+    }))
+    mocks.restoreEventTemplate.mockImplementation(async () => { restored = true; return template })
+    render(<EventTemplatesPanel enabled mode="source" sourceEvent={sourceEvent} onEventCreated={vi.fn()} />)
+    await screen.findByLabelText('Mẫu sự kiện cần khôi phục')
+    fireEvent.change(screen.getByLabelText('Lý do khôi phục mẫu sự kiện'), { target: { value: 'Đã kiểm tra xong quy trình E2E' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Khôi phục mẫu' }))
+    await waitFor(() => expect(screen.getByLabelText('Mẫu sự kiện cần tạo phiên bản')).toHaveValue('tpl-1'))
+  })
+
   it('hides the previous tenant projection immediately and discards a late response after an account switch', async () => {
     const props = { enabled: true, sourceEvent: null, onEventCreated: vi.fn() }
     const { rerender } = render(<EventTemplatesPanel {...props} />)
