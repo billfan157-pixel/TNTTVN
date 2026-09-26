@@ -1,0 +1,6 @@
+.dev.vars
+.dev.vars.*
+.dist*/
+.catevia-dryrun/
+.wrangler/
+node_modules/

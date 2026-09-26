@@ -1,0 +1,219 @@
+name: Production Backend Cutover
+
+# Manual, deliberate backend switch between Render and the Cloudflare Worker.
+#
+# The repository config (tools/cloudflare-free-feasibility/wrangler-catevia-production.jsonc)
+# is the single source of truth for the Worker shape, and the Production environment
+# variable CATEVIA_BACKEND_TARGET records which backend Vercel ingress must reach.
+# This workflow never edits that config: it only moves the external ingress state
+# (Vercel environment) and then proves the recorded boundary, so a half-applied
+# cutover is impossible to mistake for a finished one.
+#
+# Run order for opening traffic to the Worker:
+#   1. merge the config change (CATEVIA_TRAFFIC_ENABLED=yes, CATEVIA_MAINTENANCE_OWNER=cloudflare)
+#      and set the Production environment variable CATEVIA_BACKEND_TARGET=worker
+#   2. owner stops Render's scheduled writers by setting CATEVIA_MAINTENANCE_OWNER=cloudflare
+#      on the Render service (one dashboard value; this workflow only verifies it)
+#   3. run this workflow with mode=open
+#
+# Rollback is the same workflow with mode=rollback, then the owner restores Render's
+# CATEVIA_MAINTENANCE_OWNER=render. Rollback never touches the Worker, so the Worker
+# release stays available for a second attempt.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'open = point Vercel ingress at the Worker, rollback = point it back at Render'
+        required: true
+        type: choice
+        options: [open, rollback]
+      reason:
+        description: 'Why this cutover step is running (recorded in the run summary)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-backend-cutover
+  cancel-in-progress: false
+
+jobs:
+  cutover:
+    name: Move Vercel ingress and prove the recorded boundary
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CUTOVER_MODE: ${{ inputs.mode }}
+      CUTOVER_REASON: ${{ inputs.reason }}
+      CATEVIA_BACKEND_TARGET: ${{ vars.CATEVIA_BACKEND_TARGET }}
+      OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
+      CATEVIA_PROXY_SHARED_SECRET: ${{ secrets.CATEVIA_PROXY_SHARED_SECRET }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+      RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+
+    steps:
+      - name: Refuse an unrecorded or ambiguous cutover intent
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$CUTOVER_MODE" in
+            open) expected_target=worker ;;
+            rollback) expected_target=render ;;
+            *) echo "mode must be open or rollback." >&2; exit 1 ;;
+          esac
+          # The environment variable is the recorded truth. Moving ingress without
+          # recording it first would leave CI asserting the wrong boundary.
+          if [ "${CATEVIA_BACKEND_TARGET:-}" != "$expected_target" ]; then
+            echo "CATEVIA_BACKEND_TARGET is '${CATEVIA_BACKEND_TARGET:-unset}' but mode=$CUTOVER_MODE requires '$expected_target'. Record the target in the Production environment first." >&2
+            exit 1
+          fi
+          test -n "$CUTOVER_REASON"
+          echo "Cutover mode=$CUTOVER_MODE target=$CATEVIA_BACKEND_TARGET"
+
+      - name: Validate the cutover credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERCEL_TOKEN VERCEL_TEAM_ID VERCEL_PROJECT_ID RENDER_API_KEY RENDER_SERVICE_ID OPS_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required production secret: ${name}" >&2
+              exit 1
+            fi
+          done
+          if [ "$CUTOVER_MODE" = "open" ] && [ -z "${CATEVIA_PROXY_SHARED_SECRET:-}" ]; then
+            echo "Missing required production secret: CATEVIA_PROXY_SHARED_SECRET" >&2
+            exit 1
+          fi
+
+      - name: Prove Render no longer owns scheduled writes when opening traffic
+        if: env.CUTOVER_MODE == 'open'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # One writer only: Render keeps its own backup scheduler while it believes
+          # it owns maintenance, which would race the Worker's Durable Object job on
+          # the same Turso database. The owner flips this single dashboard value; the
+          # workflow only refuses to continue while Render still claims ownership.
+          response="$(curl --fail-with-body --silent --show-error \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
+            --header "Authorization: Bearer ${RENDER_API_KEY}")"
+          render_owner="$(jq -r '[.[] | select(.envVar.key == "CATEVIA_MAINTENANCE_OWNER") | .envVar.value] | first // "unset"' <<<"$response")"
+          if [ "$render_owner" != "cloudflare" ]; then
+            echo "Render still reports CATEVIA_MAINTENANCE_OWNER=${render_owner}. Set it to cloudflare on the Render service before opening Worker traffic." >&2
+            exit 1
+          fi
+
+      - name: Point Vercel ingress at the recorded backend
+        id: vercel
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Rollback names Render explicitly instead of relying on the proxy default,
+          # so the recorded state is readable from the Vercel environment alone.
+          if [ "$CATEVIA_BACKEND_TARGET" = "worker" ]; then
+            target_value="https://catevia-api.billfan157.workers.dev"
+          else
+            target_value="https://tnttvn.onrender.com"
+          fi
+          upsert_env() {
+            local key="$1" value="$2"
+            local payload
+            payload="$(jq -n --arg key "$key" --arg value "$value" '{key:$key, value:$value, type:"encrypted", target:["production"]}')"
+            curl --fail-with-body --silent --show-error --output /dev/null \
+              --request POST \
+              --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+              --header "Authorization: Bearer ${VERCEL_TOKEN}" \
+              --header "Content-Type: application/json" \
+              --data "$payload"
+          }
+          remove_env_by_key() {
+            local key="$1" envs env_id
+            envs="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+              --header "Authorization: Bearer ${VERCEL_TOKEN}")"
+            env_id="$(jq -r --arg key "$key" '[.envs[] | select(.key == $key and (.gitBranch == null)) | .id] | first // empty' <<<"$envs")"
+            [ -z "$env_id" ] && return 0
+            curl --fail-with-body --silent --show-error --output /dev/null \
+              --request DELETE \
+              --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env/${env_id}?teamId=${VERCEL_TEAM_ID}" \
+              --header "Authorization: Bearer ${VERCEL_TOKEN}"
+          }
+
+          upsert_env CATEVIA_PROXY_TARGET "$target_value"
+          if [ "$CATEVIA_BACKEND_TARGET" = "worker" ]; then
+            upsert_env CATEVIA_PROXY_SHARED_SECRET "$CATEVIA_PROXY_SHARED_SECRET"
+          else
+            # Rollback must not leave a live Worker credential in the Vercel project.
+            remove_env_by_key CATEVIA_PROXY_SHARED_SECRET
+          fi
+
+          latest_sha="$(curl --fail-with-body --silent --show-error \
+            --url "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_TEAM_ID}" \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" | jq -r '.latestDeployment.meta.githubCommitSha // empty')"
+          if [ -z "$latest_sha" ]; then
+            echo "Could not resolve the current Vercel release SHA." >&2
+            exit 1
+          fi
+          payload="$(jq -n \
+            --arg name "tnttvn" \
+            --arg project "$VERCEL_PROJECT_ID" \
+            --arg sha "$latest_sha" \
+            --arg ref "main" \
+            --argjson repoId '${{ github.event.repository.id }}' \
+            '{name:$name, project:$project, target:"production", gitSource:{type:"github", repoId:$repoId, ref:$ref, sha:$sha}}')"
+          response="$(curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.vercel.com/v13/deployments?teamId=${VERCEL_TEAM_ID}" \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data "$payload")"
+          deployment_id="$(jq -r '.id // empty' <<<"$response")"
+          if [ -z "$deployment_id" ]; then
+            echo "Vercel did not return a deployment id." >&2
+            exit 1
+          fi
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+          echo "sha=$latest_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the Vercel deployment that carries the new ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            response="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.vercel.com/v13/deployments/${{ steps.vercel.outputs.deployment_id }}?teamId=${VERCEL_TEAM_ID}" \
+              --header "Authorization: Bearer ${VERCEL_TOKEN}")"
+            state="$(jq -r '.readyState // empty' <<<"$response")"
+            case "$state" in
+              READY) exit 0 ;;
+              ERROR|CANCELED) echo "Vercel deployment ended in $state" >&2; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "Timed out waiting for the Vercel ingress deployment." >&2
+          exit 1
+
+      - name: Prove the recorded production boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/cloudflare-free-feasibility/verify-production-boundary.mjs \
+            "${{ steps.vercel.outputs.sha }}" "$CATEVIA_BACKEND_TARGET"
+
+      - name: Report the applied state
+        if: always()
+        run: |
+          {
+            echo "### Backend cutover ${CUTOVER_MODE}"
+            echo
+            echo "- reason: ${CUTOVER_REASON}"
+            echo "- recorded backend target: ${CATEVIA_BACKEND_TARGET:-unset}"
+            echo "- Vercel release: ${{ steps.vercel.outputs.sha }}"
+            echo "- Vercel deployment: ${{ steps.vercel.outputs.deployment_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"

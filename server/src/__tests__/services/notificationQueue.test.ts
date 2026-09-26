@@ -81,6 +81,60 @@ describe('notificationQueue web/native delivery and Telegram retirement', () => 
     }, { timeout: 3000 })
   })
 
+  it('leaves delivery to the Worker when Render no longer owns maintenance', async () => {
+    const previousOwner = process.env.CATEVIA_MAINTENANCE_OWNER
+    process.env.CATEVIA_MAINTENANCE_OWNER = 'cloudflare'
+    try {
+      const { enqueueNotification, runNotificationDeliveryCycle } = await import('../../services/notificationQueue.js')
+      const { sendAppPushToUsers } = await import('../../services/appPushService.js')
+      const id = await enqueueNotification('webpush', 'info', 'Scheduled item', {}, parishId, undefined, { webpushUserIds: [parentId] })
+      const [pending] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(pending.status).toBe('retrying')
+      expect(sendAppPushToUsers).not.toHaveBeenCalled()
+
+      await runNotificationDeliveryCycle()
+      const [sent] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(sent.status).toBe('sent')
+      expect(sendAppPushToUsers).toHaveBeenCalledTimes(1)
+    } finally {
+      if (previousOwner === undefined) delete process.env.CATEVIA_MAINTENANCE_OWNER
+      else process.env.CATEVIA_MAINTENANCE_OWNER = previousOwner
+    }
+  })
+
+  it('persists a Worker push batch and resumes without consuming retry attempts or resending devices', async () => {
+    const previousRuntime = process.env.CATEVIA_RUNTIME
+    const previousWebSocketPair = (globalThis as { WebSocketPair?: unknown }).WebSocketPair
+    process.env.CATEVIA_RUNTIME = 'cloudflare-worker'
+    Object.defineProperty(globalThis, 'WebSocketPair', { configurable: true, value: function WebSocketPair() {} })
+    try {
+      const { enqueueNotification, runNotificationDeliveryCycle } = await import('../../services/notificationQueue.js')
+      const { sendAppPushToUsers } = await import('../../services/appPushService.js')
+      const firstEndpoint = 'https://push.example/first'
+      const secondEndpoint = 'https://push.example/second'
+      vi.mocked(sendAppPushToUsers)
+        .mockResolvedValueOnce({ ...successResult, deliveredEndpoints: [firstEndpoint], deferred: 1 })
+        .mockResolvedValueOnce({ ...successResult, deliveredEndpoints: [secondEndpoint], deferred: 0 })
+      const id = await enqueueNotification('webpush', 'info', 'Batched', {}, parishId, 3, { webpushUserIds: [parentId] })
+
+      await runNotificationDeliveryCycle()
+      const [partial] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(partial).toMatchObject({ status: 'retrying', attemptCount: 0, deliveredEndpoints: JSON.stringify([firstEndpoint]) })
+      expect(partial.nextAttemptAt).toBeTruthy()
+
+      await db.update(notifications).set({ nextAttemptAt: null }).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      await runNotificationDeliveryCycle()
+      const [completed] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(completed).toMatchObject({ status: 'sent', attemptCount: 1, deliveredEndpoints: JSON.stringify([firstEndpoint, secondEndpoint]) })
+      expect(sendAppPushToUsers).toHaveBeenNthCalledWith(2, parishId, [parentId], expect.anything(), [firstEndpoint])
+    } finally {
+      if (previousRuntime === undefined) delete process.env.CATEVIA_RUNTIME
+      else process.env.CATEVIA_RUNTIME = previousRuntime
+      if (previousWebSocketPair === undefined) delete (globalThis as { WebSocketPair?: unknown }).WebSocketPair
+      else Object.defineProperty(globalThis, 'WebSocketPair', { configurable: true, value: previousWebSocketPair })
+    }
+  })
+
   it('records an item as failed without dispatch when max attempts is zero', async () => {
     const { enqueueNotification, getFailedItems } = await import('../../services/notificationQueue.js')
     const { sendAppPushToUsers } = await import('../../services/appPushService.js')

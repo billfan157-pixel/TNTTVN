@@ -1,0 +1,23 @@
+{
+  "capturedAt": "2026-09-24T18:42:42.025Z",
+  "scope": "disposable-turso-no-provider-no-real-delivery",
+  "observations": [
+    {
+      "cycle": 1,
+      "httpStatus": 200,
+      "status": "failed",
+      "errorCode": "PUSH_PROVIDER_NOT_CONFIGURED",
+      "attemptCount": 1,
+      "leaseCleared": true
+    },
+    {
+      "cycle": 2,
+      "httpStatus": 200,
+      "status": "failed",
+      "errorCode": "PUSH_PROVIDER_NOT_CONFIGURED",
+      "attemptCount": 1,
+      "leaseCleared": true
+    }
+  ],
+  "passed": true
+}

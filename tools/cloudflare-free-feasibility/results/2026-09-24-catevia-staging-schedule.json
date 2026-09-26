@@ -1,0 +1,107 @@
+{
+  "capturedAt": "2026-09-24T18:43:05.487Z",
+  "scope": "disposable-staging-cron-and-alarms",
+  "mode": "status",
+  "backupMarker": "2026-09-24",
+  "results": [
+    {
+      "expectedKind": "notification",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "notification",
+      "kind": "notification",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.500Z",
+      "lastSuccessAt": "2026-09-24T15:22:27.981Z",
+      "lastFailureAt": "2026-09-24T10:24:26.236Z"
+    },
+    {
+      "expectedKind": "operation-reminders",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "operation-reminders",
+      "kind": "operation-reminders",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.499Z",
+      "lastSuccessAt": "2026-09-24T15:21:58.748Z",
+      "lastFailureAt": "2026-09-24T10:24:26.663Z"
+    },
+    {
+      "expectedKind": "operation-lifecycle",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "operation-lifecycle",
+      "kind": "operation-lifecycle",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.503Z",
+      "lastSuccessAt": "2026-09-24T15:21:58.473Z",
+      "lastFailureAt": "2026-09-24T10:24:26.938Z"
+    },
+    {
+      "expectedKind": "operation-dispatch",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "operation-dispatch",
+      "kind": "operation-dispatch",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.500Z",
+      "lastSuccessAt": "2026-09-24T15:21:59.842Z",
+      "lastFailureAt": "2026-09-24T10:24:28.201Z"
+    },
+    {
+      "expectedKind": "manager-reminders",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "manager-reminders",
+      "kind": "manager-reminders",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.512Z",
+      "lastSuccessAt": "2026-09-24T15:10:27.806Z",
+      "lastFailureAt": null
+    },
+    {
+      "expectedKind": "sunday-reminders",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "sunday-reminders",
+      "kind": "sunday-reminders",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.498Z",
+      "lastSuccessAt": "2026-09-24T15:21:29.983Z",
+      "lastFailureAt": "2026-09-24T10:24:29.156Z"
+    },
+    {
+      "expectedKind": "import-maintenance",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "import-maintenance",
+      "kind": "import-maintenance",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.536Z",
+      "lastSuccessAt": "2026-09-24T15:10:29.307Z",
+      "lastFailureAt": null
+    },
+    {
+      "expectedKind": "receipt-maintenance",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "receipt-maintenance",
+      "kind": "receipt-maintenance",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.535Z",
+      "lastSuccessAt": "2026-09-24T10:10:29.985Z",
+      "lastFailureAt": null
+    },
+    {
+      "expectedKind": "backup",
+      "httpStatus": 200,
+      "ok": true,
+      "responseJob": "backup",
+      "kind": "backup",
+      "nextAlarm": null,
+      "lastEnsureAt": "2026-09-24T10:23:06.540Z",
+      "lastSuccessAt": "2026-09-24T15:21:31.833Z",
+      "lastFailureAt": "2026-09-24T10:24:30.913Z"
+    }
+  ]
+}

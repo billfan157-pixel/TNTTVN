@@ -1,0 +1,5 @@
+
+{
+  "error": "NotSupportedError",
+  "message": "Pbkdf2 failed: iteration counts above 100000 are not supported (requested 600000)."
+}

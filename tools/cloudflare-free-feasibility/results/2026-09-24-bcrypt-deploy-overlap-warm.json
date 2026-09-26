@@ -1,0 +1,272 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "bcrypt",
+  "beganAt": "2026-09-24T07:39:02.604Z",
+  "endedAt": "2026-09-24T07:40:04.920Z",
+  "count": 50,
+  "concurrency": 1,
+  "validCount": 49,
+  "statusCounts": {
+    "200": 49,
+    "TypeError": 1
+  },
+  "firstRequestMs": 10823.57,
+  "minMs": 801.64,
+  "p50Ms": 1021.99,
+  "p95Ms": 1550.09,
+  "maxMs": 10823.57,
+  "samples": [
+    {
+      "status": null,
+      "wallMs": 10823.57,
+      "valid": false,
+      "error": "TypeError",
+      "causeCode": "UND_ERR_CONNECT_TIMEOUT"
+    },
+    {
+      "status": 200,
+      "wallMs": 1009.58,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1550.09,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 811.33,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 884.35,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 818.83,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 934.88,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 801.64,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 923.21,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 821.46,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 872.51,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 865.74,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1167.35,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 811.52,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1197.46,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 816.41,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 859.03,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 811.43,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1201.84,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 819.45,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 916.56,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1133.62,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 913,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 819.16,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1125.98,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1037.91,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1691.05,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1305.07,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1036.5,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1223.58,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1031.92,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 955.82,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1077.06,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 922.96,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1246.96,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1340.34,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1327.01,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 986.7,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1206.94,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 987.4,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1405.44,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1028.63,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1116.84,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1026.33,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1073.65,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 974.2,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1432.86,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1021.99,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1066.3,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1005.21,
+      "valid": true
+    }
+  ]
+}

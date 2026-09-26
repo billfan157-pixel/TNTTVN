@@ -85,12 +85,25 @@ async function getRateLimitEntry(key: string): Promise<RateLimitEntry> {
   }
 }
 
-const cleanupInterval = setInterval(() => {
-  const now = Date.now()
-  // DB: dọn row hết hạn (chống phình bảng) — best-effort.
-  client.execute({ sql: 'DELETE FROM rate_limits WHERE reset_at <= ?', args: [now] }).catch(() => {})
-}, 60_000)
-if (cleanupInterval.unref) cleanupInterval.unref()
+let cleanupInterval: ReturnType<typeof setInterval> | null = null
+
+// A long-running Node process owns this maintenance timer. Importing HTTP
+// middleware must not start background work in an ephemeral Worker isolate.
+export function startRateLimitCleanup(): void {
+  if (cleanupInterval) return
+  cleanupInterval = setInterval(() => {
+    const now = Date.now()
+    // DB: dọn row hết hạn (chống phình bảng) — best-effort.
+    client.execute({ sql: 'DELETE FROM rate_limits WHERE reset_at <= ?', args: [now] }).catch(() => {})
+  }, 60_000)
+  cleanupInterval.unref?.()
+}
+
+export function stopRateLimitCleanup(): void {
+  if (!cleanupInterval) return
+  clearInterval(cleanupInterval)
+  cleanupInterval = null
+}
 
 export const rateLimiter = createMiddleware(async (c, next) => {
   const ip = getClientIp(c)

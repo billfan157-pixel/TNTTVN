@@ -2,6 +2,7 @@ import webPush from 'web-push'
 import { db } from '../db/index.js'
 import { pushSubscriptions, users } from '../db/schema.js'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@giaoly.com'
 
@@ -43,6 +44,26 @@ export interface WebPushSendResult {
   removed: number
   successfulEndpoints?: string[]
   lastProviderError?: string
+  /** Eligible endpoints left for a later Worker invocation. */
+  deferred?: number
+}
+
+/** Preserve web-push payload encryption/VAPID while using Workers' fetch transport. */
+export async function sendWebPushRequest(subscription: webPush.PushSubscription, payload: string): Promise<void> {
+  if (!isCloudflareWorkerRuntime()) {
+    await webPush.sendNotification(subscription, payload)
+    return
+  }
+  const details = webPush.generateRequestDetails(subscription, payload)
+  const headers = new Headers(details.headers)
+  headers.delete('content-length') // fetch supplies the encrypted body's actual length.
+  const response = await fetch(details.endpoint, {
+    method: 'POST', headers, body: details.body ? new Uint8Array(details.body) : undefined,
+    redirect: 'manual', signal: AbortSignal.timeout(15_000),
+  })
+  if (!response.ok) {
+    throw Object.assign(new Error(`Web Push service rejected (${response.status})`), { statusCode: response.status })
+  }
 }
 
 /**
@@ -58,6 +79,7 @@ async function sendWebPush(
   payload: WebPushPayload,
   userIds?: string[],
   excludeEndpoints?: string[],
+  maxDeliveries?: number,
 ): Promise<WebPushSendResult> {
   const notConfigured: WebPushSendResult = { configured: false, sent: 0, failed: 0, total: 0, removed: 0, successfulEndpoints: [] }
   if (!ensureVapidDetails()) return notConfigured
@@ -81,17 +103,22 @@ async function sendWebPush(
   ))
 
   const excluded = new Set(excludeEndpoints || [])
-  const subs = allSubs.filter(sub => !excluded.has(sub.endpoint))
-  if (subs.length === 0) return { configured: true, sent: 0, failed: 0, total: allSubs.length, removed: 0, successfulEndpoints: [] }
+  const eligibleSubs = allSubs.filter(sub => !excluded.has(sub.endpoint))
+  const subs = maxDeliveries === undefined ? eligibleSubs : eligibleSubs.slice(0, Math.max(0, maxDeliveries))
+  const deferred = eligibleSubs.length - subs.length
+  if (subs.length === 0) return { configured: true, sent: 0, failed: 0, total: allSubs.length, removed: 0, successfulEndpoints: [],
+    ...(maxDeliveries === undefined ? {} : { deferred }) }
 
-  const results = await Promise.allSettled(
-    subs.map((sub) =>
-      webPush.sendNotification(
+  const results: PromiseSettledResult<void>[] = []
+  const batchSize = isCloudflareWorkerRuntime() ? 4 : subs.length
+  for (let offset = 0; offset < subs.length; offset += batchSize) {
+    results.push(...await Promise.allSettled(subs.slice(offset, offset + batchSize).map((sub) =>
+      sendWebPushRequest(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } } as webPush.PushSubscription,
         JSON.stringify({ title: payload.title, body: payload.body, url: payload.url || '/' }),
       ),
-    ),
-  )
+    )))
+  }
 
   let sent = 0
   let failed = 0
@@ -129,6 +156,7 @@ async function sendWebPush(
     total: allSubs.length,
     removed: deadEndpoints.length,
     successfulEndpoints,
+    ...(maxDeliveries === undefined ? {} : { deferred }),
   }
   if (lastProviderError) {
     returnResult.lastProviderError = lastProviderError
@@ -145,6 +173,6 @@ export async function sendWebPushToParish(parishId: string, payload: WebPushPayl
  * ví dụ: phụ huynh trong một chi đoàn). Subscription không thuộc danh sách
  * userId (kể cả `userId = null` — sub cũ chưa gắn tài khoản) không bị đụng tới.
  */
-export async function sendWebPushToUsers(parishId: string, userIds: string[], payload: WebPushPayload, excludeEndpoints?: string[]): Promise<WebPushSendResult> {
-  return sendWebPush(parishId, payload, userIds, excludeEndpoints)
+export async function sendWebPushToUsers(parishId: string, userIds: string[], payload: WebPushPayload, excludeEndpoints?: string[], maxDeliveries?: number): Promise<WebPushSendResult> {
+  return sendWebPush(parishId, payload, userIds, excludeEndpoints, maxDeliveries)
 }

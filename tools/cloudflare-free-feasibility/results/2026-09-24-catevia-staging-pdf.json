@@ -1,0 +1,27 @@
+{
+  "capturedAt": "2026-09-24T18:44:01.098Z",
+  "scope": "disposable-turso-and-synthetic-html-only",
+  "observations": [
+    {
+      "label": "unauthorized-pdf",
+      "status": 401,
+      "elapsedMs": 633
+    },
+    {
+      "label": "admin-login",
+      "status": 200,
+      "elapsedMs": 1603
+    },
+    {
+      "label": "authenticated-pdf",
+      "status": 200,
+      "elapsedMs": 3008
+    },
+    {
+      "label": "pdf-integrity-1",
+      "hasPdfSignature": true,
+      "bytes": 21807,
+      "sha256": "b91048fd56e3cd88ab021066e07be6bcecc49a60244c8c181ad26b69ce995d85"
+    }
+  ]
+}

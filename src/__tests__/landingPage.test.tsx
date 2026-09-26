@@ -72,14 +72,19 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     expect(screen.queryByRole('navigation', { name: /menu di động/i })).not.toBeInTheDocument()
   })
 
-  it('renders the three login portals with correct destinations', () => {
+  it('renders two authentication paths and three workspace stories', () => {
     render(<LandingPage />)
 
-    expect(screen.getByRole('heading', { name: /học vụ & giáo lý/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /xứ đoàn & giáo xứ/i })).toBeInTheDocument()
+    // 2 authentication paths
+    expect(screen.getByRole('heading', { name: /cổng glv & huynh trưởng/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /cổng phụ huynh/i })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /đăng nhập glv & huynh trưởng/i }).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByRole('button', { name: /đăng nhập phụ huynh/i }).length).toBeGreaterThanOrEqual(1)
+
+    // 3 workspace stories
+    expect(screen.getByRole('heading', { name: /từ buổi học đến trọn vẹn cả niên khóa/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /một nơi để toàn thể xứ đoàn cùng vận hành/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /phụ huynh luôn biết con mình đang đồng hành thế nào/i })).toBeInTheDocument()
   })
 
   it('renders the five TNTT branches with border color classes and without hardcoded colors', () => {
@@ -117,10 +122,10 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     render(<LandingPage />)
 
     const photo = screen.getByRole('img', { name: /tập thể huynh trưởng và thiếu nhi/i })
-    expect(photo).toHaveAttribute('src', '/images/xu-doan-tap-the.jpg')
+    expect(photo).toHaveAttribute('src', '/images/xu-doan-tap-the-original.jpg')
     // Kích thước tường minh giữ chỗ trước khi ảnh tải → không giật layout
-    expect(photo).toHaveAttribute('width', '1600')
-    expect(photo).toHaveAttribute('height', '1143')
+    expect(photo).toHaveAttribute('width', '2480')
+    expect(photo).toHaveAttribute('height', '1772')
     // Ảnh hero trên màn hình đầu → ưu tiên tải, không lazy
     expect(photo).toHaveAttribute('decoding', 'async')
     expect(photo).toHaveAttribute('fetchpriority', 'high')
@@ -131,26 +136,18 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     expect(within(glassFigure).getByText(/Giáo Xứ Gia Tôn/)).toBeInTheDocument()
     expect(within(glassFigure).getByText(/Bổn mạng Xứ Đoàn/)).toBeInTheDocument()
     expect(within(glassFigure).getByText('4 Tôn Chỉ TNTT')).toBeInTheDocument()
+    expect(within(glassFigure).getByText(/Cầu nguyện · Rước lễ · Hy sinh · Làm việc tông đồ/)).toBeInTheDocument()
     expect(within(glassFigure).getByText(/Niên khóa 2025–2026/)).toBeInTheDocument()
   })
 
-  it('renders stats strip 5 / 3 / 2 / 1 with verified metrics', () => {
+  it('renders trust and reliability commitments', () => {
     render(<LandingPage />)
 
-    const statsSection = screen.getByRole('region', { name: /thông số hệ thống/i })
-    expect(statsSection).toBeInTheDocument()
-
-    expect(within(statsSection).getByText('5')).toBeInTheDocument()
-    expect(within(statsSection).getByText('Ngành sinh hoạt TNTT')).toBeInTheDocument()
-
-    expect(within(statsSection).getByText('3')).toBeInTheDocument()
-    expect(within(statsSection).getByText('Không gian làm việc')).toBeInTheDocument()
-
-    expect(within(statsSection).getByText('2')).toBeInTheDocument()
-    expect(within(statsSection).getByText('Cổng đăng nhập')).toBeInTheDocument()
-
-    expect(within(statsSection).getByText('1')).toBeInTheDocument()
-    expect(within(statsSection).getByText('Tài khoản — 1 Vai trò')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: /bền bỉ, an toàn và tôn trọng quyền riêng tư/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: /ngoại tuyến \(offline-first\)/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: /phân quyền theo vai trò/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: /máy tính & điện thoại pwa/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: /dữ liệu thuộc về giáo xứ/i })).toBeInTheDocument()
   })
 
   it('renders FAQ accordion with 6 questions and supports toggle interaction', () => {

@@ -1,13 +1,17 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto'
 import { gzipSync, gunzipSync } from 'zlib'
 import type { Client, InStatement, ResultSet } from '@libsql/client'
-import { isR2Enabled, putObject } from './blobStorage.js'
+import { hasDurableBlobStorage, putObject } from './blobStorage.js'
 import { createRecoveryQuarantine, RECOVERY_QUARANTINE_KEY, type RecoveryQuarantineTarget } from '../db/recoveryQuarantine.js'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 const BACKUP_FORMAT = 'tnttvn-logical-backup-v1'
 const SAFE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
 
-type SqlExecutor = { execute(statement: InStatement): Promise<ResultSet> }
+type SqlExecutor = {
+  execute(statement: InStatement): Promise<ResultSet>
+  batch?(statements: InStatement[]): Promise<ResultSet[]>
+}
 
 export interface LogicalTableSnapshot {
   name: string
@@ -73,11 +77,20 @@ export async function createLogicalSnapshot(executor: SqlExecutor, createdAt = n
   const tableResult = await executor.execute(
     "SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle_%' ORDER BY name",
   )
+  const tableNames = tableResult.rows.map(row => String(row.name))
+  const tableQueries = tableNames.map(name => `SELECT * FROM ${quoteIdentifier(name)}`)
+  // Hrana sends a batch over one external subrequest while preserving the
+  // caller's read transaction. A table-by-table Worker backup exceeds Free's
+  // 50 external-subrequest cap on the current Catevia schema.
+  const batched = isCloudflareWorkerRuntime() && executor.batch && tableQueries.length
+    ? await executor.batch(tableQueries)
+    : null
+  if (batched && batched.length !== tableNames.length) throw new Error('Incomplete logical backup read batch')
   const tables: LogicalTableSnapshot[] = []
   let rowCount = 0
-  for (const resultRow of tableResult.rows) {
-    const name = String(resultRow.name)
-    const result = await executor.execute(`SELECT * FROM ${quoteIdentifier(name)}`)
+  for (let index = 0; index < tableNames.length; index++) {
+    const name = tableNames[index]
+    const result = batched ? batched[index] : await executor.execute(tableQueries[index])
     const columns = [...result.columns]
     const rows = result.rows.map(row => columns.map(column => encodeCell(row[column])))
     tables.push({ name, columns, rows })
@@ -146,7 +159,7 @@ export function verifyLogicalSnapshot(snapshot: LogicalBackupSnapshot): void {
 }
 
 export async function createAndStoreRemoteBackup(client: Client): Promise<{ objectKey: string; rowCount: number }> {
-  if (!isR2Enabled) throw new Error('Remote database backup requires independent R2 storage')
+  if (!hasDurableBlobStorage()) throw new Error('Remote database backup requires independent R2 storage')
   parseEncryptionKey()
   const tx = await client.transaction('read')
   try {

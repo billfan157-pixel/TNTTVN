@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   deploy-production:
-    name: Deploy verified SHA to Vercel and Render
+    name: Deploy verified SHA to Cloudflare, Vercel, and Render
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
@@ -23,6 +23,10 @@ jobs:
     environment: production
     env:
       VERIFIED_SHA: ${{ github.event.workflow_run.head_sha }}
+      # Recorded backend target. 'render' keeps Vercel on Render with the Worker
+      # closed; 'worker' is the post-cutover truth where Vercel ingress reaches the
+      # Worker. The value lives in the Production environment, never in a secret.
+      CATEVIA_BACKEND_TARGET: ${{ vars.CATEVIA_BACKEND_TARGET }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -54,6 +58,153 @@ jobs:
           latest_sha="$(git ls-remote origin refs/heads/main | cut -f1)"
           if [ "$latest_sha" != "$VERIFIED_SHA" ]; then
             echo "A newer main commit exists; skip stale deployment $VERIFIED_SHA."
+            exit 1
+          fi
+
+      - name: Validate Cloudflare deployment credentials
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          [[ "$VERIFIED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Setup Node.js 22 for Wrangler
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/cloudflare-free-feasibility/package-lock.json
+
+      - name: Install application dependencies for Worker bundle
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install pinned Wrangler dependencies
+        working-directory: tools/cloudflare-free-feasibility
+        run: npm ci --no-audit --no-fund
+
+      - name: Run production database preflight
+        shell: bash
+        env:
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          DEPLOYMENT_PARISH_ID: ${{ vars.DEPLOYMENT_PARISH_ID }}
+          PARISH_TIME_ZONE: ${{ vars.PARISH_TIME_ZONE }}
+        run: |
+          set -euo pipefail
+          export DEPLOYMENT_PARISH_ID="${DEPLOYMENT_PARISH_ID:-gia-ton}"
+          export PARISH_TIME_ZONE="${PARISH_TIME_ZONE:-Asia/Ho_Chi_Minh}"
+          test -n "$TURSO_URL"
+          test -n "$TURSO_AUTH_TOKEN"
+          npm --prefix server run db:preflight:cloudflare
+
+      - name: Run production backup storage preflight
+        shell: bash
+        env:
+          TURSO_URL: ${{ secrets.TURSO_URL }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          for name in TURSO_URL R2_ENDPOINT R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY BACKUP_ENCRYPTION_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required production backup secret: ${name}" >&2
+              exit 1
+            fi
+          done
+          npm --prefix server run db:preflight:backup
+
+      - name: Resolve and validate the recorded backend target
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${CATEVIA_BACKEND_TARGET:-}" in
+            render|worker) ;;
+            "") CATEVIA_BACKEND_TARGET=render ;;
+            *) echo "CATEVIA_BACKEND_TARGET must be render or worker, got '${CATEVIA_BACKEND_TARGET}'." >&2; exit 1 ;;
+          esac
+          echo "CATEVIA_BACKEND_TARGET=$CATEVIA_BACKEND_TARGET" >> "$GITHUB_ENV"
+          if [ "$CATEVIA_BACKEND_TARGET" = "render" ]; then
+            expected_traffic=no
+            expected_owner=render
+          else
+            expected_traffic=yes
+            expected_owner=cloudflare
+          fi
+          # The repository config is the single source of truth for the deployment
+          # shape; CI refuses to publish a Worker that disagrees with the recorded
+          # backend target, so a half-applied cutover can never reach production.
+          node --input-type=module <<NODE
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync('tools/cloudflare-free-feasibility/wrangler-catevia-production.jsonc', 'utf8'));
+          if (config.vars.CATEVIA_TRAFFIC_ENABLED !== '$expected_traffic'
+            || config.vars.CATEVIA_MAINTENANCE_OWNER !== '$expected_owner') {
+            throw new Error('Refusing the CI Worker deployment: CATEVIA_TRAFFIC_ENABLED must be $expected_traffic and CATEVIA_MAINTENANCE_OWNER must be $expected_owner for backend target $CATEVIA_BACKEND_TARGET.');
+          }
+          NODE
+
+      - name: Validate Worker bundle from clean dependencies
+        working-directory: tools/cloudflare-free-feasibility
+        run: >-
+          npx --no-install wrangler deploy
+          --config wrangler-catevia-production.jsonc
+          --dry-run
+          --strict
+          --outdir "$RUNNER_TEMP/catevia-worker-bundle"
+
+      - name: Deploy exact verified SHA to Cloudflare Worker
+        working-directory: tools/cloudflare-free-feasibility
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          npx --no-install wrangler deploy
+          --config wrangler-catevia-production.jsonc
+          --strict
+          --var APP_RELEASE_ID:${{ env.VERIFIED_SHA }}
+          --message verified-sha-${{ env.VERIFIED_SHA }}
+
+      - name: Verify the deployed Worker matches the recorded backend target
+        shell: bash
+        env:
+          OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$CATEVIA_BACKEND_TARGET" != "worker" ]; then
+            response="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+              --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/api/auth/me)"
+            status="${response##*$'\n'}"
+            body="${response%$'\n'*}"
+            if [ "$status" != "503" ] || [ "$body" != "Backend cutover pending" ]; then
+              echo "Cloudflare Worker is not in its expected closed state (HTTP $status)." >&2
+              exit 1
+            fi
+            exit 0
+          fi
+          test -n "${OPS_TOKEN:-}"
+          # The open Worker serves ops health only to the operator token, so this
+          # proves the deployed release without opening direct public API traffic.
+          response="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+            --header "Authorization: Bearer ${OPS_TOKEN}" \
+            --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/health)"
+          status="${response##*$'\n'}"
+          body="${response%$'\n'*}"
+          if [ "$status" != "200" ]; then
+            echo "Open Worker health failed (HTTP $status)." >&2
+            exit 1
+          fi
+          worker_release="$(jq -r '.releaseId // empty' <<<"$body")"
+          worker_database="$(jq -r '.database // empty' <<<"$body")"
+          if [ "$worker_release" != "$VERIFIED_SHA" ] || [ "$worker_database" != "connected" ]; then
+            echo "Worker release mismatch: expected $VERIFIED_SHA, got ${worker_release:-missing} (database ${worker_database:-unknown})." >&2
             exit 1
           fi
 
@@ -100,8 +251,26 @@ jobs:
           echo "Timed out waiting for Vercel deployment." >&2
           exit 1
 
+      - name: Verify Vercel ingress is owned by the proxy
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Two layers can claim /api and /health (Routing Middleware and an external
+          # rewrite). Whichever wins silently decides where production traffic goes, so
+          # the deployed artifact is probed directly instead of trusted. This runs in
+          # both backend-target modes because the proxy owns ingress either way.
+          deployment_url="$(curl --fail-with-body --silent --show-error \
+            --url "https://api.vercel.com/v13/deployments/${{ steps.vercel.outputs.deployment_id }}?teamId=${VERCEL_TEAM_ID}" \
+            --header "Authorization: Bearer ${VERCEL_TOKEN}" | jq -r '.url // empty')"
+          if [ -z "$deployment_url" ]; then
+            echo "Vercel did not report a deployment URL." >&2
+            exit 1
+          fi
+          node tools/cloudflare-free-feasibility/verify-preview-ingress.mjs "$deployment_url"
+
       - name: Deploy exact SHA to Render production
         id: render
+        if: env.CATEVIA_BACKEND_TARGET == '' || env.CATEVIA_BACKEND_TARGET == 'render'
         shell: bash
         run: |
           set -euo pipefail
@@ -119,6 +288,7 @@ jobs:
           echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for Render readiness
+        if: env.CATEVIA_BACKEND_TARGET == '' || env.CATEVIA_BACKEND_TARGET == 'render'
         shell: bash
         run: |
           set -euo pipefail
@@ -142,12 +312,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          backend_health="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
-            --retry-delay 10 https://tnttvn.onrender.com/health)"
-          backend_release="$(jq -r '.releaseId // empty' <<<"$backend_health")"
-          if [ "$backend_release" != "$VERIFIED_SHA" ]; then
-            echo "Backend release mismatch: expected $VERIFIED_SHA, got ${backend_release:-missing}." >&2
-            exit 1
+          if [ "$CATEVIA_BACKEND_TARGET" = "render" ]; then
+            backend_health="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
+              --retry-delay 10 https://tnttvn.onrender.com/health)"
+            backend_release="$(jq -r '.releaseId // empty' <<<"$backend_health")"
+            if [ "$backend_release" != "$VERIFIED_SHA" ]; then
+              echo "Backend release mismatch: expected $VERIFIED_SHA, got ${backend_release:-missing}." >&2
+              exit 1
+            fi
+            auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              https://tnttvn.onrender.com/api/auth/me)"
+            if [ "$auth_status" != "401" ]; then
+              echo "Unauthenticated auth smoke expected 401, got $auth_status." >&2
+              exit 1
+            fi
           fi
 
           frontend_html="$(curl --fail --silent --show-error --retry 6 --retry-all-errors \
@@ -156,13 +334,6 @@ jobs:
             | sed -E 's/.*content="([^"]+)"/\1/' | head -n 1)"
           if [ "$frontend_release" != "$VERIFIED_SHA" ]; then
             echo "Frontend release mismatch: expected $VERIFIED_SHA, got ${frontend_release:-missing}." >&2
-            exit 1
-          fi
-
-          auth_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            https://tnttvn.onrender.com/api/auth/me)"
-          if [ "$auth_status" != "401" ]; then
-            echo "Unauthenticated auth smoke expected 401, got $auth_status." >&2
             exit 1
           fi
 
@@ -178,3 +349,10 @@ jobs:
             echo "Production CSP still allows https://vercel.live (Vercel Toolbar); keep the Toolbar Off for Production (CSP-TOOLBAR-1)." >&2
             exit 1
           fi
+
+      - name: Verify the recorded backend boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tools/cloudflare-free-feasibility/verify-production-boundary.mjs \
+            "$VERIFIED_SHA" "$CATEVIA_BACKEND_TARGET"

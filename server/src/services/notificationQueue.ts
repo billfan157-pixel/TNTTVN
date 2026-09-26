@@ -7,6 +7,11 @@ import { eq, and, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { generateId } from '../utils/id.js'
 import { randomUUID } from 'crypto'
 import { assertDeploymentParishScope, getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
+
+function shouldDrainOnEnqueue(): boolean {
+  return !isCloudflareWorkerRuntime() && process.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare'
+}
 
 interface NotificationQueueItem {
   id: string
@@ -120,7 +125,10 @@ const MAX_RETRIES = 3
 const INITIAL_BACKOFF_MS = 1000
 const LEASE_MS = 5 * 60 * 1000
 const POLL_MS = 30 * 1000
-const WORKER_ID = `${process.pid}-${randomUUID()}`
+let workerId: string | null = null
+function getWorkerId(): string {
+  return workerId ??= `${process.pid}-${randomUUID()}`
+}
 let recovered = false
 let workerPollTimer: ReturnType<typeof setInterval> | null = null
 let stopping = false
@@ -235,13 +243,14 @@ export async function recoverQueueFromDb(): Promise<void> {
       or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, now)),
       deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
     ))
-    const pending = await db.select().from(notifications).where(and(
+    const pendingQuery = db.select().from(notifications).where(and(
       eq(notifications.type, 'web_push'),
       eq(notifications.status, 'retrying'),
       or(isNull(notifications.nextAttemptAt), lte(notifications.nextAttemptAt, now)),
       or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, now)),
       deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
     ))
+    const pending = isCloudflareWorkerRuntime() ? await pendingQuery.limit(1) : await pendingQuery
     for (const row of pending) {
       if (queue.some((queued) => queued.id === row.id && queued.parishId === row.parishId)) continue
       const item: NotificationQueueItem = {
@@ -342,8 +351,10 @@ export async function enqueueNotification(
     return id
   }
 
-  queue.push(item)
-  void processQueue().catch((error) => console.error(`[notificationQueue] drain failed after enqueue ${id}:`, error))
+  if (shouldDrainOnEnqueue()) {
+    queue.push(item)
+    void processQueue().catch((error) => console.error(`[notificationQueue] drain failed after enqueue ${id}:`, error))
+  }
 
   return id
 }
@@ -384,7 +395,7 @@ async function claimNotification(item: NotificationQueueItem): Promise<{ attempt
   const [claimed] = await db
     .update(notifications)
     .set({
-      leaseOwner: WORKER_ID,
+      leaseOwner: getWorkerId(),
       leaseExpiresAt,
       nextAttemptAt: null,
       attemptCount: sql`${notifications.attemptCount} + 1`,
@@ -420,7 +431,7 @@ async function suppressNotification(item: NotificationQueueItem, reason: string)
   item.lastError = reason
   await db.update(notifications).set({
     status: 'failed', error: reason, leaseOwner: null, leaseExpiresAt: null, nextAttemptAt: null,
-  }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
+  }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, getWorkerId())))
   rememberFailed(item)
 }
 
@@ -437,9 +448,11 @@ function scheduleRetry(delayMs: number): void {
   timer.unref?.()
 }
 
-async function drainQueue(): Promise<void> {
+async function drainQueue(maxItems = Number.POSITIVE_INFINITY): Promise<void> {
   await ensureRecovered()
-  while (queue.length > 0) {
+  let processed = 0
+  while (queue.length > 0 && processed < maxItems) {
+      processed++
       const item = queue[0]
       const claim = await claimNotification(item)
       if (!claim) {
@@ -495,7 +508,7 @@ async function drainQueue(): Promise<void> {
             leaseOwner: null,
             leaseExpiresAt: null,
             nextAttemptAt: null,
-          }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
+          }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, getWorkerId())))
           rememberFailed(item)
           queue.shift()
           continue
@@ -510,7 +523,20 @@ async function drainQueue(): Promise<void> {
           // and must not cause a duplicate resend to healthy endpoints.
           throw new Error(result.lastProviderError || `APP_PUSH_PARTIAL_FAILURE:${retryableFailed}`)
         }
-        if (result.sent === 0) {
+        if ((result.deferred || 0) > 0) {
+          // Progress is durable. A quota-sized batch is not a failed attempt;
+          // release its lease for the next alarm without consuming retries.
+          await db.update(notifications).set({
+            attemptCount: sql`${notifications.attemptCount} - 1`,
+            deliveredEndpoints: item.deliveredEndpoints?.length ? JSON.stringify(item.deliveredEndpoints) : null,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            nextAttemptAt: new Date(Date.now() + POLL_MS).toISOString(),
+          }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, getWorkerId())))
+          queue.shift()
+          continue
+        }
+        if (result.sent === 0 && !item.deliveredEndpoints?.length) {
           await suppressNotification(item, childNotification ? 'ACADEMIC_DELIVERY_TARGET_UNAVAILABLE' : 'DELIVERY_TARGET_UNAVAILABLE')
           queue.shift()
           continue
@@ -528,7 +554,7 @@ async function drainQueue(): Promise<void> {
         }).where(and(
           eq(notifications.id, item.id),
           eq(notifications.parishId, item.parishId),
-          eq(notifications.leaseOwner, WORKER_ID),
+          eq(notifications.leaseOwner, getWorkerId()),
         ))
 
         queue.shift()
@@ -551,7 +577,7 @@ async function drainQueue(): Promise<void> {
             leaseOwner: null,
             leaseExpiresAt: null,
             nextAttemptAt: null,
-          }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
+          }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, getWorkerId())))
           rememberFailed(item)
           queue.shift()
           continue
@@ -564,25 +590,38 @@ async function drainQueue(): Promise<void> {
           leaseOwner: null,
           leaseExpiresAt: null,
           nextAttemptAt,
-        }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, WORKER_ID)))
+        }).where(and(eq(notifications.id, item.id), eq(notifications.parishId, item.parishId), eq(notifications.leaseOwner, getWorkerId())))
         queue.shift()
         scheduleRetry(backoff)
       }
   }
 }
 
-function processQueue(): Promise<void> {
+function processQueue(maxItems = Number.POSITIVE_INFINITY): Promise<void> {
   if (stopping) return Promise.resolve()
   if (processingPromise) return processingPromise
-  processingPromise = drainQueue().finally(() => {
+  processingPromise = drainQueue(maxItems).finally(() => {
     processingPromise = null
     // An enqueue can land after the while condition was evaluated but before
     // this hand-off. Re-kick once so the durable row is not stranded.
-    if (!stopping && queue.length > 0) {
+    if (!stopping && !isCloudflareWorkerRuntime() && queue.length > 0) {
       void processQueue().catch((error) => console.error('[notificationQueue] hand-off drain failed:', error))
     }
   })
   return processingPromise
+}
+
+/** One awaited delivery pass for a scheduled Worker/DO invocation. */
+export async function runNotificationDeliveryCycle(): Promise<void> {
+  if (processingPromise) await processingPromise
+  recovered = true
+  try {
+    await recoverQueueFromDb()
+  } catch (error) {
+    recovered = false
+    throw error
+  }
+  await processQueue(isCloudflareWorkerRuntime() ? 1 : Number.POSITIVE_INFINITY)
 }
 
 /** Stop new polls/retries and wait for the currently claimed/in-memory work. */

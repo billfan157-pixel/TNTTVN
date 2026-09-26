@@ -1,6 +1,7 @@
 // Phase 3: transport core tách từ lib/api.ts (verbatim + export request/newIdempotencyKey/
 // API_BASE/refreshAccessToken/withDeadline cho domain modules). Auth/refresh/retry/envelope giữ nguyên.
 import { clearAuthSnapshot } from '../db'
+import { runWithBackendActivity } from '../backendActivity'
 import { captureTenantScope, isTenantScopeCurrent, type TenantScopeSnapshot } from '../tenantScope'
 // All tabs share the HttpOnly cookie. The server still rejects replay from
 // clients that cannot coordinate through this origin's Web Locks.
@@ -44,6 +45,10 @@ export function setNavigateToLogin(fn: () => void): void {
 }
 
 export const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+
+export function isPublicRequestPath(path: string): boolean {
+  return path.split('?')[0] === '/password-reset-requests'
+}
 
 
 export function getAccessToken(): string | null {
@@ -297,13 +302,41 @@ function assertRequestContinuity(expected: RequestContinuity, path: string): voi
   // Explicit logout intentionally tears down local identity before the cookie
   // revocation response arrives. Its acknowledgement cannot authorize or
   // mutate tenant data, so it is the sole owner-continuity exception.
-  if (path === '/auth/logout') return
+  if (path === '/auth/logout' || isPublicRequestPath(path)) return
   const ownerStillCurrent = expected.owner
     ? isTenantScopeCurrent(expected.owner)
     : captureTenantScope() === null
   if (authSessionGeneration !== expected.generation || !ownerStillCurrent) {
     throw new ApiError(401, 'Authentication owner changed while request was in flight', path)
   }
+}
+
+/**
+ * Backend-activity wrapper (UX-FEEDBACK-1): mọi call site của api domain module
+ * đi qua đây, nên MỌI request backend đều phát tín hiệu "đang chờ máy chủ" cho
+ * `BackendActivityIndicator` — kể cả call site quên bật busy state cục bộ.
+ *
+ * Tracking thuần tuý hiển thị (xem `lib/backendActivity.ts`): không đổi
+ * authorization, retry, idempotency hay tenant continuity. `performRequest` giữ
+ * nguyên toàn bộ transport contract; wrapper chỉ bọc begin/end qua `finally`.
+ * Retry nội bộ gọi trực tiếp `performRequest` nên một logical request chỉ đóng
+ * góp đúng một lượt đếm (chỉ báo không nhấp nháy giữa các lần retry/backoff).
+ */
+export function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  retryCount?: number,
+  customHeaders?: Record<string, string>,
+  allowRetry?: boolean,
+  responseType?: 'json' | 'blob',
+  keepEnvelope?: boolean,
+  externalSignal?: AbortSignal,
+  expectedContinuity?: RequestContinuity,
+): Promise<T> {
+  return runWithBackendActivity(() =>
+    performRequest<T>(method, path, body, retryCount, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal, expectedContinuity),
+  )
 }
 
 /**
@@ -314,7 +347,7 @@ function assertRequestContinuity(expected: RequestContinuity, path: string): voi
  * - Optional caller abort signal (P1-4): aborts superseded detail loads early
  *   instead of letting them run to the transport timeout.
  */
-export async function request<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false, externalSignal?: AbortSignal, expectedContinuity?: RequestContinuity): Promise<T> {
+async function performRequest<T>(method: string, path: string, body?: unknown, retryCount = 0, customHeaders?: Record<string, string>, allowRetry = false, responseType: 'json' | 'blob' = 'json', keepEnvelope = false, externalSignal?: AbortSignal, expectedContinuity?: RequestContinuity): Promise<T> {
   const continuity = expectedContinuity || captureRequestContinuity()
   // SECURITY (2026-08-11): KHÔNG nạp access token từ localStorage — memory-only.
   // Nếu memory rỗng (sau reload), caller phải gọi bootstrapAccessToken() trước
@@ -322,7 +355,9 @@ export async function request<T>(method: string, path: string, body?: unknown, r
   // HttpOnly cookie (gửi tự động qua credentials: 'include').
 
   const isAuthRoute = path.startsWith('/auth/')
-  if (!isAuthRoute && !accessToken) {
+  const isPublicRoute = isPublicRequestPath(path)
+  const requiresAccessToken = !isAuthRoute && !isPublicRoute
+  if (requiresAccessToken && !accessToken) {
     // SECURITY (2026-08-11) — A-NEW-10 hardening: memory rỗng (sau reload) →
     // thử bootstrap qua HttpOnly cookie TRƯỚC khi gọi API.
     // FE-01 (2026-08-14): Phân biệt offline và auth failure:
@@ -345,7 +380,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
   const url = `${API_BASE}${path}`
   const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData
   const headers: Record<string, string> = { ...(isMultipart ? {} : { 'Content-Type': 'application/json' }), ...(customHeaders || {}) }
-  if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`
+  if (accessToken && !isPublicRoute) headers['Authorization'] = `Bearer ${accessToken}`
   const serializedBody = body === undefined ? undefined : isMultipart ? body : JSON.stringify(body)
   const timeoutMs = responseType === 'blob' ? BLOB_REQUEST_TIMEOUT_MS : DEFAULT_REQUEST_TIMEOUT_MS
 
@@ -371,7 +406,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     if (canAutoRetry(method, customHeaders, allowRetry) && retryCount < MAX_RETRIES) {
       await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
       assertRequestContinuity(continuity, path)
-      return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal, continuity)
+      return performRequest<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal, continuity)
     }
     throw new ApiError(0, 'Network error — unable to reach server', path)
   }
@@ -379,7 +414,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
   assertRequestContinuity(continuity, path)
 
   // Handle 401 with mutex refresh or redirect to login (trừ auth routes như /auth/login, /auth/refresh)
-  if (res.status === 401 && !isAuthRoute) {
+  if (res.status === 401 && !isAuthRoute && !isPublicRoute) {
     // A01 Phase 1 + A-NEW-01: refresh qua HttpOnly cookie (không cần memory token —
     // sau reload cookie vẫn hiệu lực).
     const refreshRes = await refreshAccessToken()
@@ -411,7 +446,7 @@ export async function request<T>(method: string, path: string, body?: unknown, r
     }
     await sleep(RETRY_BASE_MS * Math.pow(2, retryCount))
     assertRequestContinuity(continuity, path)
-    return request<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal, continuity)
+    return performRequest<T>(method, path, body, retryCount + 1, customHeaders, allowRetry, responseType, keepEnvelope, externalSignal, continuity)
   }
 
   if (!res.ok) {

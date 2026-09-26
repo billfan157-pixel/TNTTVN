@@ -1,0 +1,36 @@
+{
+  "capturedAt": "2026-09-24T18:41:05.066Z",
+  "scope": "disposable-turso-and-test-r2-only",
+  "observations": [
+    {
+      "label": "admin-login",
+      "status": 200,
+      "elapsedMs": 1813
+    },
+    {
+      "label": "archive-upload",
+      "status": 201,
+      "elapsedMs": 1276
+    },
+    {
+      "label": "asset-persisted",
+      "hasObjectKey": true,
+      "checksumMatches": true
+    },
+    {
+      "label": "unauthorized-download",
+      "status": 401,
+      "elapsedMs": 558
+    },
+    {
+      "label": "authorized-download",
+      "status": 200,
+      "elapsedMs": 880
+    },
+    {
+      "label": "download-integrity",
+      "sizeMatches": true,
+      "checksumMatches": true
+    }
+  ]
+}
