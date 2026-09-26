@@ -152,6 +152,7 @@ describe('deployment and native privacy contracts', () => {
     expect(cutover).toContain('CATEVIA_MAINTENANCE_OWNER')
     expect(cutover).toContain('verify-production-boundary.mjs')
     // Rollback must not need the Worker credential that rollback removes.
-    expect(cutover).toContain('secret_value=""')
+    expect(cutover).toContain('remove_env_by_key CATEVIA_PROXY_SHARED_SECRET')
+    expect(cutover).toContain('https://tnttvn.onrender.com')
   })
 })

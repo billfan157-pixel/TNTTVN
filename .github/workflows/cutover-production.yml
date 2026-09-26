@@ -114,35 +114,44 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Rollback names Render explicitly instead of relying on the proxy default,
+          # so the recorded state is readable from the Vercel environment alone.
           if [ "$CATEVIA_BACKEND_TARGET" = "worker" ]; then
-            target_url="https://catevia-api.billfan157.workers.dev"
-            target_value="$target_url"
-            secret_value="$CATEVIA_PROXY_SHARED_SECRET"
+            target_value="https://catevia-api.billfan157.workers.dev"
           else
-            # Empty target restores the proxy default (Render) without leaving a
-            # Worker credential in the Vercel environment.
-            target_value=""
-            secret_value=""
+            target_value="https://tnttvn.onrender.com"
           fi
-          for entry in "CATEVIA_PROXY_TARGET:$target_value" "CATEVIA_PROXY_SHARED_SECRET:$secret_value"; do
-            key="${entry%%:*}"
-            value="${entry#*:}"
-            if [ -z "$value" ]; then
-              curl --silent --show-error --output /dev/null \
-                --request DELETE \
-                --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env/${key}?teamId=${VERCEL_TEAM_ID}" \
-                --header "Authorization: Bearer ${VERCEL_TOKEN}" || true
-              continue
-            fi
-            payload="$(jq -n --arg key "$key" --arg value "$value" --arg type "encrypted" \
-              '{key:$key, value:$value, type:$type, target:["production"]}')"
+          upsert_env() {
+            local key="$1" value="$2"
+            local payload
+            payload="$(jq -n --arg key "$key" --arg value "$value" '{key:$key, value:$value, type:"encrypted", target:["production"]}')"
             curl --fail-with-body --silent --show-error --output /dev/null \
               --request POST \
               --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
               --header "Authorization: Bearer ${VERCEL_TOKEN}" \
               --header "Content-Type: application/json" \
               --data "$payload"
-          done
+          }
+          remove_env_by_key() {
+            local key="$1" envs env_id
+            envs="$(curl --fail-with-body --silent --show-error \
+              --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+              --header "Authorization: Bearer ${VERCEL_TOKEN}")"
+            env_id="$(jq -r --arg key "$key" '[.envs[] | select(.key == $key and (.gitBranch == null)) | .id] | first // empty' <<<"$envs")"
+            [ -z "$env_id" ] && return 0
+            curl --fail-with-body --silent --show-error --output /dev/null \
+              --request DELETE \
+              --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env/${env_id}?teamId=${VERCEL_TEAM_ID}" \
+              --header "Authorization: Bearer ${VERCEL_TOKEN}"
+          }
+
+          upsert_env CATEVIA_PROXY_TARGET "$target_value"
+          if [ "$CATEVIA_BACKEND_TARGET" = "worker" ]; then
+            upsert_env CATEVIA_PROXY_SHARED_SECRET "$CATEVIA_PROXY_SHARED_SECRET"
+          else
+            # Rollback must not leave a live Worker credential in the Vercel project.
+            remove_env_by_key CATEVIA_PROXY_SHARED_SECRET
+          fi
 
           latest_sha="$(curl --fail-with-body --silent --show-error \
             --url "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_TEAM_ID}" \
