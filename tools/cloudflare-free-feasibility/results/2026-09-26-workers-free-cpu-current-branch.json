@@ -1,0 +1,52 @@
+{
+  "capturedAt": "2026-09-26T07:05:00Z",
+  "scope": "Workers Free plan; isolated catevia-free-feasibility Worker; no Catevia credentials, users, database, or production route",
+  "plan": "Workers Free: 100,000 requests/day and 10 ms CPU per invocation",
+  "workerVersion": "f490d12c-7343-4554-8111-87a6fd646433",
+  "branch": "feat/cloudflare-worker-backend",
+  "source": "wrangler tail JSON piped through collect-tail-metrics.mjs; load.mjs driving the probe over the public Internet from Viet Nam",
+  "load": [
+    { "scenario": "bcrypt", "count": 20, "concurrency": 5, "note": "cost-12 hash plus compare in one Durable Object" },
+    { "scenario": "bcrypt-sharded", "count": 20, "concurrency": 5, "note": "cost-12 hash plus compare across 10 synthetic shards" },
+    { "scenario": "ping", "count": 20, "concurrency": 5, "note": "authenticated liveness" }
+  ],
+  "totals": {
+    "invocations": 100,
+    "httpErrors": 0,
+    "exceededCpuEvents": 0
+  },
+  "measurements": {
+    "frontHttpWorker": {
+      "note": "This is the execution model the Free 10 ms CPU cap applies to.",
+      "cpuCapMs": 10,
+      "bcrypt": { "invocations": 20, "status200": 20, "cpuP50Ms": 0, "cpuP95Ms": 1, "cpuMaxMs": 1, "wallP50Ms": 3452, "wallP95Ms": 4174 },
+      "bcryptSharded": { "invocations": 20, "status200": 20, "cpuP50Ms": 0, "cpuP95Ms": 1, "cpuMaxMs": 1, "wallP50Ms": 1220, "wallP95Ms": 1562 },
+      "ping": { "invocations": 20, "status200": 20, "cpuP50Ms": 0, "cpuP95Ms": 0, "cpuMaxMs": 0, "wallP50Ms": 0, "wallP95Ms": 1 }
+    },
+    "durableObjectAuthCpuProbe": {
+      "note": "Durable Object invocations are not bounded by the Free 10 ms CPU cap; this is where password hashing runs.",
+      "invocations": 40,
+      "outcomesOk": 40,
+      "cpuP50Ms": 669,
+      "cpuP95Ms": 2777,
+      "cpuMaxMs": 2976,
+      "wallP50Ms": 942,
+      "wallMaxMs": 4266
+    }
+  },
+  "conclusions": {
+    "frontWorkerCpuHeadroom": "about 10x: p95 1 ms against a 10 ms cap",
+    "passwordHashingFeasibleOnFree": true,
+    "durableObjectsExceedFreeCpuCap": false,
+    "shardingBenefit": "Durable Object wall p50 3452 ms single object vs 1220 ms across 10 shards, about 65 percent lower",
+    "intermittent500Reproduced": false,
+    "intermittent500SampleSize": "40 Durable Object invocations and 60 HTTP requests, all successful",
+    "reliabilityCaveat": "The 2026-09-24 record lists intermittent unexplained HTTP 500s under concurrent bcrypt load. They did not reproduce here, and a clean small sample does not close that reliability question.",
+    "supersedes": "The earlier reading that /api/auth/login exceeded the Free CPU cap came from a per-invocation cpuMs field in one tail sample. The aggregated front-Worker CPU for the same class of work is 0-1 ms."
+  },
+  "remainingFreePlanRisks": [
+    "100,000 requests/day cap with no measured 24 hour production request baseline",
+    "Browser Run 10 browser minutes/day on Free, which is the PDF and OMR path; daily report throughput is unqualified",
+    "Unexplained intermittent HTTP 500s under concurrent password hashing"
+  ]
+}
