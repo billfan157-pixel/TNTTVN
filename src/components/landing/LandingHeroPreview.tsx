@@ -1,20 +1,81 @@
-import React, { useState } from 'react'
-import {
-  BookOpen,
-  Building2,
-  HeartHandshake,
-  CheckCircle2,
-  Calendar,
-  Clock,
-  UserCheck,
-  TrendingUp,
-  FileText,
-  Award,
-} from 'lucide-react'
+import React, { useId, useRef, useState } from 'react'
+import { Award, BookOpen, Building2, CalendarDays, Check, HeartHandshake } from 'lucide-react'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { normalizeAcademicYear } from '../../utils/academicYear'
 
 export type PreviewWorkspace = 'academic' | 'organization' | 'parent'
+
+const WORKSPACES = [
+  { id: 'academic', label: 'Học vụ', icon: BookOpen },
+  { id: 'organization', label: 'Xứ đoàn', icon: Building2 },
+  { id: 'parent', label: 'Phụ huynh', icon: HeartHandshake },
+] as const
+
+/** Shared illustrative content: no real records, API requests or actionable fake controls. */
+export function LandingWorkspacePreview({ workspace }: { workspace: PreviewWorkspace }) {
+  const currentYear = useAcademicYearStore(s => s.currentYear)
+  const displayYear = (normalizeAcademicYear(currentYear) || '2025-2026').replace('-', '–')
+
+  return (
+    <div className={`landing-demo landing-demo--${workspace}`}>
+      {workspace === 'academic' && (
+        <>
+          <div className="landing-demo__identity">
+            <div><span>Sổ lớp Giáo lý</span><h4>Lớp Thiếu Nhi 1A — niên khóa {displayYear}</h4><p>GLV Chủ Nhiệm: Huynh trưởng Têrêsa</p></div>
+            <span className="badge badge-primary">32 Thiếu Nhi</span>
+          </div>
+          <div className="landing-demo__metrics">
+            <div><span>Chuyên cần Lễ</span><strong>97.8<small>%</small></strong><i aria-hidden="true" /></div>
+            <div><span>Điểm TB Học Kỳ</span><strong>8.4<small> / 10</small></strong><i aria-hidden="true" /></div>
+          </div>
+          <div className="landing-demo__roster">
+            <div className="landing-demo__roster-heading"><span>Đoàn sinh minh họa</span><span>Chuyên cần</span><span>Điểm</span></div>
+            {[
+              { holy: 'Maria', name: 'Em A', status: 'Có mặt', score: '9.5' },
+              { holy: 'Giuse', name: 'Em B', status: 'Có mặt', score: '8.8' },
+              { holy: 'Anna', name: 'Em C', status: 'Có phép', score: '9.0' },
+              { holy: 'Phêrô', name: 'Em D', status: 'Có mặt', score: '8.5' },
+            ].map(student => (
+              <div key={student.name} className="landing-demo__student">
+                <span><i aria-hidden="true">{student.name.slice(-1)}</i><span><strong>{student.holy} {student.name}</strong><small>Chi đoàn Thiếu 1</small></span></span>
+                <span className={student.status === 'Có mặt' ? 'text-parish-success' : 'text-parish-warning-hover'}>{student.status}</span>
+                <strong>{student.score}</strong>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {workspace === 'organization' && (
+        <>
+          <div className="landing-demo__identity"><div><span>Lịch & hoạt động</span><h4>Xứ Đoàn Đức Mẹ Fatima</h4><p>Giáo Xứ Gia Tôn · Ban Điều Hành</p></div><CalendarDays aria-hidden="true" /></div>
+          <div className="landing-demo__calendar" aria-hidden="true">
+            <div><span>THÁNG</span><strong>09</strong><small>Minh họa niên khóa</small></div>
+            <div className="landing-demo__calendar-grid">
+              {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map(day => <small key={day}>{day}</small>)}
+              {Array.from({ length: 21 }, (_, index) => <span key={index} className={[6, 13, 20].includes(index) ? 'is-marked' : ''}>{index + 1}</span>)}
+            </div>
+          </div>
+          <div className="landing-demo__events">
+            <div><span>07:00</span><div><strong>Thánh Lễ Bổn Mạng Xứ Đoàn</strong><p>Tại thánh đường · Lịch minh họa</p></div></div>
+            <div><span>09:30</span><div><strong>Họp Ban Điều Hành & GLV tháng 9</strong><p>Phân công sinh hoạt và chương trình thi đua</p></div></div>
+            <div><span>14:00</span><div><strong>Báo cáo tài chính & quỹ xứ đoàn</strong><p>Theo dõi công việc được giao</p></div></div>
+          </div>
+        </>
+      )}
+      {workspace === 'parent' && (
+        <>
+          <div className="landing-demo__parent-header"><HeartHandshake aria-hidden="true" /><span>Catevia · Gia đình</span></div>
+          <div className="landing-demo__identity"><div><span>Đồng hành mỗi ngày</span><h4>Sổ liên lạc điện tử</h4><p>Con của bạn · Chi đoàn Thiếu 2</p></div></div>
+          <div className="landing-demo__child"><span aria-hidden="true">A</span><div><strong>Đoàn sinh minh họa</strong><p><Check aria-hidden="true" />Đang theo học · {displayYear}</p></div></div>
+          <div className="landing-demo__parent-result"><div><span>Chuyên cần Thánh lễ</span><strong>100<small>%</small></strong><p>Đầy đủ trong kỳ minh họa</p></div><div><span>Điểm trung bình Giáo lý</span><strong>8.8</strong><p>Xếp loại Giỏi</p></div></div>
+          <div className="landing-demo__notice"><span>Thông báo từ Xứ Đoàn</span><strong>Chuẩn bị cho buổi học Chúa nhật</strong><p>Giữ kết nối với Giáo Lý Viên của con.</p></div>
+          <div className="landing-demo__request"><span>Đơn xin phép nghỉ trực tuyến</span><strong>Gửi từ cổng phụ huynh</strong></div>
+        </>
+      )}
+      <p className="landing-demo__footnote"><Award aria-hidden="true" />Số liệu demo, không phải dữ liệu thật</p>
+    </div>
+  )
+}
 
 export interface LandingHeroPreviewProps {
   externalActiveTab?: PreviewWorkspace
@@ -23,236 +84,46 @@ export interface LandingHeroPreviewProps {
 
 export function LandingHeroPreview({ externalActiveTab, onTabChange }: LandingHeroPreviewProps = {}) {
   const [internalTab, setInternalTab] = useState<PreviewWorkspace>('academic')
-  const currentYear = useAcademicYearStore(s => s.currentYear)
-  const activeYear = normalizeAcademicYear(currentYear) || '2025-2026'
-  const displayYear = activeYear.replace('-', '–')
-
   const activeTab = externalActiveTab ?? internalTab
-
-  const handleTabClick = (tab: PreviewWorkspace) => {
-    setInternalTab(tab)
-    onTabChange?.(tab)
+  const id = useId()
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const select = (workspace: PreviewWorkspace) => {
+    setInternalTab(workspace)
+    onTabChange?.(workspace)
   }
 
   return (
-    <div className="relative group/mockup select-none [perspective:1200px]">
-      {/* Lớp ánh sáng chiều sâu ambient đa tầng */}
-      <div
-        aria-hidden="true"
-        className="absolute -inset-2 rounded-3xl bg-gradient-to-tr from-parish-primary/10 via-parish-secondary/5 to-parish-primary/5 blur-xl opacity-80 pointer-events-none"
-      />
-
-      {/* Khung thiết bị 2.5D với góc nghiêng tinh tế */}
-      <div className="relative rounded-2xl border border-surface-border bg-surface-card shadow-card card-border-beam overflow-hidden transition-transform duration-300 motion-reduce:transform-none lg:[transform:rotateX(2deg)_rotateY(-2deg)] lg:group-hover/mockup:[transform:rotateX(0deg)_rotateY(0deg)]">
-        {/* Top simulated browser / app title bar */}
-        <div className="bg-surface-app border-b border-surface-border px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-1.5" aria-hidden="true">
-            <span className="w-2.5 h-2.5 rounded-full bg-parish-danger/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-parish-warning/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-parish-success/80" />
-            <span className="ml-1 sm:ml-2 text-xs font-semibold text-text-muted truncate">Catevia · Bản minh họa</span>
-          </div>
-          <span className="text-xs font-medium text-parish-primary flex items-center gap-1 shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-parish-success animate-pulse" />
-            Trực tuyến
-          </span>
-        </div>
-
-      {/* Tabs chooser with sliding pill indicator */}
-      <div className="p-2 sm:p-3 bg-surface-app/50 border-b border-surface-border">
-        <div className="relative grid grid-cols-3 gap-1 bg-surface-app p-1 rounded-xl border border-surface-border" role="tablist" aria-label="Không gian làm việc minh họa">
-          {/* Con trỏ viên nang trượt mượt mà (Sliding pill) */}
-          <div
-            aria-hidden="true"
-            className="absolute top-1 bottom-1 w-[calc(33.333%-2px)] rounded-lg bg-surface-card shadow-sm border border-surface-border/50 mockup-tab-pill pointer-events-none"
-            style={{
-              transform: `translateX(${activeTab === 'academic' ? '2px' : activeTab === 'organization' ? 'calc(100% + 2px)' : 'calc(200% + 2px)'})`,
+    <div className="landing-preview-device" data-workspace={activeTab}>
+      <div className="landing-workspace-tabs" role="tablist" aria-label="Không gian làm việc minh họa">
+        {WORKSPACES.map((workspace, index) => {
+          const Icon = workspace.icon
+          return <button
+            key={workspace.id}
+            ref={element => { tabRefs.current[index] = element }}
+            type="button"
+            id={`${id}-${workspace.id}`}
+            role="tab"
+            tabIndex={activeTab === workspace.id ? 0 : -1}
+            aria-selected={activeTab === workspace.id}
+            aria-controls={`${id}-panel`}
+            onClick={() => select(workspace.id)}
+            onKeyDown={event => {
+              const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+              if (!offset && event.key !== 'Home' && event.key !== 'End') return
+              event.preventDefault()
+              const next = event.key === 'Home' ? 0 : event.key === 'End' ? 2 : (index + offset + 3) % 3
+              tabRefs.current[next]?.focus({ preventScroll: true })
+              select(WORKSPACES[next].id)
             }}
-          />
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'academic'}
-            onClick={() => handleTabClick('academic')}
-            className={`relative z-10 min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
-              activeTab === 'academic'
-                ? 'text-parish-primary'
-                : 'text-text-secondary hover:text-text-main'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Học vụ</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'organization'}
-            onClick={() => handleTabClick('organization')}
-            className={`relative z-10 min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
-              activeTab === 'organization'
-                ? 'text-parish-primary'
-                : 'text-text-secondary hover:text-text-main'
-            }`}
-          >
-            <Building2 className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Xứ đoàn</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'parent'}
-            onClick={() => handleTabClick('parent')}
-            className={`relative z-10 min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
-              activeTab === 'parent'
-                ? 'text-parish-primary'
-                : 'text-text-secondary hover:text-text-main'
-            }`}
-          >
-            <HeartHandshake className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Phụ huynh</span>
-          </button>
-        </div>
+          ><Icon aria-hidden="true" />{workspace.label}</button>
+        })}
       </div>
-
-      {/* Tab content panel */}
-      <div key={activeTab} className="relative preview-panel-fade p-4 sm:p-5 flex flex-col gap-3 min-h-[260px] justify-between">
-        {activeTab === 'academic' && (
-          <div className="relative flex flex-col gap-3">
-            {/* Tia laser quét OMR & điểm danh mô phỏng */}
-            <div className="mockup-scanner-line" aria-hidden="true" />
-
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="m-0 text-xs font-extrabold text-text-main truncate">Lớp Thiếu Nhi 1A — niên khóa {displayYear}</p>
-                <p className="m-0 text-xs text-text-muted truncate">GLV Chủ Nhiệm: Huynh trưởng Têrêsa</p>
-              </div>
-              <span className="badge badge-primary text-xs shrink-0">32 Thiếu Nhi</span>
-            </div>
-
-            {/* Simulated mini metric cards */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="p-2.5 rounded-xl bg-surface-app border border-surface-border flex flex-col">
-                <span className="text-xs text-text-muted flex items-center gap-1">
-                  <UserCheck className="w-3 h-3 text-parish-success" /> Chuyên cần Lễ
-                </span>
-                <span className="text-base font-extrabold text-text-main mt-0.5">97.8%</span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-surface-app border border-surface-border flex flex-col">
-                <span className="text-xs text-text-muted flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3 text-parish-primary" /> Điểm TB Học Kỳ
-                </span>
-                <span className="text-base font-extrabold text-text-main mt-0.5">8.4 / 10</span>
-              </div>
-            </div>
-
-            {/* Simulated mini attendance / grade rows */}
-            <div className="space-y-1.5">
-              {[
-                { holy: 'Maria', name: 'Em A', mass: 'Có mặt', score: '9.5' },
-                { holy: 'Giuse', name: 'Em B', mass: 'Có mặt', score: '8.8' },
-                { holy: 'Anna', name: 'Em C', mass: 'Có phép', score: '9.0' },
-              ].map(st => (
-                <div key={st.name} className="flex items-center justify-between p-2 rounded-lg bg-surface-app/70 border border-surface-border text-xs">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className="font-semibold text-parish-primary shrink-0">{st.holy}</span>
-                    <span className="font-bold text-text-main truncate">{st.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${
-                      st.mass === 'Có mặt' ? 'bg-parish-success-bg text-parish-success' : 'bg-parish-warning-bg text-parish-warning-hover'
-                    }`}>
-                      {st.mass}
-                    </span>
-                    <span className="font-bold text-text-main">{st.score}đ</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'organization' && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="m-0 text-xs font-extrabold text-text-main truncate">Xứ Đoàn Đức Mẹ Fatima</p>
-                <p className="m-0 text-xs text-text-muted truncate">Giáo Xứ Gia Tôn — Ban Điều hành</p>
-              </div>
-              <span className="badge badge-info text-xs shrink-0">5 Ngành TNTT</span>
-            </div>
-
-            <div className="space-y-2">
-              <div className="p-2.5 rounded-xl bg-surface-app border border-surface-border flex items-start gap-2.5">
-                <Calendar className="w-4 h-4 text-parish-primary mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                    <p className="m-0 text-xs font-bold text-text-main">Thánh Lễ Bổn Mạng Xứ Đoàn</p>
-                    <p className="m-0 text-xs text-text-muted">Chúa Nhật tuần III Phục Sinh · 07:00 tại thánh đường</p>
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-surface-app border border-surface-border flex items-start gap-2.5">
-                <Clock className="w-4 h-4 text-parish-secondary mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-bold text-text-main">Họp Ban Điều Hành &amp; GLV tháng 9</p>
-                  <p className="m-0 text-xs text-text-muted">Triển khai chương trình thi đua và xét thăng ngành</p>
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded-xl bg-surface-app border border-surface-border flex items-start gap-2.5">
-                <FileText className="w-4 h-4 text-parish-success mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="m-0 text-xs font-bold text-text-main">Báo cáo tài chính &amp; quỹ xứ đoàn</p>
-                  <p className="m-0 text-xs text-text-muted">Minh bạch thu chi niên khóa và quỹ học bổng</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'parent' && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="m-0 text-xs font-extrabold text-text-main truncate">Sổ liên lạc điện tử</p>
-                <p className="m-0 text-xs text-text-muted truncate">Con của bạn (Chi đoàn Thiếu 2)</p>
-              </div>
-              <span className="badge badge-success text-xs shrink-0">Đang theo học</span>
-            </div>
-
-            <div className="p-3 rounded-xl bg-parish-primary-light border border-parish-primary/20 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-text-secondary">Chuyên cần Thánh lễ:</span>
-                <span className="font-bold text-parish-success flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> 100% đầy đủ
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-text-secondary">Điểm trung bình Giáo lý:</span>
-                <span className="font-extrabold text-parish-primary">8.8 — Giỏi</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-text-secondary">Học kỳ hiện tại:</span>
-                <span className="font-medium text-text-main">Học kỳ 1 (2025–2026)</span>
-              </div>
-            </div>
-
-            <div className="p-2 rounded-lg bg-surface-app border border-surface-border flex items-center justify-between text-xs">
-                <span className="text-text-muted">Đơn xin phép nghỉ trực tuyến</span>
-              <span className="font-semibold text-parish-primary">Chạm để gửi</span>
-            </div>
-          </div>
-        )}
-
-        {/* Footnote */}
-        <div className="pt-2 border-t border-surface-border flex items-center gap-1.5 text-xs text-text-muted">
-          <Award className="w-3.5 h-3.5 text-parish-secondary shrink-0" />
-          <span className="truncate">Ảnh minh họa — số liệu demo, không phải dữ liệu thật</span>
+      <div className="landing-preview-shell">
+        <div className="landing-preview-topbar"><span className="landing-preview-topbar__dots" aria-hidden="true"><i /><i /><i /></span><span>Catevia · Bản minh họa</span><span>Giao diện minh họa</span></div>
+        <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-${activeTab}`} tabIndex={0} className="landing-preview-panel">
+          <LandingWorkspacePreview key={activeTab} workspace={activeTab} />
         </div>
       </div>
     </div>
-  </div>
-)
+  )
 }

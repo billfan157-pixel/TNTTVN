@@ -145,7 +145,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       )}
 
       {/* 4. Primary Operational Actions (Luxury Symmetrical 2×2 Grid) */}
-      <nav aria-label="Thao tác nhanh">
+      <nav aria-label="Thao tác nhanh" data-scroll-story="panel">
         <div className="mobile-section-label">
           Thao tác nhanh
         </div>
@@ -220,7 +220,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       </nav>
 
       {/* 5. Overview Stats Cards (Xứ Đoàn Overview) */}
-      <section className="grid grid-cols-2 gap-3" aria-label="Thống kê tổng quan xứ đoàn">
+      <section className="grid grid-cols-2 gap-3" aria-label="Thống kê tổng quan xứ đoàn" data-scroll-story="group">
         <div className="mobile-stat-card">
           <div className="mobile-stat-card__label">
             <Users size={14} className="text-parish-primary" />
@@ -249,7 +249,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       </section>
 
       {/* 6. Academic Excellence Summary with Mini Distribution */}
-      <div className="mobile-content-card space-y-3">
+      <div className="mobile-content-card space-y-3" data-scroll-story="panel">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Award size={16} className="text-amber-500" />
@@ -295,7 +295,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
       </div>
 
       {/* 7. Parish Notices */}
-      <div className="mobile-content-card space-y-3">
+      <div className="mobile-content-card space-y-3" data-scroll-story="panel">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bell size={16} className="text-rose-500" />

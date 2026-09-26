@@ -15,7 +15,7 @@ describe('existing production schema startup', () => {
     const execute = vi.fn().mockResolvedValue({ rows: names.map(name => ({ name })) })
     await applyIndices({ execute } as unknown as Client)
     expect(execute).toHaveBeenCalledOnce()
-    expect(names).toHaveLength(74)
+    expect(names).toHaveLength(76)
   })
 
   it('still creates a missing index', async () => {

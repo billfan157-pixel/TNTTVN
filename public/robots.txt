@@ -1,0 +1,21 @@
+# robots.txt for Catevia — Xứ Đoàn Đức Mẹ Fatima (TNTTVN)
+User-agent: *
+Allow: /
+Allow: /about
+Allow: /verify
+Allow: /login
+Allow: /login/phuhuynh
+Allow: /login/nhan-su
+
+# Bảo vệ các khu vực nội bộ và dữ liệu đoàn sinh
+Disallow: /dashboard
+Disallow: /students
+Disallow: /grades
+Disallow: /attendance
+Disallow: /finances
+Disallow: /operations
+Disallow: /settings
+Disallow: /parent
+Disallow: /api/
+
+Sitemap: https://tnttvn.vercel.app/sitemap.xml

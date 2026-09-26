@@ -10,6 +10,7 @@ import {
   openProtectedObservation,
   publicDesignRoutes,
   representativeProtectedRoutes,
+  settleFiniteAnimations,
   setThemeThroughHeader,
   type MatrixTheme,
   type MatrixViewportName,
@@ -48,12 +49,21 @@ const runAxeStable = async (
 ) => {
   // Đóng cửa sổ race phổ biến: request đang bay hoàn tất rồi mới scan.
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {})
+  // Axe phải quét UI đã tĩnh: các entrance/scroll choreography đang chạy giữa
+  // chừng làm phép đo contrast rơi vào trạng thái opacity trung gian. Nếu
+  // context bị hủy (dev-server reload hoặc điều hướng), dựng lại observation
+  // rồi settle+scan lại — cùng cơ chế chống flaky đã dùng cho phân tích.
+  const settleThenAnalyze = async () => {
+    await settleFiniteAnimations(page)
+    return analyzeOnce(page, testInfo, artifactName)
+  }
   try {
-    return await analyzeOnce(page, testInfo, artifactName)
+    return await settleThenAnalyze()
   } catch (err) {
     if (!isContextDestroyedError(err)) throw err
     await reopen()
-    return await analyzeOnce(page, testInfo, `${artifactName}-reopened`)
+    await settleFiniteAnimations(page)
+    return analyzeOnce(page, testInfo, `${artifactName}-reopened`)
   }
 }
 

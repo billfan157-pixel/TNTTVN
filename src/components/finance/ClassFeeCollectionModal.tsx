@@ -7,6 +7,7 @@ import { formatVND } from '../../utils/receiptGenerator'
 import { EmptyState } from '../common/StateFeedback'
 import { ConfirmDialog } from '../common/ConfirmDialog'
 import { ModalShell } from '../common/ModalShell'
+import { useToastStore } from '../../stores/toastStore'
 import { StudentName } from '../common/StudentName'
 import type { StudentFeeRecord, FeeType, WritableFeeStatus } from '../../types'
 
@@ -19,7 +20,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   isOpen,
   onClose,
 }) => {
-  const { classFeeRecords, fetchClassFeeRecords, updateStudentFee, updateStudentFeesBatch, funds, isLoading } = useFinanceStore()
+  const { classFeeRecords, fetchClassFeeRecords, updateStudentFee, updateStudentFeesBatch, funds, isLoading, error } = useFinanceStore()
   const { currentYear } = useAcademicYearStore()
   const getClassList = useClassStore((s) => s.getClassList)
   const classesList = getClassList()
@@ -32,22 +33,27 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
   const [filterStatus, setFilterStatus] = useState<string>('ALL')
   const [isCollectAllConfirmOpen, setIsCollectAllConfirmOpen] = useState(false)
   const [pendingCollectAll, setPendingCollectAll] = useState(false)
+  const feeAcademicYear = classesList.find((item) => item.id === selectedClassId)?.academicYearId || currentYear
 
   useEffect(() => {
     if (isOpen) {
       if (classesList.length > 0 && !selectedClassId) {
-        setSelectedClassId(classesList[0].id)
+        setSelectedClassId((classesList.find((item) => item.academicYearId === currentYear) || classesList[0]).id)
       }
       const defaultFund = funds.find((f) => f.isDefault) || funds[0]
       if (defaultFund) setTargetFundId(defaultFund.id)
     }
-  }, [isOpen, funds, classesList, selectedClassId])
+  }, [isOpen, funds, classesList, selectedClassId, currentYear])
 
   useEffect(() => {
-    if (selectedClassId && isOpen) {
-      fetchClassFeeRecords(selectedClassId, currentYear || '2025-2026', feeType)
+    if (selectedClassId && isOpen && feeAcademicYear) {
+      fetchClassFeeRecords(selectedClassId, feeAcademicYear, feeType)
     }
-  }, [selectedClassId, feeType, isOpen, currentYear, fetchClassFeeRecords])
+  }, [selectedClassId, feeType, isOpen, feeAcademicYear, fetchClassFeeRecords])
+
+  const showWriteError = () => {
+    useToastStore.getState().addToast(useFinanceStore.getState().error || 'Không thể cập nhật khoản phí.', 'error', 7000)
+  }
 
   if (!isOpen) return null
 
@@ -56,10 +62,10 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     const newStatus: WritableFeeStatus = isPaid ? 'UNPAID' : 'PAID'
     const paidAmount = isPaid ? 0 : record.expectedAmount || defaultAmount
 
-    await updateStudentFee(selectedClassId, {
+    const result = await updateStudentFee(selectedClassId, {
       studentId: record.studentId,
       classId: selectedClassId,
-      academicYear: currentYear || '2025-2026',
+      academicYear: feeAcademicYear,
       feeType,
       title: feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
       expectedAmount: record.expectedAmount || defaultAmount,
@@ -68,13 +74,14 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
       createTransaction: autoCreateTx && !isPaid,
       fundId: targetFundId,
     })
+    if (!result) showWriteError()
   }
 
   const handleSetExempted = async (record: StudentFeeRecord) => {
-    await updateStudentFee(selectedClassId, {
+    const result = await updateStudentFee(selectedClassId, {
       studentId: record.studentId,
       classId: selectedClassId,
-      academicYear: currentYear || '2025-2026',
+      academicYear: feeAcademicYear,
       feeType,
       title: feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
       expectedAmount: record.expectedAmount || defaultAmount,
@@ -83,6 +90,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
       note: 'Miễn giảm hoàn cảnh khó khăn',
       createTransaction: false,
     })
+    if (!result) showWriteError()
   }
 
   const handleCollectAll = () => {
@@ -98,7 +106,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     const records = unpaid.map((r) => ({
         studentId: r.studentId,
         classId: selectedClassId,
-        academicYear: currentYear || '2025-2026',
+        academicYear: feeAcademicYear,
         feeType,
         title: feeType === 'NIEN_LIEM' ? 'Niên liễm' : 'Đóng phí',
         expectedAmount: r.expectedAmount || defaultAmount,
@@ -108,7 +116,8 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
         fundId: targetFundId,
       } as const))
     try {
-      await updateStudentFeesBatch(selectedClassId, records)
+      const result = await updateStudentFeesBatch(selectedClassId, records)
+      if (!result) showWriteError()
     } finally {
       setPendingCollectAll(false)
     }
@@ -138,6 +147,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
     >
       {/* Toolbar & Selectors */}
       <div className="p-4 bg-surface-hover/30 border-b border-surface-border space-y-3 -mt-4 -mx-6">
+          {error && <div className="text-xs font-semibold text-parish-danger">{error}</div>}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="form-group">
               <label className="form-label">Chọn Lớp Giáo Lý</label>
@@ -148,7 +158,7 @@ export const ClassFeeCollectionModal: React.FC<ClassFeeCollectionModalProps> = (
               >
                 {classesList.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} ({c.branch})
+                    {c.name} ({c.branch}) — {c.academicYearId}
                   </option>
                 ))}
               </select>

@@ -12,7 +12,7 @@ const PILLARS: TrustPillar[] = [
     icon: WifiOff,
     title: 'Ngoại tuyến (Offline-First)',
     description:
-      'Điểm danh Thánh lễ và vào điểm Giáo lý trơn tru ngay cả khi nhà thờ mất mạng; tự động đồng bộ an toàn khi có kết nối trở lại.',
+      'Tiếp tục điểm danh và nhập điểm với dữ liệu đã tải trên thiết bị; theo dõi trạng thái đồng bộ khi kết nối trở lại.',
   },
   {
     icon: ShieldCheck,
@@ -24,19 +24,19 @@ const PILLARS: TrustPillar[] = [
     icon: Smartphone,
     title: 'Máy tính & Điện thoại PWA',
     description:
-      'Tương thích hoàn hảo mọi kích thước màn hình. Có thể thêm vào màn hình chính điện thoại để sử dụng tức thì.',
+      'Dùng trên máy tính và điện thoại; có thể thêm Catevia vào màn hình chính để truy cập nhanh.',
   },
   {
     icon: Landmark,
     title: 'Dữ liệu thuộc về Giáo xứ',
     description:
-      'Thông tin thiếu nhi và gia đình thuộc quyền sở hữu trọn vẹn của Giáo xứ Gia Tôn, tôn trọng quyền riêng tư tuyệt đối.',
+      'Thông tin thiếu nhi và gia đình được quản lý trong phạm vi Giáo xứ Gia Tôn, với quyền truy cập theo vai trò và trách nhiệm.',
   },
 ]
 
 export function LandingTrustStrip() {
   return (
-    <section aria-labelledby="tieu-de-tin-cay" className="flex flex-col gap-6">
+    <section data-landing-scene="trust" aria-labelledby="tieu-de-tin-cay" className="landing-trust flex flex-col gap-6">
       <div className="landing-narrative text-center flex flex-col items-center gap-3">
         <span className="landing-eyebrow">
           <ShieldCheck className="w-4 h-4" aria-hidden="true" />
@@ -46,7 +46,7 @@ export function LandingTrustStrip() {
           Bền bỉ, an toàn và tôn trọng quyền riêng tư
         </h2>
         <p className="landing-lead m-0 text-balance">
-          Được thiết kế riêng cho môi trường nhà thờ và sinh hoạt mục vụ, Catevia ưu tiên tính tin cậy cao nhất trong từng thao tác.
+          Những công việc hằng tuần cần một nơi rõ ràng, dùng được trên nhiều thiết bị và tôn trọng dữ liệu của gia đình.
         </p>
       </div>
 

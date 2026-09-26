@@ -3,6 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { ModalPortal } from './ModalPortal'
 import { Button } from './ui/Button'
+import { haptics } from '../../utils/haptics'
 
 interface ConfirmDialogProps {
   isOpen: boolean
@@ -37,6 +38,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   useEffect(() => {
     if (!isOpen) return
+    if (variant === 'danger') {
+      haptics.warning()
+    } else {
+      haptics.tap()
+    }
     // UX-SAFE-1 (2026-09-09): hành động phá hủy (variant="danger") KHÔNG được
     // auto-focus vào nút Xác nhận/Xóa — Enter/Space vô tình sẽ xóa dữ liệu ngay.
     // Focus mặc định vào nút Hủy; chỉ focus nút xác nhận khi không phá hủy.
@@ -75,7 +81,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        onClick={onCancel}
+        onClick={() => { if (!isBusy) onCancel() }}
       >
         <div
           ref={modalRef}
@@ -102,7 +108,13 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {showCancel && (
               <Button
                 ref={cancelRef}
-                onClick={onCancel}
+                onClick={() => {
+                  if (!isBusy) {
+                    haptics.tap()
+                    onCancel()
+                  }
+                }}
+                disabled={isBusy}
                 variant="secondary"
                 className="w-full sm:w-auto min-h-11"
               >
@@ -111,7 +123,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             )}
             <Button
               ref={confirmRef}
-              onClick={onConfirm}
+              onClick={() => {
+                if (variant === 'danger') {
+                  haptics.error()
+                } else {
+                  haptics.medium()
+                }
+                onConfirm()
+              }}
               disabled={isBusy}
               loading={isBusy}
               loadingLabel="Đang xử lý..."

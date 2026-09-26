@@ -40,20 +40,22 @@ export const FinancePage: React.FC = () => {
     funds,
     transactions,
     selectedFundId,
-    selectedAcademicYear: _selectedAcademicYear,
-    pagination,
+     selectedAcademicYear,
+     pagination,
+
     fetchSummary,
     fetchTransactions,
     deleteTransaction,
     setSelectedFundId,
-    setSelectedAcademicYear: _setSelectedAcademicYear,
-    ledgerFilters,
+     setSelectedAcademicYear,
+     ledgerFilters,
+
     setLedgerFilters,
     setPage,
     isLoading: _isLoading,
   } = useFinanceStore()
 
-  const { currentYear: _currentYear, academicYears: _academicYears } = useAcademicYearStore()
+  const { currentYear } = useAcademicYearStore()
   const addToast = useToastStore((s) => s.addToast)
 
   const navigate = useNavigate()
@@ -84,6 +86,7 @@ export const FinancePage: React.FC = () => {
 
   // Confirm Dialog State
   const [txToDelete, setTxToDelete] = useState<FinancialTransaction | null>(null)
+  const [deletingTx, setDeletingTx] = useState(false)
 
   // Filter States
   // P0.6 (audit desktop 2026-08-22): type + date range lọc SERVER-SIDE qua
@@ -111,12 +114,19 @@ export const FinancePage: React.FC = () => {
   }, [searchTerm])
 
   useEffect(() => {
-    const load = async () => {
-      await Promise.all([fetchSummary(), fetchTransactions()])
-      setIsInitialLoading(false)
+    if (!currentYear) return
+    if (selectedAcademicYear !== currentYear) {
+      setSelectedAcademicYear(currentYear)
+      return
     }
-    load()
-  }, [fetchSummary, fetchTransactions])
+    let cancelled = false
+    const load = async () => {
+      await Promise.all([fetchSummary(currentYear), fetchTransactions({ academicYear: currentYear })])
+      if (!cancelled) setIsInitialLoading(false)
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [currentYear, selectedAcademicYear, fetchSummary, fetchTransactions, setSelectedAcademicYear])
 
   if (user?.role !== 'admin') {
     return (
@@ -142,7 +152,8 @@ export const FinancePage: React.FC = () => {
   }
 
   const handleConfirmDelete = async () => {
-    if (!txToDelete) return
+    if (!txToDelete || deletingTx) return
+    setDeletingTx(true)
     try {
       const ok = await deleteTransaction(txToDelete.id)
       if (ok) {
@@ -153,6 +164,7 @@ export const FinancePage: React.FC = () => {
     } catch {
       addToast('Không thể xóa giao dịch. Vui lòng thử lại!', 'error')
     } finally {
+      setDeletingTx(false)
       setTxToDelete(null)
     }
   }
@@ -683,6 +695,7 @@ export const FinancePage: React.FC = () => {
         message={`Xác nhận xóa giao dịch "${txToDelete?.title}" (${txToDelete ? formatVND(txToDelete.amount) : ''})?`}
         confirmText="Xóa"
         variant="danger"
+        isBusy={deletingTx}
         onConfirm={handleConfirmDelete}
         onCancel={() => setTxToDelete(null)}
       />

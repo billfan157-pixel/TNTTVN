@@ -42,6 +42,7 @@ import { useStudentStore } from '../../stores/studentStore'
 import { isMcGradedExamType } from '../../types'
 import type { ExamAnswerVariants, ExamType, ExamVersionCode } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { haptics } from '../../utils/haptics'
 import {
   EXISTING_RESULT_FINGERPRINT,
   advanceContinuousRearm,
@@ -204,13 +205,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   }, [fixedStudent, sessionId])
 
   const playFeedback = () => {
-    try {
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate?.(60)
-      }
-    } catch {
-      // ignore
-    }
+    haptics.success()
   }
 
   const pauseCameraAnalysis = useCallback(() => {
@@ -1527,7 +1522,8 @@ const SheetAlignmentGuide: React.FC<{
   if (!skipIdentityCode && !identityLocked) {
     return (
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6">
-        <div className="relative w-[68%] aspect-square rounded-2xl border-2 border-dashed border-sky-300 bg-sky-950/10 shadow-[0_0_20px_rgba(125,211,252,0.25)]">
+        <div className="relative w-[68%] aspect-square rounded-2xl border-2 border-dashed border-sky-300 bg-sky-950/10 shadow-[0_0_20px_rgba(125,211,252,0.25)] overflow-hidden">
+          <div className="scan-laser-line" />
           <div className="absolute inset-x-[-12%] -bottom-20 rounded-lg bg-black/75 px-3 py-2 text-center">
             <p className="text-xs font-black text-white">Bước 1/2 · Đưa riêng mã QR vào khung</p>
             <p className="mt-1 text-[10px] text-sky-200">Giữ gần và rõ nét; đọc xong app sẽ chuyển sang căn OMR</p>
@@ -1543,7 +1539,7 @@ const SheetAlignmentGuide: React.FC<{
       <div className="absolute inset-0 pointer-events-none">
         <div
           data-testid="integrated-omr-guide"
-          className="absolute rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-950/10"
+          className="absolute rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-950/10 overflow-hidden"
           style={{
             width: `${guideLayout.widthFraction * 100}%`,
             left: '50%',
@@ -1553,6 +1549,7 @@ const SheetAlignmentGuide: React.FC<{
             boxShadow: '0 0 0 9999px rgba(0,0,0,0.16), 0 0 18px rgba(52,211,153,0.32)',
           }}
         >
+          <div className="scan-laser-line" />
           <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-emerald-100 drop-shadow-sm">
             CĂN 4 Ô ĐEN VÀO 4 GÓC KHUNG
           </span>
@@ -1567,7 +1564,8 @@ const SheetAlignmentGuide: React.FC<{
 
   return (
     <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-3">
-      <div className="relative h-[88%] aspect-[210/297] rounded-[3%] border border-dashed border-sky-300/80 bg-sky-950/10 shadow-[0_0_0_1px_rgba(255,255,255,0.12)]">
+      <div className="relative h-[88%] aspect-[210/297] rounded-[3%] border border-dashed border-sky-300/80 bg-sky-950/10 shadow-[0_0_0_1px_rgba(255,255,255,0.12)] overflow-hidden">
+        <div className="scan-laser-line" />
         {CORNER_MARKERS.map(marker => (
           <span
             key={marker.id}

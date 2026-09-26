@@ -19,10 +19,10 @@ vi.mock('../lib/resetClientData', async (importOriginal) => {
 
 import { initDB, getDB } from '../lib/db'
 import { useSyncStore, getOwnUnsettledSyncOperations } from '../stores/syncStore'
-import { runSyncFlow } from '../lib/syncCoordinator'
+import { runSyncFlow, beginGenerationEvidenceBoundary } from '../lib/syncCoordinator'
 import { api } from '../lib/api'
 import { PURGE_VERSION_KEY, resetClientData } from '../lib/resetClientData'
-import { setTenantScope } from '../lib/tenantScope'
+import { setTenantScope, scopedStorageKey } from '../lib/tenantScope'
 
 const resetClientDataMock = vi.mocked(resetClientData)
 
@@ -86,6 +86,59 @@ describe('Sync Engine — PURGE v2.3 trên device mới (A-NEW-46)', () => {
 
     expect(resetClientDataMock).toHaveBeenCalledWith(4)
     expect(api.getSyncWatermark).not.toHaveBeenCalled()
+  })
+
+  it('device mới đã bootstrap năm học cục bộ vẫn được coi là sạch', async () => {
+    await getDB().stores.put({
+      key: scopedStorageKey('parish_store_academic_year')!,
+      value: JSON.stringify({ state: { academicYears: [{ id: '2025-2026' }], currentYear: '2025-2026' } }),
+    })
+    mockApiMethods(4)
+
+    await runSyncFlow()
+
+    expect(resetClientDataMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PURGE_VERSION_KEY)).toBe('4')
+  })
+
+  it('device mới đã bootstrap lớp từ server trong lúc rehydrate vẫn không bị wipe', async () => {
+    await beginGenerationEvidenceBoundary()
+    await getDB().stores.put({
+      key: scopedStorageKey('parish_store_classes')!,
+      value: JSON.stringify({ state: { classes: [{ id: 'class-fresh' }], branches: [], academicYears: [] } }),
+    })
+    mockApiMethods(4)
+
+    await runSyncFlow()
+
+    expect(resetClientDataMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PURGE_VERSION_KEY)).toBe('4')
+  })
+
+  it('device thiếu generation key nhưng có cache tenant phải reset trước khi sync', async () => {
+    await getDB().stores.put({
+      key: scopedStorageKey('parish_store_students')!,
+      value: JSON.stringify({ state: { students: [{ id: 'stale-student' }] } }),
+    })
+    mockApiMethods(4)
+
+    await runSyncFlow()
+
+    expect(resetClientDataMock).toHaveBeenCalledWith(4)
+    expect(api.getSyncWatermark).not.toHaveBeenCalled()
+  })
+
+  it('cached tenant state thuộc giáo xứ khác không được xem là cache của phiên hiện tại', async () => {
+    await getDB().stores.put({
+      key: 'parish_store_students:PARISH-OTHER:USER-OTHER',
+      value: JSON.stringify({ state: { students: [{ id: 'other-student' }] } }),
+    })
+    mockApiMethods(4)
+
+    await runSyncFlow()
+
+    expect(resetClientDataMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PURGE_VERSION_KEY)).toBe('4')
   })
 
   it('recovery barrier includes failed/processing own ops but excludes completed and other-owner rows', async () => {

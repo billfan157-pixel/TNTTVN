@@ -43,6 +43,7 @@ vi.mock('../../lib/pushManager', () => ({
 
 vi.mock('../../stores/resetStores', () => ({
   resetAllStoresToDefault: vi.fn().mockResolvedValue(undefined),
+  isTenantCacheDirty: vi.fn(() => false),
 }))
 
 import { StaffLoginPage } from '../../pages/StaffLoginPage'

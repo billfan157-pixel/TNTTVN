@@ -146,8 +146,9 @@
   justify-content: center;
   border: 1px solid color-mix(in srgb, var(--color-parish-primary) 14%, var(--color-surface-border));
   border-radius: 9px;
-  background: var(--color-parish-primary-light);
+  background: linear-gradient(150deg, var(--color-parish-primary-light) 0%, var(--color-surface-card) 100%);
   color: var(--color-parish-primary);
+  box-shadow: 0 2px 6px -4px rgba(30, 58, 138, 0.4);
 }
 
 .mobile-page-header__icon svg {
@@ -1033,6 +1034,8 @@
   gap: 8px;
 }
 
+/* Tile icon subpage: cấp thấp hơn PageHeader trang — đảo nghịch mức độ (nền sáng,
+   icon navy) để tiêu đề trang luôn được phân cấp cao nhất, giữ cùng ngôn ngữ navy/xanh. */
 .subpage-header__icon {
   display: inline-flex;
   width: 32px;
@@ -1040,9 +1043,11 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--color-parish-primary) 14%, var(--color-surface-border));
   border-radius: var(--radius-sm);
-  background: var(--color-parish-primary-light);
+  background: linear-gradient(150deg, var(--color-parish-primary-light) 0%, var(--color-surface-card) 100%);
   color: var(--color-parish-primary);
+  box-shadow: 0 2px 6px -4px rgba(30, 58, 138, 0.4);
 }
 
 .subpage-header__icon svg {
@@ -1118,7 +1123,7 @@
 .subpage-header__btn--primary {
   border: 1px solid var(--color-parish-primary);
   background: var(--color-parish-primary);
-  color: #FFFFFF;
+  color: var(--color-text-inverse);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 

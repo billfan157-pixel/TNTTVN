@@ -362,7 +362,7 @@ export function ParishRecordModal({
                       </div>
                       {isSelected && <Check size={14} className="text-parish-primary shrink-0" />}
                     </div>
-                    <p className="text-xs text-text-muted m-0 line-clamp-2 leading-tight">
+                    <p className={`text-xs ${isSelected ? 'text-text-secondary font-medium' : 'text-text-muted'} m-0 line-clamp-2 leading-tight`}>
                       {cfg.desc}
                     </p>
                   </button>
@@ -372,8 +372,8 @@ export function ParishRecordModal({
           </div>
 
           {/* Tiêu đề bản ghi */}
-          <div className="space-y-1.5">
-            <label htmlFor="record-title-input" className="text-xs font-bold text-text-main block">
+          <div className="form-group space-y-1.5">
+            <label htmlFor="record-title-input" className="form-label text-xs font-bold text-text-main block">
               Tiêu đề bản ghi <span className="text-parish-danger">*</span>
             </label>
             <TextInput
@@ -404,8 +404,8 @@ export function ParishRecordModal({
 
           {/* Ngày tháng & Địa điểm */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label htmlFor="occurredOn-input" className="text-xs font-bold text-text-main block mb-1">
+            <div className="form-group">
+              <label htmlFor="occurredOn-input" className="form-label text-xs font-bold text-text-main block mb-1">
                 Ngày bắt đầu <span className="text-parish-danger">*</span>
               </label>
               <TextInput
@@ -418,8 +418,8 @@ export function ParishRecordModal({
               />
             </div>
 
-            <div>
-              <label htmlFor="endedOn-input" className="text-xs font-bold text-text-main block mb-1">
+            <div className="form-group">
+              <label htmlFor="endedOn-input" className="form-label text-xs font-bold text-text-main block mb-1">
                 Ngày kết thúc <span className="text-text-muted font-normal">(nếu kéo dài)</span>
               </label>
               <TextInput
@@ -432,8 +432,8 @@ export function ParishRecordModal({
               />
             </div>
 
-            <div>
-              <label htmlFor="location-input" className="text-xs font-bold text-text-main block mb-1">
+            <div className="form-group">
+              <label htmlFor="location-input" className="form-label text-xs font-bold text-text-main block mb-1">
                 Địa điểm tổ chức
               </label>
               <TextInput
@@ -462,8 +462,8 @@ export function ParishRecordModal({
             </span>
           </div>
 
-          <div>
-            <label htmlFor="summary-textarea" className="text-xs font-bold text-text-main block mb-1">
+          <div className="form-group">
+            <label htmlFor="summary-textarea" className="form-label text-xs font-bold text-text-main block mb-1">
               Tóm tắt ngắn gọn <span className="text-text-muted font-normal">(hiển thị trên thẻ danh sách)</span>
             </label>
             <TextArea
@@ -477,8 +477,8 @@ export function ParishRecordModal({
             />
           </div>
 
-          <div>
-            <label htmlFor="content-textarea" className="text-xs font-bold text-text-main block mb-1">
+          <div className="form-group">
+            <label htmlFor="content-textarea" className="form-label text-xs font-bold text-text-main block mb-1">
               Nội dung chi tiết
             </label>
             <TextArea

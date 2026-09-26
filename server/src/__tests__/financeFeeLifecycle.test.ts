@@ -171,6 +171,29 @@ describe('FIN-LEDGER-1 fee payment lifecycle', () => {
     expect(afterTransactions).toHaveLength(beforeTransactions.length)
   })
 
+  it('does not treat a changed note as an idempotent replay', async () => {
+    const first = await updateStudentFee(parishId, {
+      ...fee(studentB, 'OTHER'), status: 'UNPAID', paidAmount: 0,
+      createTransaction: false, note: 'Ghi chú A',
+    }, actor, 'Admin', '127.0.0.1', 'vitest')
+    const changed = await updateStudentFee(parishId, {
+      ...fee(studentB, 'OTHER'), status: 'UNPAID', paidAmount: 0,
+      createTransaction: false, note: 'Ghi chú B',
+    }, actor, 'Admin', '127.0.0.1', 'vitest')
+    expect(changed.note).toBe('Ghi chú B')
+    expect(changed.updatedAt).not.toBe(first.updatedAt)
+  })
+
+  it('repairs a PAID fee with a missing linked transaction on retry', async () => {
+    await updateStudentFee(parishId, {
+      ...fee(studentB, 'GIAO_LY'), createTransaction: false,
+    }, actor, 'Admin', '127.0.0.1', 'vitest')
+    const repaired = await updateStudentFee(parishId, {
+      ...fee(studentB, 'GIAO_LY'), createTransaction: true,
+    }, actor, 'Admin', '127.0.0.1', 'vitest')
+    expect(repaired.transactionId).toBeTruthy()
+  })
+
   it('rejects fee states whose status and paid amount would diverge from the ledger', async () => {
     await expect(updateStudentFee(
       parishId,

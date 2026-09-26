@@ -7,7 +7,7 @@ vi.mock('../../lib/pushManager', () => ({
   isNativePushAvailable: () => false,
 }))
 // Deliberately disable broad cleanup: scoped deletion must work independently.
-vi.mock('../../stores/resetStores', () => ({ resetAllStoresToDefault: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../../stores/resetStores', () => ({ resetAllStoresToDefault: vi.fn().mockResolvedValue(undefined), isTenantCacheDirty: vi.fn(() => false) }))
 vi.mock('../../lib/tenantScope', async importOriginal => ({
   ...await importOriginal<typeof import('../../lib/tenantScope')>(),
   rehydrateTenantStores: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +15,7 @@ vi.mock('../../lib/tenantScope', async importOriginal => ({
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
 
 import { useAuthStore } from '../../stores/authStore'
+import { resetAllStoresToDefault } from '../../stores/resetStores'
 import { db, AUTH_SNAPSHOT_KEY, dexieStorage } from '../../lib/db'
 import { setTenantScope, getTenantScope, scopedStorageKey } from '../../lib/tenantScope'
 import { setTokens, clearTokens, getAccessToken } from '../../lib/api/core'
@@ -56,7 +57,7 @@ describe('AUTH-P2-001 / AUTH-P3-001 logout across real transport, scope and encr
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
     expect(useAuthStore.getState().isLoading).toBe(true)
     reply(ok())
-    expect(await result).toEqual({ serverConfirmed: true, snapshotCleared: true })
+    expect(await result).toEqual({ serverConfirmed: true, snapshotCleared: true, tenantCacheCleared: true, queueQuarantined: true })
     expect(await db.stores.get(snapshotKey)).toBeUndefined()
     expect(await db.stores.get(`${AUTH_SNAPSHOT_KEY}:P-OTHER:U-OTHER`)).toBeDefined()
     expect(getTenantScope()).toBeNull()
@@ -65,7 +66,7 @@ describe('AUTH-P2-001 / AUTH-P3-001 logout across real transport, scope and encr
 
   it('network failure clears local authority and displays an explicit warning on the logout destination', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')))
-    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: false, snapshotCleared: true })
+    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: false, snapshotCleared: true, tenantCacheCleared: true, queueQuarantined: true })
     expect(getAccessToken()).toBeNull()
     expect(await db.stores.get(snapshotKey)).toBeUndefined()
     render(<LoginPage />)
@@ -77,7 +78,7 @@ describe('AUTH-P2-001 / AUTH-P3-001 logout across real transport, scope and encr
   it('snapshot deletion failure is explicit and cannot reactivate the session', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok()))
     vi.spyOn(db.stores, 'delete').mockRejectedValueOnce(new Error('IndexedDB unavailable'))
-    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: true, snapshotCleared: false })
+    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: true, snapshotCleared: false, tenantCacheCleared: true, queueQuarantined: true })
     expect(await db.stores.get(snapshotKey)).toBeDefined()
     expect(localStorage.getItem('parish_current_user')).toBeNull()
     expect(getAccessToken()).toBeNull()
@@ -85,9 +86,18 @@ describe('AUTH-P2-001 / AUTH-P3-001 logout across real transport, scope and encr
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
   })
 
+  it('tenant cache deletion failure is surfaced on the logout destination', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(ok()))
+    vi.mocked(resetAllStoresToDefault).mockRejectedValueOnce(new Error('IndexedDB unavailable'))
+
+    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: true, snapshotCleared: true, tenantCacheCleared: false, queueQuarantined: true })
+    render(<LoginPage />)
+    expect(screen.getByRole('alert')).toHaveTextContent('toàn bộ dữ liệu tenant')
+  })
+
   it('a successful HTTP response without an acknowledgement is not reported as server logout', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('null', { status: 200 })))
-    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: false, snapshotCleared: true })
+    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: false, snapshotCleared: true, tenantCacheCleared: true, queueQuarantined: true })
     expect(useAuthStore.getState().isLoading).toBe(false)
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
     expect(useAuthStore.getState().error).toContain('chưa xác nhận')

@@ -11,7 +11,7 @@ import { useClassStore } from '../stores/classStore'
 import { useExamStore } from '../stores/examStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useAcademicYearStore } from '../stores/academicYearStore'
-import { decryptQueueValue } from '../lib/offlineCipher'
+import { decryptQueueValue, decryptValue } from '../lib/offlineCipher'
 import { runWithSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
 import { captureTenantScope, getTenantScope, type TenantScopeSnapshot } from '../lib/tenantScope'
@@ -212,9 +212,6 @@ async function preserveLegacyCreateEdits(op: SyncQueueItem): Promise<void> {
 
 /** Initial pull/push sequence formerly embedded in the React hook. */
 export async function runInitialSync(): Promise<void> {
-  // Authenticated bootstrap has one owner. These reference stores used to be
-  // fetched once from main.tsx before a fresh login had established a session,
-  // leaving server policy/year defaults stale until a reload.
   await Promise.all([
     useSettingsStore.getState().fetchSettings(),
     useAcademicYearStore.getState().fetchAcademicYears(),
@@ -222,22 +219,30 @@ export async function runInitialSync(): Promise<void> {
 
   const state = useSyncStore.getState()
   const count = await state.refreshCount()
+  if (count < 0) {
+    throw new Error('Không thể đọc hàng đợi đồng bộ; không được phép tải dữ liệu')
+  }
   if (count > 0) {
     await runSyncFlow()
-  } else {
+    return
+  }
+
+  const acquired = await runWithSyncLease(async () => {
     const pullScopeKey = captureSyncCursorScope()
-    // A persisted delta cursor is not a valid base when the staff roster was
-    // lost locally. Choose one authoritative full pull up front, rather than
-    // first pulling a delta and then repeating every endpoint as a repair.
     const { useAuthStore } = await import('../stores/authStore')
     const isParent = useAuthStore.getState().user?.role === 'phuhuynh'
     const needsFullRoster = !isParent && useStudentStore.getState().students.length === 0
     const pullResult = await fetchAllData(!needsFullRoster)
-    if (pullResult.ok && pullResult.queryTime) {
-      await commitPullCursor(pullResult.queryTime, pullScopeKey)
+    if (!pullResult.ok || !pullResult.queryTime) {
+      throw new Error('Không thể xác minh hoặc tải dữ liệu ban đầu; giữ nguyên dữ liệu cục bộ')
     }
-  }
+    if (!await commitPullCursor(pullResult.queryTime, pullScopeKey)) {
+      throw new Error('Chủ sở hữu dữ liệu đã thay đổi trong lúc tải ban đầu')
+    }
+  })
+  if (!acquired) state.setStatus('idle')
 }
+
 
 export async function runSyncFlow(leaseHeld = false) {
   const store = useSyncStore.getState()
@@ -271,7 +276,7 @@ export async function runSyncFlow(leaseHeld = false) {
   store.setLastError(null)
 
   try {
-    if (!await verifyClientDataGeneration(true)) {
+    if (!await verifyClientDataGeneration()) {
       store.setStatus('failed')
       store.setLastError('Chưa xác minh được phiên dữ liệu máy chủ; giữ hàng đợi, chưa gửi thay đổi.')
       return
@@ -372,6 +377,42 @@ export async function runSyncFlow(leaseHeld = false) {
     // payloads (real studentId/classId) from IndexedDB instead of the stale
     // in-memory array captured before CREATEs were processed.
     ops = await store.getPendingOps()
+
+    const unsettledParentCreates = (await getOwnUnsettledSyncOperations())
+      .filter(op => op.operation === 'CREATE' && (op.entity === 'student' || op.entity === 'class' || op.entity === 'exam'))
+    let blockedDependentCount = 0
+    if (unsettledParentCreates.length > 0) {
+      const parentIds = new Set(unsettledParentCreates.map(op => op.entityId))
+      const isDependentOp = async (op: SyncQueueItem): Promise<boolean> => {
+        if (op.entity === 'exam_result' && [...parentIds].some(id => op.entityId.startsWith(`${id}::result::`))) return true
+        if (op.entity === 'student' && op.operation === 'CREATE') {
+          try {
+            const payload = await parseQueuePayload(op.payload, true) as Record<string, unknown>
+            return typeof payload.classId === 'string' && parentIds.has(payload.classId)
+          } catch {
+            return true
+          }
+        }
+        if (!['grade', 'attendance', 'daily_entry', 'exam_result'].includes(op.entity)) {
+          return op.operation !== 'CREATE' && parentIds.has(op.entityId)
+        }
+        try {
+          const payload = await parseQueuePayload(op.payload, true) as Record<string, unknown>
+          return ['studentId', 'classId', 'sessionId'].some(field => typeof payload[field] === 'string' && parentIds.has(payload[field] as string))
+        } catch {
+          return true
+        }
+      }
+      const runnableOps: SyncQueueItem[] = []
+      for (const op of ops) {
+        if (await isDependentOp(op)) blockedDependentCount++
+        else runnableOps.push(op)
+      }
+      ops = runnableOps
+      if (blockedDependentCount > 0) {
+        store.setLastError('Một thay đổi chao chưa hoàn tất; các thay đổi phụ thuộc đang chờ để tránh mất dữ liệu.')
+      }
+    }
 
     // ─── Phase 2: Group batchable ops (grade/attendance UPDATEs) ───
     const gradeUpdateOps = ops.filter(o => o.entity === 'grade' && o.operation === 'UPDATE' && !o.serverAcknowledgement)
@@ -606,20 +647,33 @@ export async function runSyncFlow(leaseHeld = false) {
     // OFF-TENANT-1: thông báo lỗi chỉ đếm failed ops đúng scope phiên hiện tại.
     const failedCount = await db.syncQueue.where('status').equals('failed').filter((item) => isOwnOp(item)).count()
     const totalConflicts = syncState.mergedConflictCount
-    if (finalCount === 0) {
+    if (finalCount < 0) {
+      s.setStatus('failed')
+      s.setLastError('Không thể xác minh hàng đợi sau khi đồng bộ; dừng trước khi kéo dữ liệu mới.')
+      return
+    }
+    const pullableCount = Math.max(0, finalCount - blockedDependentCount)
+    if (pullableCount === 0) {
       const pullScopeKey = captureSyncCursorScope()
       const pullResult = await fetchAllData(true)
-      if (pullResult.ok && pullResult.queryTime) {
-        await commitPullCursor(pullResult.queryTime, pullScopeKey)
+      if (!pullResult.ok || !pullResult.queryTime) {
+        const current = useSyncStore.getState()
+        current.setStatus(navigator.onLine ? 'failed' : 'offline')
+        if (!current.lastError) current.setLastError('Không thể tải dữ liệu mới; dừng trước khi cập nhật cache cục bộ.')
+        return
       }
-      s.setStatus(navigator.onLine ? 'idle' : 'offline')
-
-      if (totalConflicts > 0) {
-        s.setLastError(`${syncState.mergedConflictCount} bản ghi xung đột phiên bản đã được hợp nhất — chỉnh sửa của bạn được giữ lại.`)
-      } else if (failedCount > 0) {
-        s.setLastError(`Có ${failedCount} thao tác đồng bộ thất bại. Kiểm tra trong System Diagnostics.`)
+      await commitPullCursor(pullResult.queryTime, pullScopeKey)
+      if (blockedDependentCount > 0) {
+        s.setStatus(unsettledParentCreates.some(op => op.status === 'failed') ? 'failed' : 'retrying')
       } else {
-        s.setLastError(null)
+        s.setStatus(navigator.onLine ? 'idle' : 'offline')
+        if (totalConflicts > 0) {
+          s.setLastError(`${syncState.mergedConflictCount} bản ghi xung đột phiên bản đã được hợp nhất — chỉnh sửa của bạn được giữ lại.`)
+        } else if (failedCount > 0) {
+          s.setLastError(`Có ${failedCount} thao tác đồng bộ thất bại. Kiểm tra trong System Diagnostics.`)
+        } else {
+          s.setLastError(null)
+        }
       }
     } else {
       const remaining = s.pendingCount
@@ -642,7 +696,69 @@ export async function runSyncFlow(leaseHeld = false) {
   }
 }
 
-export async function verifyClientDataGeneration(requireEvidence = false): Promise<boolean> {
+function reportGenerationFailure(message: string): void {
+  const store = useSyncStore.getState()
+  store.setLastError(message)
+  store.setStatus(navigator.onLine ? 'failed' : 'offline')
+}
+
+let generationEvidenceBoundary: Set<string> | null = null
+
+export async function beginGenerationEvidenceBoundary(): Promise<void> {
+  try {
+    const database = getDB()
+    const [storeKeys, metaKeys] = await Promise.all([
+      database.stores.toCollection().primaryKeys() as Promise<string[]>,
+      database.syncMeta.toCollection().primaryKeys() as Promise<string[]>,
+    ])
+    generationEvidenceBoundary = new Set([...storeKeys, ...metaKeys])
+  } catch {
+    generationEvidenceBoundary = null
+  }
+}
+
+async function hasLocalTenantState(owner: TenantScopeSnapshot): Promise<boolean> {
+  try {
+    const database = getDB()
+    const suffix = `:${owner.parishId}:${owner.userId}`
+    const belongsToOwner = (key: string) => key.endsWith(suffix) || !key.includes(':')
+    const existedBeforeRehydrate = (key: string) => generationEvidenceBoundary === null || generationEvidenceBoundary.has(key)
+    const metaKeys = (await database.syncMeta.toCollection().primaryKeys() as string[]).filter(existedBeforeRehydrate)
+    if (metaKeys.some(belongsToOwner)) return true
+    const rows = (await database.stores.toArray()).filter(row => existedBeforeRehydrate(row.key))
+    const materialFields = [
+      'students', 'grades', 'attendance', 'entries', 'serverEntries', 'sessions', 'results',
+      'cachedResultsBySession', 'classes', 'branches', 'notices', 'transactions', 'classFeeRecords',
+      'requests', 'promotionQueue', 'profile', 'events', 'operations',
+      'evaluationMap', 'activeSnapshotMap', 'summary',
+    ]
+    for (const row of rows) {
+      if (!belongsToOwner(row.key)) continue
+      if (row.key.includes('parish_store_theme') || row.key.includes('parish_auth_user') || row.key.includes('parish_store_settings') || row.key.includes('parish_store_academic_year')) continue
+      const decrypted = await decryptValue(row.value, `stores:${row.key}`)
+      let parsed: unknown = decrypted ?? row.value
+      try { parsed = JSON.parse(String(parsed)) } catch { return true }
+      const state = parsed && typeof parsed === 'object' && 'state' in parsed
+        ? (parsed as { state?: unknown }).state
+        : parsed
+      if (!state || typeof state !== 'object') return true
+      const values = state as Record<string, unknown>
+      if (materialFields.some(field => {
+        const value = values[field]
+        if (Array.isArray(value)) return value.length > 0
+        if (value && typeof value === 'object') return Object.keys(value as object).length > 0
+        return typeof value === 'string' && value.trim().length > 0
+      })) return true
+      if (row.key.startsWith('parish_store_')) continue
+      return true
+    }
+    return false
+  } catch {
+    return true
+  }
+}
+
+async function verifyClientDataGenerationInternal(): Promise<boolean> {
   const owner = captureTenantScope()
     // PURGE v2.3 (ghost data): nếu server đã purge (purge_version > bản local) thì toàn bộ
     // dữ liệu offline của thiết bị này là GHOST DATA → reset sạch + đăng xuất ngay,
@@ -660,14 +776,16 @@ export async function verifyClientDataGeneration(requireEvidence = false): Promi
       if (!owner || !isSyncOwnerCurrent(owner)) return false
       const hasLocalPurgeKey = localStorage.getItem(PURGE_VERSION_KEY) !== null
       if (purgeVersion === null) {
-        if (requireEvidence) return false
+        reportGenerationFailure('Không thể xác minh phiên bản dữ liệu giáo xứ; dừng đồng bộ.')
+        return false
       } else if (!hasLocalPurgeKey) {
         // A truly clean device can adopt the current generation as baseline.
         // A legacy/offline device with an owned queue is not clean: accepting a
         // new baseline would let pre-purge/restore intent replay into the new DB.
         const unsettled = await getOwnUnsettledSyncOperations()
+        const hasLocalState = await hasLocalTenantState(owner)
         if (!isSyncOwnerCurrent(owner)) return false
-        if (unsettled.length > 0) {
+        if (unsettled.length > 0 || hasLocalState) {
           try {
             await resetClientData(purgeVersion)
           } catch (resetErr) {
@@ -697,22 +815,35 @@ export async function verifyClientDataGeneration(requireEvidence = false): Promi
         return false
       }
     } catch {
-      if (requireEvidence) return false
+      reportGenerationFailure('Không thể xác minh phiên bản dữ liệu giáo xứ; dừng đồng bộ.')
+      return false
     }
 
   return !!owner && isSyncOwnerCurrent(owner)
 }
 
+export async function verifyClientDataGeneration(): Promise<boolean> {
+  try {
+    return await verifyClientDataGenerationInternal()
+  } finally {
+    generationEvidenceBoundary = null
+  }
+}
+
 export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: string; ok: boolean }> {
   try {
     if (!isAuthenticated()) return { queryTime: '', ok: false }
+    const owner = captureTenantScope()
+    if (!owner) return { queryTime: '', ok: false }
 
     const persistedCursor = incremental ? await readSyncCursor() : null
     const lastSync = persistedCursor || undefined
 
     if (!await verifyClientDataGeneration()) return { queryTime: '', ok: false }
+    if (!isSyncOwnerCurrent(owner)) return { queryTime: '', ok: false }
 
     const { serverTime: queryTime } = await api.getSyncWatermark()
+    if (!isSyncOwnerCurrent(owner)) return { queryTime: '', ok: false }
     const { useAuthStore } = await import('../stores/authStore')
     const isParent = useAuthStore.getState().user?.role === 'phuhuynh'
     const results = await Promise.allSettled([
@@ -724,7 +855,7 @@ export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: 
       useClassStore.getState().fetchClasses(lastSync, queryTime, true),
       useNoticeStore.getState().fetchNotices(lastSync, true),
     ])
-    const ok = results.every(r => r.status === 'fulfilled')
+    const ok = results.every(r => r.status === 'fulfilled') && isSyncOwnerCurrent(owner)
     if (!ok) {
       for (const r of results) {
         if (r.status === 'rejected') Sentry.captureException(r.reason)

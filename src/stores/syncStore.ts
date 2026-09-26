@@ -188,8 +188,10 @@ export const useSyncStore = create<SyncState>((set, get) => ({
       set({ pendingCount: count })
       void get().refreshConflictsCount()
       return count
-    } catch {
-      return 0
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không thể đọc hàng đợi đồng bộ'
+      set({ status: 'failed', lastError: message })
+      return -1
     }
   },
 

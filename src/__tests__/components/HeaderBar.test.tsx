@@ -71,7 +71,7 @@ vi.mock('../../stores/authStore', () => ({
     { getState: () => ({ user: getMockAuthUser(), setUser: vi.fn(), logout: vi.fn() }) },
   ),
 }))
-vi.mock('../../stores/resetStores', () => ({ resetAllStoresToDefault: vi.fn() }))
+vi.mock('../../stores/resetStores', () => ({ resetAllStoresToDefault: vi.fn(), isTenantCacheDirty: vi.fn(() => false) }))
 vi.mock('../../lib/api', () => ({ clearTokens: vi.fn(), isAuthenticated: () => false }))
 vi.mock('../../constants/branches', () => ({
   BRANCHES: { AuNhi: { id: 'AuNhi', name: 'Ấu Nhi', scarfColor: '#16A34A' } },

@@ -34,6 +34,8 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
   const [processError, setProcessError] = useState('')
   const [credential, setCredential] = useState<ResetCredential | null>(null)
   const [copied, setCopied] = useState(false)
+  // UX-FEEDBACK-1: "Bỏ qua" gọi server nhưng trước đây không có phản hồi/không chặn bấm lặp.
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
   const { askConfirm, dialog } = useConfirmDialog()
 
   async function loadRequests() {
@@ -78,6 +80,7 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
   }
 
   async function handleDismiss(request: PasswordResetRequest) {
+    if (dismissingId) return
     const confirmed = await askConfirm({
       title: 'Bỏ Qua Yêu Cầu?',
       message: `Bỏ yêu cầu cấp lại mật khẩu của ${request.fullName}? Phụ huynh vẫn có thể gửi yêu cầu mới sau đó.`,
@@ -85,11 +88,14 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
       variant: 'warning',
     })
     if (!confirmed) return
+    setDismissingId(request.id)
     try {
       await api.dismissPasswordResetRequest(request.id)
       await loadRequests()
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Không thể bỏ qua yêu cầu.')
+    } finally {
+      setDismissingId(null)
     }
   }
 
@@ -144,7 +150,15 @@ export function PasswordResetRequestsPanel({ onUsersRefresh }: { onUsersRefresh?
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => void handleDismiss(request)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={dismissingId !== null && dismissingId !== request.id}
+                    loading={dismissingId === request.id}
+                    loadingLabel="Đang bỏ qua…"
+                    onClick={() => void handleDismiss(request)}
+                  >
                     <XCircle aria-hidden="true" className="h-4 w-4" /> Bỏ qua
                   </Button>
                   <Button type="button" variant="primary" size="sm" onClick={() => openRequest(request)}>

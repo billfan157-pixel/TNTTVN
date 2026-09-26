@@ -32,7 +32,7 @@ export function LandingBranchJourney() {
   const branches = BRANCH_ORDER.map(key => BRANCHES[key]).filter(Boolean)
 
   return (
-    <section id="tieu-de-nganh" aria-labelledby="heading-nganh-tntt" className="flex flex-col gap-8 scroll-mt-20">
+    <section id="tieu-de-nganh" data-landing-scene="branches" aria-labelledby="heading-nganh-tntt" className="landing-branches flex flex-col gap-8 scroll-mt-20">
       <div className="landing-narrative text-center flex flex-col items-center gap-3">
         <span className="landing-eyebrow">
           <Award className="w-4 h-4" aria-hidden="true" />
@@ -47,23 +47,12 @@ export function LandingBranchJourney() {
       </div>
 
       {/* Dải hành trình đơn nhất, thích ứng đa thiết bị (Không trùng lặp phần tử DOM) */}
-      <div className="relative pt-2">
-        {/* Đường nối ngang mờ trên desktop */}
-        <div
-          aria-hidden="true"
-          className="hidden lg:block absolute top-9 left-[8%] right-[8%] h-0.5 bg-surface-border -z-0"
-        />
-        {/* Đường nối quang phổ ngũ sắc kết nối 5 ngành TNTT (Scene 3 Rail) */}
-        <div
-          aria-hidden="true"
-          className="hidden lg:block branch-track-fill branch-track-animated -z-0"
-        />
-
-        <ul className="m-0 p-0 list-none grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4 relative z-10">
+      <div className="landing-branches__track relative pt-2">
+        <ul className="landing-branches__list m-0 p-0 list-none grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 sm:gap-4 relative z-10">
           {branches.map((branch, index) => (
-            <li key={branch.id} className="flex">
+            <li key={branch.id} className="landing-branches__item flex min-w-0">
               <article
-                className={`card card-interactive p-4 sm:p-5 flex flex-col gap-2.5 sm:gap-3 w-full border-t-4 transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:shadow-card-hover ${
+                className={`landing-branches__chapter p-4 sm:p-5 flex flex-col gap-2.5 sm:gap-3 w-full border-t-4 ${
                   BRANCH_BORDER_CLASS[branch.id] ?? 'border-t-parish-primary'
                 } ${BRANCH_BADGE_BORDER[branch.id] ?? ''}`}
               >

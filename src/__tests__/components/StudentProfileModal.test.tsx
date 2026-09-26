@@ -31,17 +31,22 @@ const mockStudent: Student = {
   notes: 'Em chăm ngoan, hát hay và tích cực tham gia các phong trào.',
 }
 
-vi.mock('../../stores/classStore', () => ({
-  useClassStore: (selector: any) =>
-    selector({
-      findClassById: (id: string) => ({
-        id,
-        name: 'Thiếu Nhi 1A',
-        catechistLeader: 'Huynh Trưởng Trưởng',
-        room: 'Phòng 102',
+vi.mock('../../stores/classStore', async (importOriginal) => {
+  const actual: any = await importOriginal()
+  return {
+    ...actual,
+    useClassStore: (selector: any) =>
+      selector({
+        classes: [{ id: 'TN1', name: 'Thiếu Nhi 1A', assignedToCurrentUser: true }],
+        findClassById: (id: string) => ({
+          id,
+          name: 'Thiếu Nhi 1A',
+          catechistLeader: 'Huynh Trưởng Trưởng',
+          room: 'Phòng 102',
+        }),
       }),
-    }),
-}))
+  }
+})
 
 vi.mock('../../stores/academicYearStore', () => ({
   useAcademicYearStore: (selector: any) =>
@@ -94,13 +99,16 @@ vi.mock('../../stores/attendanceStore', () => ({
     }),
 }))
 
+const authMockState = {
+  user: { id: 'admin-1', role: 'admin', parishId: 'parish-test' },
+  role: 'admin',
+  isAdmin: true,
+  isChunhiem: false,
+  isPhuta: false,
+}
+
 vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({
-    user: { id: 'admin-1', role: 'admin', parishId: 'parish-test' },
-    isAdmin: true,
-    isChunhiem: false,
-    isPhuta: false,
-  }),
+  useAuth: () => authMockState,
 }))
 
 describe('StudentProfileModal', () => {
@@ -108,6 +116,10 @@ describe('StudentProfileModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    authMockState.role = 'admin'
+    authMockState.isAdmin = true
+    authMockState.isChunhiem = false
+    authMockState.isPhuta = false
     useUIStore.setState({
       isStudentProfileOpen: true,
       studentForProfile: mockStudent,
@@ -198,5 +210,16 @@ describe('StudentProfileModal', () => {
 
     expect(onClose).toHaveBeenCalled()
     expect(openEditStudent).toHaveBeenCalledWith(mockStudent)
+  })
+
+  it('hides Chỉnh Sửa button for non-admin when student is not in an assigned class', () => {
+    authMockState.role = 'chunhiem'
+    authMockState.isAdmin = false
+    authMockState.isChunhiem = true
+
+    // Student has classId 'OTHER_CLASS' which is not in assigned classes
+    render(<StudentProfileModal isOpen onClose={onClose} student={{ ...mockStudent, classId: 'OTHER_CLASS' }} />)
+
+    expect(screen.queryByRole('button', { name: /Chỉnh Sửa/i })).not.toBeInTheDocument()
   })
 })

@@ -35,6 +35,8 @@ export const INDICES = [
   'CREATE INDEX IF NOT EXISTS idx_permissions_parish_id ON permissions(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_push_subscriptions_parish_id ON push_subscriptions(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_id ON push_subscriptions(user_id)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint_unique ON push_subscriptions(parish_id, endpoint)',
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_transactions_receipt_parish ON financial_transactions(parish_id, receipt_number) WHERE receipt_number IS NOT NULL',
   'CREATE INDEX IF NOT EXISTS idx_refresh_tokens_parish_id ON refresh_tokens(parish_id)',
   'CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id)',
   'CREATE INDEX IF NOT EXISTS idx_import_batches_parish_id ON import_batches(parish_id)',

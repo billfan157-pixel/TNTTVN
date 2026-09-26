@@ -2,16 +2,27 @@ import { expect, type Page } from '@playwright/test'
 
 export type MatrixTheme = 'light' | 'dark'
 
-async function settleFiniteAnimations(page: Page) {
+export async function settleFiniteAnimations(page: Page) {
   await page.evaluate(() => new Promise<void>(resolve => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
   }))
   await page.evaluate(async () => {
     const finiteAnimations = document.getAnimations().filter(animation => {
-      const iterations = animation.effect?.getComputedTiming().iterations
-      return animation.playState === 'running' && iterations !== Infinity
+      const timing = animation.effect?.getComputedTiming()
+      // Scroll/view-timeline animations KHÔNG bao giờ "finished" theo thời gian
+      // (chúng được tua bởi vị trí cuộn — progress đứng ở 0 khi phần tử ngoài
+      // viewport). Chờ chúng sẽ treo settle: landing có storyBeatFocus/
+      // branchTrackGrow trên ViewTimeline trong khi trang protected thì không.
+      const timeline = (animation as Animation & { timeline?: AnimationTimeline | null }).timeline
+      if (timeline && !(timeline instanceof DocumentTimeline)) return false
+      return animation.playState === 'running' && timing?.iterations !== Infinity
     })
-    await Promise.allSettled(finiteAnimations.map(animation => animation.finished))
+    // Chặn trên an toàn: settle là best-effort, không được treo gate nếu có
+    // animation tương lai không kết thúc.
+    await Promise.race([
+      Promise.allSettled(finiteAnimations.map(animation => animation.finished)),
+      new Promise<void>(resolve => setTimeout(resolve, 4_000)),
+    ])
   })
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
 }
@@ -64,6 +75,7 @@ const protectedRouteNavigation: Record<RepresentativeProtectedRoute, { label: st
   '/finances': { label: 'Quỹ & Thu Chi', workspace: 'organization' },
   '/parish': { label: 'Tổng Quan Xứ Đoàn', workspace: 'organization' },
   '/parish-profile': { label: 'Hồ Sơ Xứ Đoàn', workspace: 'organization' },
+  '/operations': { label: 'Công Việc', workspace: 'organization' },
 }
 
 const workspaceLabels = {
@@ -138,14 +150,14 @@ export async function openProtectedObservation(
 
 export async function openParishRecordEditor(page: Page) {
   await page.getByRole('button', { name: 'Thêm bản ghi', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Bản ghi Xứ đoàn' })
+  const dialog = page.getByRole('dialog', { name: /(Bản ghi Xứ đoàn|Thêm Cột Mốc Lịch Sử Mới|Cột mốc lịch sử)/i })
   await expect(dialog).toBeVisible()
   await settleFiniteAnimations(page)
   return dialog
 }
 
 export async function assertParishRecordEditorLayout(page: Page) {
-  const dialog = page.getByRole('dialog', { name: 'Bản ghi Xứ đoàn' })
+  const dialog = page.getByRole('dialog', { name: /(Bản ghi Xứ đoàn|Thêm Cột Mốc Lịch Sử Mới|Cột mốc lịch sử)/i })
   const layout = await dialog.evaluate(element => {
     const content = element.querySelector<HTMLElement>('.modal-content')
     const groups = Array.from(element.querySelectorAll<HTMLElement>('.form-group'))

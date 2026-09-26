@@ -30,19 +30,19 @@ const FAQ_ITEMS: FAQItem[] = [
     id: 'ngoai-tuyen',
     question: 'Khi nhà thờ không có wifi hoặc mất sóng 4G thì có điểm danh được không?',
     answer:
-      'Hoàn toàn được. Catevia hoạt động theo cơ chế Ngoại tuyến (Offline-First): mọi thao tác điểm danh chuyên cần Thánh Lễ và ghi nhận điểm số trong ngày vẫn thực hiện bình thường trên máy, và sẽ tự động đồng bộ lên hệ thống ngay khi thiết bị có kết nối mạng trở lại.',
+      'Catevia hoạt động theo cơ chế Ngoại tuyến (Offline-First): những phần đã có trên thiết bị có thể tiếp tục ghi nhận khi mất mạng. Khi kết nối trở lại, hãy kiểm tra trạng thái đồng bộ trước khi xem công việc đã hoàn tất.',
   },
   {
     id: 'dung-dien-thoai',
     question: 'Tôi có thể sử dụng Catevia trên điện thoại (iPhone / Android) không?',
     answer:
-      'Có. Catevia tương thích hoàn hảo trên mọi trình duyệt di động và máy tính bảng. Bạn có thể chọn "Thêm vào màn hình chính" (Add to Home Screen) trên Safari hoặc Chrome để sử dụng tiện lợi như một ứng dụng cài đặt thông thường.',
+      'Có. Catevia dùng được trên trình duyệt điện thoại và máy tính bảng được hỗ trợ. Bạn có thể chọn "Thêm vào màn hình chính" trên Safari hoặc Chrome để truy cập nhanh.',
   },
   {
     id: 'bao-mat-du-lieu',
     question: 'Dữ liệu và điểm số của con em tôi được bảo mật như thế nào?',
     answer:
-      'Dữ liệu thuộc quyền sở hữu trọn vẹn của Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn. Hệ thống phân quyền chặt chẽ: phụ huynh chỉ có thể tra cứu thông tin của chính con em mình; mật khẩu được mã hóa an toàn và không bao giờ chia sẻ cho bất kỳ bên thứ ba nào.',
+      'Dữ liệu thuộc Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn. Quyền truy cập được phân theo vai trò và phạm vi phụ trách; phụ huynh xem thông tin gắn với con em mình.',
   },
 ]
 
@@ -54,7 +54,7 @@ export function LandingFAQ() {
   }
 
   return (
-    <section aria-labelledby="tieu-de-faq" className="flex flex-col gap-8 scroll-mt-20 max-w-4xl mx-auto w-full" id="cau-hoi-thuong-gap">
+    <section data-landing-scene="faq" aria-labelledby="tieu-de-faq" className="landing-faq flex flex-col gap-8 scroll-mt-20 max-w-4xl mx-auto w-full" id="cau-hoi-thuong-gap">
       <div className="landing-narrative text-center flex flex-col items-center gap-3">
         <span className="landing-eyebrow">
           <HelpCircle aria-hidden="true" className="w-4 h-4" />

@@ -53,7 +53,7 @@ describe('AUTH-P1-003 revoked offline mutation boundary', () => {
       retryCount: 0, lastError: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       status: 'pending', deviceId: 'DEV-FOREIGN', userId: user.id, parishId: 'P-OTHER',
     })
-    let invalidation: Promise<{ serverConfirmed: boolean; snapshotCleared: boolean }> | undefined
+    let invalidation: Promise<{ serverConfirmed: boolean; snapshotCleared: boolean; tenantCacheCleared: boolean; queueQuarantined: boolean }> | undefined
     setNavigateToLogin(() => { invalidation = useAuthStore.getState().logout({ serverRejected: true }) })
     vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: 'revoked' }), { status: 401 }))
@@ -83,7 +83,7 @@ describe('AUTH-P1-003 revoked offline mutation boundary', () => {
       status: 200, headers: { 'Content-Type': 'application/json' },
     })))
 
-    await expect(useAuthStore.getState().logout()).resolves.toEqual({ serverConfirmed: true, snapshotCleared: true })
+    await expect(useAuthStore.getState().logout()).resolves.toEqual({ serverConfirmed: true, snapshotCleared: true, tenantCacheCleared: true, queueQuarantined: true })
     expect((await db.syncQueue.get(opId))?.status).toBe('pending')
   })
 })

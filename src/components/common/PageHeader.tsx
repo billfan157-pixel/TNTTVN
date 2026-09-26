@@ -9,10 +9,13 @@ export interface PageHeaderProps {
 }
 
 /**
- * Page Header chuẩn DS §5 (ADR-030/032):
- * icon tile `bg-parish-primary-light text-parish-primary` + `h1 text-lg font-extrabold text-text-main`
- * + desc `text-xs text-text-muted` + actions bên phải.
- * card prop (mặc định true): bọc trong thẻ Card kính mờ đồng bộ toàn hệ thống.
+ * Page Header chuẩn DS §5 (ADR-030/032) — khung tiêu đề trang cấp cao nhất:
+ * card nền gradient brand dịu (`.page-header--card`) + thanh accent vàng→xanh
+ * chuyển sắc mượt ở cạnh trái (vẽ bằng nền layer của card, bo góc khít viền)
+ * + icon tile gradient xanh Xứ Đoàn 46px, icon màu vàng kem (`.page-header__icon`
+ * là chủ sở hữu màu icon — class màu trên svg tại call site không phá vỡ phối màu)
+ * + `h1.page-header__title` 23px/800 + desc `.page-header__description` 13px
+ * + `actions` bên phải. Thích nghi dark mode qua token, không cần variant riêng.
  */
 export const PageHeader: React.FC<PageHeaderProps> = ({
   title,
@@ -48,10 +51,6 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
       )}
     </div>
   )
-
-  if (card) {
-    return content
-  }
 
   return content
 }

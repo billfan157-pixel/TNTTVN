@@ -17,7 +17,9 @@ test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
     await loginAsRole(page, 'chunhiem')
     await page.goto('/attendance')
 
-    await expect(page.getByRole('tab', { name: 'Điểm Danh' })).toHaveAttribute('aria-selected', 'true')
+    const attendanceTab = page.getByRole('tab', { name: 'Điểm Danh' })
+    await expect(attendanceTab).toBeVisible({ timeout: 15_000 })
+    await expect(attendanceTab).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()
     // Toggle status to guarantee a state change regardless of pre-existing state in shared test DB
     const studentStatus = page.getByRole('group', { name: /Trạng thái của/ })

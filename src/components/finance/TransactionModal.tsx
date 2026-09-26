@@ -99,6 +99,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     const res = await createTransaction(payload)
     if (res) {
       onClose()
+    } else {
+      setFormError(useFinanceStore.getState().error || 'Không thể ghi nhận giao dịch. Vui lòng kiểm tra năm học hoặc thử lại.')
     }
   }
 

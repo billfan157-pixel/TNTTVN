@@ -38,22 +38,23 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
   })
 
   it('renders interactive hero preview tabs (Học vụ, Xứ đoàn, Phụ huynh)', () => {
-    render(<LandingPage />)
+    const { container } = render(<LandingPage />)
+    const preview = within(container.querySelector('.landing-preview-device') as HTMLElement)
 
     // Tab Học vụ mặc định active
-    expect(screen.getByText(/Lớp Thiếu Nhi 1A/)).toBeInTheDocument()
-    expect(screen.getByText(/Chuyên cần Lễ/)).toBeInTheDocument()
+    expect(preview.getByText(/Lớp Thiếu Nhi 1A/)).toBeInTheDocument()
+    expect(preview.getByText(/Chuyên cần Lễ/)).toBeInTheDocument()
 
     // Chuyển sang tab Xứ đoàn
     const orgTab = screen.getByRole('tab', { name: /xứ đoàn/i })
     fireEvent.click(orgTab)
-    expect(screen.getByText(/Thánh Lễ Bổn Mạng Xứ Đoàn/i)).toBeInTheDocument()
+    expect(preview.getByText(/Thánh Lễ Bổn Mạng Xứ Đoàn/i)).toBeInTheDocument()
 
     // Chuyển sang tab Phụ huynh
     const parentTab = screen.getByRole('tab', { name: /phụ huynh/i })
     fireEvent.click(parentTab)
-    expect(screen.getByText(/Sổ liên lạc điện tử/)).toBeInTheDocument()
-    expect(screen.getByText(/Đơn xin phép nghỉ trực tuyến/)).toBeInTheDocument()
+    expect(preview.getByText(/Sổ liên lạc điện tử/)).toBeInTheDocument()
+    expect(preview.getByText(/Đơn xin phép nghỉ trực tuyến/)).toBeInTheDocument()
   })
 
   it('toggles mobile navigation menu when clicking hamburger button', () => {
@@ -72,6 +73,24 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     expect(screen.queryByRole('navigation', { name: /menu di động/i })).not.toBeInTheDocument()
   })
 
+  it('supports keyboard tabs and scrolls to the selected chapter without a timer override', () => {
+    const { container } = render(<LandingPage />)
+    const scroll = vi.fn()
+    const parentChapter = container.querySelector('#story-parent') as HTMLElement
+    parentChapter.scrollIntoView = scroll
+    const academic = screen.getByRole('tab', { name: /học vụ/i })
+    fireEvent.keyDown(academic, { key: 'End' })
+    const parent = screen.getByRole('tab', { name: /phụ huynh/i })
+    expect(parent).toHaveFocus()
+    expect(parent).toHaveAttribute('aria-selected', 'true')
+    expect(parent).toHaveAttribute('tabindex', '0')
+    expect(academic).toHaveAttribute('tabindex', '-1')
+    expect(scroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+    fireEvent.keyDown(parent, { key: 'Home' })
+    expect(academic).toHaveFocus()
+    expect(academic).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('renders two authentication paths and three workspace stories', () => {
     render(<LandingPage />)
 
@@ -85,6 +104,23 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     expect(screen.getByRole('heading', { name: /từ buổi học đến trọn vẹn cả niên khóa/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /một nơi để toàn thể xứ đoàn cùng vận hành/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /phụ huynh luôn biết con mình đang đồng hành thế nào/i })).toBeInTheDocument()
+  })
+
+  it('renders the 3 portals bento structure and onboarding guide', () => {
+    const { container } = render(<LandingPage />)
+    const accessSection = container.querySelector('#cong-dang-nhap') as HTMLElement
+    expect(accessSection).toBeInTheDocument()
+
+    // 3 portals
+    expect(within(accessSection).getByRole('heading', { name: /cổng phụ huynh/i })).toBeInTheDocument()
+    expect(within(accessSection).getByRole('heading', { name: /cổng glv & huynh trưởng/i })).toBeInTheDocument()
+    expect(within(accessSection).getByRole('heading', { name: /xác thực chứng chỉ giáo lý/i })).toBeInTheDocument()
+
+    // Onboarding 3 steps inside access section
+    expect(within(accessSection).getByRole('heading', { name: /lần đầu đến với catevia\?/i })).toBeInTheDocument()
+    expect(within(accessSection).getByText('Nhận tài khoản')).toBeInTheDocument()
+    expect(within(accessSection).getByText('Chọn đúng cổng')).toBeInTheDocument()
+    expect(within(accessSection).getByText('Đồng hành mọi nơi')).toBeInTheDocument()
   })
 
   it('renders the five TNTT branches with border color classes and without hardcoded colors', () => {
@@ -185,7 +221,7 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
 
     expect(screen.getByRole('heading', { level: 2, name: /lần đầu đến với catevia\?/i })).toBeInTheDocument()
     expect(screen.getByText(/dữ liệu thuộc về xứ đoàn đức mẹ fatima — giáo xứ gia tôn/i)).toBeInTheDocument()
-    expect(screen.getByText(/không chia sẻ cho bên thứ ba/i)).toBeInTheDocument()
+    expect(screen.getByText(/quyền truy cập được phân theo vai trò/i)).toBeInTheDocument()
   })
 
   it('dynamically reflects active academic year from useAcademicYearStore', () => {
@@ -194,6 +230,17 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
 
     const glassFigure = screen.getByRole('figure')
     expect(within(glassFigure).getByText(/Niên khóa 2027–2028/)).toBeInTheDocument()
-    expect(screen.getByText(/Lớp Thiếu Nhi 1A — niên khóa 2027–2028/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Lớp Thiếu Nhi 1A — niên khóa 2027–2028/).length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('renders the integrated Bento stats strip with 4 key metrics', () => {
+    render(<LandingPage />)
+
+    const statsRegion = screen.getByRole('region', { name: /thông số hệ thống catevia/i })
+    expect(statsRegion).toBeInTheDocument()
+    expect(within(statsRegion).getByText('Ngành sinh hoạt TNTT')).toBeInTheDocument()
+    expect(within(statsRegion).getByText('Không gian làm việc')).toBeInTheDocument()
+    expect(within(statsRegion).getByText('Cổng đăng nhập')).toBeInTheDocument()
+    expect(within(statsRegion).getByText('Tài khoản — 1 Vai trò')).toBeInTheDocument()
   })
 })

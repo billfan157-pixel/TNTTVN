@@ -84,7 +84,7 @@ export const OfflineStatusBanner: React.FC = () => {
     return (
       <>
         {conflictBanner}
-        <div className="offline-status-banner offline-status-banner--syncing bg-parish-info-bg text-parish-info border-b border-parish-info/30 px-4 py-2 text-xs font-semibold flex items-center justify-between animate-pulse">
+        <div className="offline-status-banner offline-status-banner--syncing bg-parish-info-bg text-parish-info border-b border-parish-info/30 px-4 py-2 text-xs font-semibold flex items-center justify-between">
           <div className="offline-status-banner__content flex items-center gap-2">
             <RefreshCw size={15} className="text-parish-info animate-spin shrink-0" />
             <span>🔄 <strong>Đang đồng bộ:</strong> Đang lưu {pendingCount} thay đổi lên máy chủ...</span>

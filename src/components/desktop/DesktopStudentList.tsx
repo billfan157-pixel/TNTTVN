@@ -12,9 +12,9 @@ import {
   FileText, Camera, Upload, CheckCircle2, ChevronLeft,
   ChevronRight, CheckSquare, Square,
   Users, ArrowUpDown, ArrowDownAZ, ArrowDownZA, X, ArrowRightLeft,
-  UserRound
+  UserRound, Lock
 } from 'lucide-react';
-import { useClassStore } from '../../stores/classStore';
+import { useClassStore, canUserAccessClass, canUserEditStudent } from '../../stores/classStore';
 import { useStudentStore } from '../../stores/studentStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useFilterStore } from '../../stores/filterStore';
@@ -48,11 +48,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   onViewPhotoCard,
   onViewProfile,
 }) => {
-  const { isAdmin, isChunhiem, isPhuta } = useAuth();
-  const canEdit = isAdmin || isChunhiem || isPhuta;
-  const canDelete = isAdmin;
-  const canTransfer = isAdmin || isChunhiem;
-
+  const { role, isAdmin, isChunhiem, isPhuta } = useAuth();
   const students = useStudentStore((s) => s.students);
   const selectedClassId = useFilterStore((s) => s.selectedClassId);
   const setSelectedClassId = useFilterStore((s) => s.setSelectedClassId);
@@ -61,6 +57,11 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const searchQuery = useFilterStore((s) => s.searchQuery);
   const setSearchQuery = useFilterStore((s) => s.setSearchQuery);
   const classes = useClassStore((s) => s.classes);
+
+  const isCurrentClassAssigned = canUserAccessClass(selectedClassId, classes, role);
+  const canEdit = isAdmin || isChunhiem || isPhuta;
+  const canDelete = isAdmin;
+  const canTransfer = isAdmin || (isChunhiem && isCurrentClassAssigned);
 
   // 2026-08-22: mặc định xếp theo cấp bậc lớp (Chiến Con → Ấu Nhi → Thiếu Nhi →
   // Nghĩa Sĩ → Hiệp Sĩ; trong lớp theo tên) thay vì thứ tự nhập từ server
@@ -254,7 +255,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               size="sm"
               className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors"
             />
-            {meta.canEdit && (
+            {meta.canEditStudent?.(info.row.original) && (
               <IconButton
                 onClick={() => meta.onEditStudent(info.row.original)}
                 title="Chỉnh sửa"
@@ -288,6 +289,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       toggleSelectPage,
       toggleSelect,
       canEdit,
+      canEditStudent: (student: Student) => (isAdmin || isChunhiem) && canUserEditStudent(student, classes, role),
       onViewProfile: handleViewProfile,
       onViewReport,
       onViewPhotoCard,
@@ -348,7 +350,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             <TextInput
               density="sm"
               type="text"
-              placeholder="Tìm tên, mã số..."
+              placeholder="Tìm theo tên, mã thiếu nhi..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full h-8 text-xs font-medium rounded-xl !pl-8 !pr-7 bg-surface-hover text-text-main placeholder:text-text-placeholder focus:bg-surface-card transition-colors shadow-inner"
@@ -434,7 +436,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
                 leadingIcon={<Upload aria-hidden="true" size={13} />}
                 className="h-8 px-2.5 text-xs font-bold rounded-xl shadow-xs whitespace-nowrap"
               >
-                Import
+                Import Excel
               </Button>
               <Button
                 onClick={onOpenAddStudent}
@@ -453,17 +455,26 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       {/* Một index duy nhất: catalog/CRUD lớp ở cấp đầu, roster khi drill-down. */}
       {selectedClassId === 'all' && (
         <section aria-label="Lớp học và phân lớp">
-          <DesktopClasses embedded layout="grid" onViewClassStudents={handleSelectClass} />
+          <DesktopClasses embedded
+            layout="grid"
+            onViewClassStudents={handleSelectClass}
+            sortDirection={sorting[0]?.id === 'classId' && sorting[0]?.desc ? 'desc' : 'asc'}
+          />
         </section>
       )}
 
       {/* Khi đã chọn 1 lớp cụ thể, hiện danh sách học viên của lớp đó */}
       {selectedClassId !== 'all' && (
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs flex-wrap">
           <button onClick={handleBackToClasses} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-hover border border-surface-border text-text-secondary font-bold hover:bg-surface-card hover:text-parish-primary transition-colors">
             <ChevronLeft size={14} /> Quay lại lưới lớp
           </button>
           <span className="text-text-muted">Đang xem lớp <strong className="text-parish-primary">{classes.find(c => c.id === selectedClassId)?.name}</strong> — {totalFiltered} em</span>
+          {!isAdmin && !isCurrentClassAssigned && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 text-xs font-bold">
+              <Lock size={12} /> Chỉ xem (Không phụ trách)
+            </span>
+          )}
         </div>
       )}
 

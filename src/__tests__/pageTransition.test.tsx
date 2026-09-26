@@ -1,10 +1,15 @@
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, render, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { readCssGraph } from './helpers/cssGraph'
 import { PageTransition } from '../components/common/PageTransition'
 import { isExpectedViewTransitionInterruption } from '../router'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('App-wide page transition contract', () => {
   it('replaces the motion boundary only when the pathname key changes', () => {
@@ -50,5 +55,73 @@ describe('App-wide page transition contract', () => {
     expect(router).toContain('observeInterruption(transition.ready)')
     expect(router).toContain('observeInterruption(transition.finished)')
     expect(router).not.toContain('observeInterruption(transition.updateCallbackDone)')
+  })
+
+  it('reveals only below-fold overview content as it enters, including content loaded later', async () => {
+    let onIntersect!: IntersectionObserverCallback
+    const observe = vi.fn()
+    const unobserve = vi.fn()
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: IntersectionObserverCallback) { onIntersect = callback }
+      observe = observe
+      unobserve = unobserve
+      disconnect = vi.fn()
+    })
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const top = this.id === 'first' ? 20 : 1000
+      return { top, bottom: top + 100, left: 0, right: 100, width: 100, height: 100, x: 0, y: top, toJSON: () => ({}) }
+    })
+
+    const { container, rerender } = render(
+      <PageTransition routeKey="/home">
+        <section id="first" data-scroll-story="panel">First viewport</section>
+        <section id="later" data-scroll-story="panel">Below fold</section>
+      </PageTransition>,
+    )
+    const first = container.querySelector<HTMLElement>('#first')!
+    const later = container.querySelector<HTMLElement>('#later')!
+    expect(first.dataset.scrollStoryState).toBeUndefined()
+    expect(later.dataset.scrollStoryState).toBe('pending')
+    expect(observe).toHaveBeenCalledWith(later)
+
+    const bounds = later.getBoundingClientRect()
+    const entry: IntersectionObserverEntry = {
+      isIntersecting: true,
+      target: later,
+      boundingClientRect: bounds,
+      intersectionRatio: 1,
+      intersectionRect: bounds,
+      rootBounds: null,
+      time: 0,
+    }
+    act(() => onIntersect([entry], {} as IntersectionObserver))
+    expect(later.dataset.scrollStoryState).toBe('entered')
+    expect(unobserve).toHaveBeenCalledWith(later)
+
+    rerender(
+      <PageTransition routeKey="/home">
+        <section id="first" data-scroll-story="panel">First viewport</section>
+        <section id="later" data-scroll-story="panel">Below fold</section>
+        <section id="lazy" data-scroll-story="panel">Loaded later</section>
+      </PageTransition>,
+    )
+    await waitFor(() => expect(container.querySelector<HTMLElement>('#lazy')?.dataset.scrollStoryState).toBe('pending'))
+  })
+
+  it('keeps below-fold content visible when reduced motion is requested', () => {
+    const observe = vi.fn()
+    vi.stubGlobal('IntersectionObserver', class {
+      observe = observe
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+    })
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ top: 1000, bottom: 1100 } as DOMRect)
+
+    const { container } = render(
+      <PageTransition routeKey="/home"><section data-scroll-story="panel">Visible</section></PageTransition>,
+    )
+    expect(container.querySelector<HTMLElement>('section')?.dataset.scrollStoryState).toBeUndefined()
+    expect(observe).not.toHaveBeenCalled()
   })
 })

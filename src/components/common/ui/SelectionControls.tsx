@@ -1,4 +1,5 @@
 import type { HTMLAttributes, KeyboardEvent, ReactNode } from 'react'
+import { haptics } from '../../../utils/haptics'
 
 export interface SelectionItem<Value extends string> {
   value: Value
@@ -69,8 +70,11 @@ export function Tabs<Value extends string>({
             aria-controls={controlId(id, 'panel', item.value)}
             tabIndex={selected ? 0 : -1}
             disabled={item.disabled}
-            className={`view-tab ${selected ? 'is-active' : ''}`.trim()}
-            onClick={() => onValueChange(item.value)}
+            className={`view-tab interactive-press ${selected ? 'is-active' : ''}`.trim()}
+            onClick={() => {
+              haptics.tap()
+              onValueChange(item.value)
+            }}
             onKeyDown={event => moveRovingFocus(event, '[role="tab"]', activation === 'automatic')}
           >
             {item.icon}
@@ -141,8 +145,11 @@ export function SegmentedControl<Value extends string>({
             aria-checked={selected}
             tabIndex={selected ? 0 : -1}
             disabled={item.disabled}
-            className={`view-tab ${selected ? 'is-active' : ''}`.trim()}
-            onClick={() => onValueChange(item.value)}
+            className={`view-tab interactive-press ${selected ? 'is-active' : ''}`.trim()}
+            onClick={() => {
+              haptics.tap()
+              onValueChange(item.value)
+            }}
             onKeyDown={event => moveRovingFocus(event, '[role="radio"]', true)}
           >
             {item.icon}
@@ -188,9 +195,12 @@ export function FilterChips<Value extends string>({
             aria-pressed={selected}
             disabled={item.disabled}
             className={usesPills
-              ? `pill-btn ${selected ? 'pill-btn-primary' : 'pill-btn-secondary'}`
-              : `pill-group-item ${selected ? 'active' : ''}`.trim()}
-            onClick={() => onValueChange(item.value)}
+              ? `pill-btn interactive-press ${selected ? 'pill-btn-primary' : 'pill-btn-secondary'}`
+              : `pill-group-item interactive-press ${selected ? 'active' : ''}`.trim()}
+            onClick={() => {
+              haptics.tap()
+              onValueChange(item.value)
+            }}
           >
             {item.icon}
             {item.label}

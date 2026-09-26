@@ -117,6 +117,11 @@ export function QuestionBankView() {
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  // UX-FEEDBACK-1: các thao tác không nằm trong `saving` (duyệt/kích hoạt câu hỏi,
+  // kích hoạt ma trận) trước đây bấm nút không thấy phản hồi gì.
+  const [transitioning, setTransitioning] = useState<{ id: string; action: 'submit' | 'approve' | 'activate' | 'archive' | 'reject' } | null>(null)
+  const [creatingBlueprint, setCreatingBlueprint] = useState(false)
+  const [activatingBlueprintId, setActivatingBlueprintId] = useState<string | null>(null)
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'warning' | 'info' } | null>(null)
   const [online, setOnline] = useState(() => typeof navigator === 'undefined' || navigator.onLine)
 
@@ -281,6 +286,9 @@ export function QuestionBankView() {
       setMessage({ text: 'Quy trình duyệt câu hỏi yêu cầu kết nối mạng.', tone: 'warning' })
       return
     }
+    // UX-FEEDBACK-1: chặn double-submit + luôn có phản hồi khi chờ server.
+    if (transitioning) return
+    setTransitioning({ id: item.id, action })
     try {
       const updated = await api.transitionQuestionBankItem(item.id, action)
       setPreview(updated)
@@ -288,6 +296,8 @@ export function QuestionBankView() {
       await loadQuestions()
     } catch (error) {
       setMessage({ text: (error as Error).message, tone: 'warning' })
+    } finally {
+      setTransitioning(null)
     }
   }
 
@@ -296,6 +306,8 @@ export function QuestionBankView() {
       setMessage({ text: 'Tạo ma trận đề cần kết nối mạng.', tone: 'warning' })
       return
     }
+    if (creatingBlueprint) return
+    setCreatingBlueprint(true)
     try {
       const blueprintClass = classes.find(item => item.id === bpClassId)
       const created = await api.createExamBlueprint({
@@ -311,6 +323,26 @@ export function QuestionBankView() {
       await loadBlueprints()
     } catch (error) {
       setMessage({ text: (error as Error).message, tone: 'warning' })
+    } finally {
+      setCreatingBlueprint(false)
+    }
+  }
+
+  const activateBlueprint = async (blueprint: ExamBlueprint) => {
+    if (!online) {
+      setMessage({ text: 'Kích hoạt ma trận đề cần kết nối mạng.', tone: 'warning' })
+      return
+    }
+    if (activatingBlueprintId) return
+    setActivatingBlueprintId(blueprint.id)
+    try {
+      await api.setExamBlueprintStatus(blueprint.id, 'active')
+      await loadBlueprints()
+      setMessage({ text: `Đã kích hoạt ma trận “${blueprint.name}”.`, tone: 'success' })
+    } catch (error) {
+      setMessage({ text: (error as Error).message, tone: 'warning' })
+    } finally {
+      setActivatingBlueprintId(null)
     }
   }
 
@@ -927,6 +959,9 @@ export function QuestionBankView() {
                           size="sm"
                           variant="primary"
                           leadingIcon={<Send className="h-4 w-4" />}
+                          disabled={transitioning !== null}
+                          loading={transitioning?.id === preview.id && transitioning.action === 'submit'}
+                          loadingLabel="Đang gửi…"
                           onClick={() => void lifecycle(preview, 'submit')}
                         >
                           Gửi duyệt
@@ -934,10 +969,24 @@ export function QuestionBankView() {
                       )}
                       {role === 'admin' && preview.status === 'in_review' && (
                         <>
-                          <Button size="sm" variant="primary" onClick={() => void lifecycle(preview, 'approve')}>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            disabled={transitioning !== null}
+                            loading={transitioning?.id === preview.id && transitioning.action === 'approve'}
+                            loadingLabel="Đang duyệt…"
+                            onClick={() => void lifecycle(preview, 'approve')}
+                          >
                             Phê duyệt
                           </Button>
-                          <Button size="sm" variant="secondary" onClick={() => void lifecycle(preview, 'reject')}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={transitioning !== null}
+                            loading={transitioning?.id === preview.id && transitioning.action === 'reject'}
+                            loadingLabel="Đang trả về…"
+                            onClick={() => void lifecycle(preview, 'reject')}
+                          >
                             Trả về nháp
                           </Button>
                         </>
@@ -947,6 +996,9 @@ export function QuestionBankView() {
                           size="sm"
                           variant="primary"
                           leadingIcon={<CheckCircle2 className="h-4 w-4" />}
+                          disabled={transitioning !== null}
+                          loading={transitioning?.id === preview.id && transitioning.action === 'activate'}
+                          loadingLabel="Đang kích hoạt…"
                           onClick={() => void lifecycle(preview, 'activate')}
                         >
                           Kích hoạt sử dụng
@@ -957,6 +1009,9 @@ export function QuestionBankView() {
                           size="sm"
                           variant="danger"
                           leadingIcon={<Archive className="h-4 w-4" />}
+                          disabled={transitioning !== null}
+                          loading={transitioning?.id === preview.id && transitioning.action === 'archive'}
+                          loadingLabel="Đang lưu trữ…"
                           onClick={() => void lifecycle(preview, 'archive')}
                         >
                           Lưu trữ
@@ -1201,6 +1256,8 @@ export function QuestionBankView() {
               <Button
                 fullWidth
                 disabled={!bpName.trim() || totalBpQuestions < 1 || totalBpPoints > 10 || !Number.isInteger(totalBpPoints)}
+                loading={creatingBlueprint}
+                loadingLabel="Đang lưu…"
                 onClick={() => void createBlueprintNow()}
               >
                 Lưu ma trận nháp
@@ -1259,15 +1316,10 @@ export function QuestionBankView() {
                       <Button
                         size="sm"
                         variant="primary"
-                        onClick={async () => {
-                          try {
-                            await api.setExamBlueprintStatus(blueprint.id, 'active')
-                            await loadBlueprints()
-                            setMessage({ text: `Đã kích hoạt ma trận “${blueprint.name}”.`, tone: 'success' })
-                          } catch (error) {
-                            setMessage({ text: (error as Error).message, tone: 'warning' })
-                          }
-                        }}
+                        disabled={activatingBlueprintId !== null && activatingBlueprintId !== blueprint.id}
+                        loading={activatingBlueprintId === blueprint.id}
+                        loadingLabel="Đang kích hoạt…"
+                        onClick={() => void activateBlueprint(blueprint)}
                       >
                         Kích hoạt
                       </Button>
@@ -1763,6 +1815,9 @@ export function QuestionBankView() {
                     size="sm"
                     variant="primary"
                     leadingIcon={<Send className="h-4 w-4" />}
+                    disabled={transitioning !== null}
+                    loading={transitioning?.id === preview.id && transitioning.action === 'submit'}
+                    loadingLabel="Đang gửi…"
                     onClick={() => {
                       setMobilePreviewOpen(false)
                       void lifecycle(preview, 'submit')
@@ -1776,6 +1831,9 @@ export function QuestionBankView() {
                     <Button
                       size="sm"
                       variant="primary"
+                      disabled={transitioning !== null}
+                      loading={transitioning?.id === preview.id && transitioning.action === 'approve'}
+                      loadingLabel="Đang duyệt…"
                       onClick={() => {
                         setMobilePreviewOpen(false)
                         void lifecycle(preview, 'approve')
@@ -1786,6 +1844,9 @@ export function QuestionBankView() {
                     <Button
                       size="sm"
                       variant="secondary"
+                      disabled={transitioning !== null}
+                      loading={transitioning?.id === preview.id && transitioning.action === 'reject'}
+                      loadingLabel="Đang trả về…"
                       onClick={() => {
                         setMobilePreviewOpen(false)
                         void lifecycle(preview, 'reject')
@@ -1800,6 +1861,9 @@ export function QuestionBankView() {
                     size="sm"
                     variant="primary"
                     leadingIcon={<CheckCircle2 className="h-4 w-4" />}
+                    disabled={transitioning !== null}
+                    loading={transitioning?.id === preview.id && transitioning.action === 'activate'}
+                    loadingLabel="Đang kích hoạt…"
                     onClick={() => {
                       setMobilePreviewOpen(false)
                       void lifecycle(preview, 'activate')
@@ -1813,6 +1877,9 @@ export function QuestionBankView() {
                     size="sm"
                     variant="danger"
                     leadingIcon={<Archive className="h-4 w-4" />}
+                    disabled={transitioning !== null}
+                    loading={transitioning?.id === preview.id && transitioning.action === 'archive'}
+                    loadingLabel="Đang lưu trữ…"
                     onClick={() => {
                       setMobilePreviewOpen(false)
                       void lifecycle(preview, 'archive')

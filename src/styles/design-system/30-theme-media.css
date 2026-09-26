@@ -138,6 +138,7 @@
 
 .dark .btn-primary { background: var(--color-parish-primary); color: var(--color-text-inverse); }
 .dark .btn-primary:hover { background: var(--color-parish-primary-hover); }
+.dark .subpage-header__btn--primary { color: var(--color-text-inverse); }
 
 .dark .btn-secondary { background: var(--color-surface-hover); color: var(--color-text-main); border-color: var(--color-surface-border); }
 .dark .btn-secondary:hover { background: var(--color-surface-border); color: var(--color-text-main); }

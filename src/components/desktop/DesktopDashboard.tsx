@@ -103,7 +103,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
       <LiturgicalTodayWidget />
 
       {/* Top Banner Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" data-scroll-story="group">
         {/* Total Students */}
         <div className="metric-card">
           <div className="metric-card__icon">
@@ -178,7 +178,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
         {/* Left Column: Top Academic Performers & Analytics Distribution */}
         <div className="lg:col-span-2 space-y-4">
           {/* Top Students */}
-          <div className="section-card">
+          <div className="section-card" data-scroll-story="panel">
             <div className="section-heading">
               <div className="section-heading__identity">
                 <div className="section-heading__icon text-parish-gold bg-parish-gold-light">
@@ -226,7 +226,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
           </div>
 
           {/* Academic Rank Analytics Distribution Bar Chart */}
-          <div className="section-card">
+          <div className="section-card" data-scroll-story="panel">
             <div className="section-heading">
               <div className="section-heading__identity">
                 <div className="section-heading__icon">
@@ -267,7 +267,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
         {/* Right Column: Branch Stats & Recent Notices */}
         <div className="space-y-4">
           {/* Branch Distribution */}
-          <div className="section-card">
+          <div className="section-card" data-scroll-story="panel">
             <div className="section-heading">
               <div className="section-heading__identity">
                 <div className="section-heading__icon text-parish-purple bg-parish-purple-bg">
@@ -306,7 +306,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
           </div>
 
           {/* Recent Parish Notices */}
-          <div className="section-card">
+          <div className="section-card" data-scroll-story="panel">
             <div className="section-heading">
               <div className="section-heading__identity">
                 <div className="section-heading__icon text-parish-danger bg-parish-danger-bg">

@@ -3,6 +3,7 @@ const WORKER_HOST = 'catevia-api.billfan157.workers.dev'
 const PROXY_SECRET_HEADER = 'x-catevia-proxy-secret'
 const CLIENT_IP_HEADER = 'x-catevia-client-ip'
 const BACKEND_HEADER = 'x-catevia-backend'
+const ORIGIN_HEADER = 'x-render-origin-server'
 const WORKER_BACKEND_MARKER = 'cloudflare-worker'
 const INGRESS_HEADER = 'x-catevia-ingress'
 const INGRESS_MARKER = 'routing-middleware'
@@ -80,6 +81,7 @@ export default async function proxy(request: Request): Promise<Response> {
     // and no backend emits them.
     const responseHeaders = new Headers(response.headers)
     responseHeaders.set(INGRESS_HEADER, INGRESS_MARKER)
+    responseHeaders.set(ORIGIN_HEADER, isWorkerTarget ? 'Cloudflare-Worker' : 'Render')
     if (isWorkerTarget) responseHeaders.set(BACKEND_HEADER, WORKER_BACKEND_MARKER)
     return new Response(response.body, {
       status: response.status,

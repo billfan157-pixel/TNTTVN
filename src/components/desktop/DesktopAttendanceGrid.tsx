@@ -217,7 +217,7 @@ export const DesktopAttendanceGrid: React.FC<DesktopAttendanceGridProps> = ({ on
             >
               <FileSpreadsheet size={16} className="text-parish-primary shrink-0" />
               <span>Nhập Điểm Danh TINI</span>
-              <span className="px-1.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-parish-primary text-white shrink-0">
+              <span className="px-1.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-parish-primary text-text-inverse shrink-0">
                 Extension
               </span>
             </button>

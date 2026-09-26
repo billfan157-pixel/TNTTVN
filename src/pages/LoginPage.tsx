@@ -14,7 +14,12 @@ export function LoginPage() {
         {/* Header */}
         <div className="auth-hero">
           <div className="auth-hero__mark">
-            <img src={appLogo} alt="Logo Catevia" className="w-full h-full object-cover" />
+            <img
+              src={appLogo}
+              alt="Logo Catevia"
+              className="w-full h-full object-cover"
+              style={{ viewTransitionName: 'parish-brand-logo' }}
+            />
           </div>
           <h1 className="auth-hero__title">Catevia</h1>
           <div className="auth-hero__subtitle-wrap">

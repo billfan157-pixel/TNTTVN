@@ -121,6 +121,16 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
     vi.restoreAllMocks()
   })
 
+  it('XD-08: pull path does not report idle when generation evidence is unavailable', async () => {
+    vi.mocked(api.probePurgeVersion).mockResolvedValueOnce(1).mockResolvedValue(null)
+    vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-09-01T00:00:00.000Z', cursorVersion: 1 })
+
+    await runSyncFlow()
+
+    expect(useSyncStore.getState().status).toBe(navigator.onLine ? 'failed' : 'offline')
+    expect(useSyncStore.getState().lastError).toContain('phiên bản dữ liệu')
+  })
+
   it('XD-07: remap failure retains encrypted ACK, blocks children, and recovers after local roster reset without another server CREATE', async () => {
     const parentId = await syncService.syncCreateStudent({ id: 'ST-TEMP-ACK', fullName: 'Synthetic', branch: 'AuNhi', classId: 'AU2' })
     const childId = await syncService.syncUpsertGrade({ studentId: 'ST-TEMP-ACK', semester: 1, academicYear: '2026-2027', scoreFinal: 8 })
@@ -304,6 +314,7 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
   it('op fail lỗi vĩnh viễn (400) → status idle + lastError, không kẹt syncing', async () => {
     useStudentStore.getState().setStudents([{ id: 'ST-PERM-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2', parishId: 'PARISH-TEST' } as any])
     vi.mocked(api.createStudent).mockRejectedValue(new ApiError(400, 'Bad Request', '/students'))
+    vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-09-01T00:00:00.000Z', cursorVersion: 1 })
     syncService.syncCreateStudent({ id: 'ST-PERM-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2' })
     await waitForQueueSize(1)
 

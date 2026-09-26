@@ -52,6 +52,9 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
   const [undoing, setUndoing] = useState(false)
   const [history, setHistory] = useState<any[]>([])
   const [loadingHistory, setLoadingHistory] = useState(false)
+  // UX-FEEDBACK-1: nút "Xem"/"Hoàn tác" theo từng dòng lịch sử trước đây không có
+  // phản hồi khi chờ server (và bấm lặp được).
+  const [rowBusyId, setRowBusyId] = useState<string | null>(null)
   const [detailView, setDetailView] = useState<{ batchId: string; rows: any[]; counts: Record<string, number> } | null>(null)
   const [previousImport, setPreviousImport] = useState<{ batchId: string; fileName: string | null; createdAt: string; totalRows: number } | null>(null)
   const [serviceExclusions, setServiceExclusions] = useState<Set<number>>(new Set())
@@ -1122,18 +1125,26 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={async () => {
+                              if (rowBusyId) return
+                              setRowBusyId(b.id)
                               try {
                                 const detail = await api.getBatchDetail(b.id)
                                 setDetailView({ batchId: b.id, rows: detail.rows, counts: detail.counts })
-                              } catch { /* ignore */ }
+                              } catch { /* ignore */ } finally {
+                                setRowBusyId(null)
+                              }
                             }}
-                            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-parish-primary bg-sky-50 hover:bg-sky-100 border border-sky-200"
+                            disabled={rowBusyId === b.id}
+                            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-parish-primary bg-sky-50 hover:bg-sky-100 border border-sky-200 disabled:opacity-60"
                           >
-                            Xem
+                            {rowBusyId === b.id ? <Loader2 className="w-2.5 h-2.5 animate-spin" aria-hidden="true" /> : null}
+                            {rowBusyId === b.id ? 'Đang tải…' : 'Xem'}
                           </button>
                           {['completed', 'partial', 'partial_undone'].includes(b.status) && b.imported > 0 && (
                             <button
                               onClick={async () => {
+                                if (rowBusyId) return
+                                setRowBusyId(b.id)
                                 try {
                                   const undoResult = await api.undoImport(b.id)
                                   await Promise.all([
@@ -1160,11 +1171,17 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                                     variant: 'warning',
                                     showCancel: false,
                                   })
+                                } finally {
+                                  setRowBusyId(null)
                                 }
                               }}
-                              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200"
+                              disabled={rowBusyId === b.id}
+                              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 disabled:opacity-60"
                             >
-                              <RotateCcw className="w-2.5 h-2.5" /> Hoàn tác
+                              {rowBusyId === b.id
+                                ? <Loader2 className="w-2.5 h-2.5 animate-spin" aria-hidden="true" />
+                                : <RotateCcw className="w-2.5 h-2.5" />}
+                              {rowBusyId === b.id ? 'Đang hoàn tác…' : 'Hoàn tác'}
                             </button>
                           )}
                         </div>

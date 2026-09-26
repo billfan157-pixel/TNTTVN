@@ -97,6 +97,7 @@ describe('Vercel backend proxy', () => {
     }))
 
     expect(response.headers.get('x-catevia-backend')).toBe('cloudflare-worker')
+    expect(response.headers.get('x-render-origin-server')).toBe('Cloudflare-Worker')
   })
 
   it('never lets a client spoof or strip the backend marker', async () => {

@@ -19,6 +19,7 @@ vi.mock('../../lib/api', () => ({
   clearTokens: vi.fn(),
   loadTokensFromStorage: vi.fn(),
   bootstrapAccessToken: vi.fn(),
+  isAuthenticated: vi.fn(() => true),
   api: mockApi,
 }))
 
@@ -30,10 +31,12 @@ vi.mock('../../lib/pushManager', () => ({
 
 vi.mock('../../stores/resetStores', () => ({
   resetAllStoresToDefault: vi.fn().mockResolvedValue(undefined),
+  isTenantCacheDirty: vi.fn(() => false),
 }))
 
 vi.mock('../../lib/tenantScope', () => ({
   getTenantScope: vi.fn(() => null),
+  captureTenantScope: vi.fn(() => null),
   setTenantScope: vi.fn(),
   rehydrateTenantStores: vi.fn().mockResolvedValue(undefined),
 }))
@@ -161,7 +164,7 @@ describe('authStore — logout / setUser', () => {
     snapshotStore.set('parish_auth_user', JSON.stringify(fullUser))
     useAuthStore.setState({ user: fullUser as any, isAuthenticated: true })
 
-    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: true, snapshotCleared: true })
+    expect(await useAuthStore.getState().logout()).toEqual({ serverConfirmed: true, snapshotCleared: true, tenantCacheCleared: true, queueQuarantined: true })
 
     expect(mockApi.logout).toHaveBeenCalled()
     expect(clearTokens).toHaveBeenCalled()

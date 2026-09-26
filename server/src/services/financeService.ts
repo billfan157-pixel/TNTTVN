@@ -10,7 +10,9 @@ import {
   academicYearSnapshots,
 } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
-import { getCurrentAcademicYear, normalizeAcademicYear, isAcademicYearClosedForWrite } from '../utils/academicYear.js'
+import { normalizeAcademicYear, isAcademicYearClosedForWrite } from '../utils/academicYear.js'
+import { getActiveAcademicYearId } from './academicYearService.js'
+
 import type {
   TransactionType,
   FeeStatus,
@@ -171,57 +173,56 @@ export async function listTransactions(
   if (filters.startDate) conditions.push(gte(financialTransactions.transactionDate, filters.startDate))
   if (filters.endDate) conditions.push(lte(financialTransactions.transactionDate, filters.endDate))
 
-  const rows = await db
-    .select({
-      tx: financialTransactions,
-      fundName: funds.name,
-      studentFullName: students.fullName,
-      studentHolyName: students.holyName,
-      className: classes.name,
-    })
-    .from(financialTransactions)
-    .leftJoin(funds, and(eq(funds.id, financialTransactions.fundId), eq(funds.parishId, parishId)))
-    .leftJoin(students, and(eq(students.id, financialTransactions.studentId), eq(students.parishId, parishId)))
-    .leftJoin(classes, and(eq(classes.id, financialTransactions.classId), eq(classes.parishId, parishId)))
-    .where(and(...conditions))
-    .orderBy(desc(financialTransactions.transactionDate), desc(financialTransactions.createdAt))
-    .limit(filters.limit ?? 100)
-    .offset(filters.offset ?? 0)
+  return runDbTransaction(async (tx) => {
+    const rows = await tx
+      .select({
+        tx: financialTransactions,
+        fundName: funds.name,
+        studentFullName: students.fullName,
+        studentHolyName: students.holyName,
+        className: classes.name,
+      })
+      .from(financialTransactions)
+      .leftJoin(funds, and(eq(funds.id, financialTransactions.fundId), eq(funds.parishId, parishId)))
+      .leftJoin(students, and(eq(students.id, financialTransactions.studentId), eq(students.parishId, parishId)))
+      .leftJoin(classes, and(eq(classes.id, financialTransactions.classId), eq(classes.parishId, parishId)))
+      .where(and(...conditions))
+      .orderBy(desc(financialTransactions.transactionDate), desc(financialTransactions.createdAt))
+      .limit(filters.limit ?? 100)
+      .offset(filters.offset ?? 0)
 
-  const allFunds = await db
-    .select({ id: funds.id, name: funds.name })
-    .from(funds)
-    .where(eq(funds.parishId, parishId))
-  const fundMap = new Map(allFunds.map((f) => [f.id, f.name]))
+    const countRows = await tx
+      .select({ total: sql<number>`count(*)`.mapWith(Number) })
+      .from(financialTransactions)
+      .where(and(...conditions))
+    const allFunds = await tx
+      .select({ id: funds.id, name: funds.name })
+      .from(funds)
+      .where(eq(funds.parishId, parishId))
+    const fundMap = new Map(allFunds.map((f) => [f.id, f.name]))
 
-  const transactions: FinancialTransaction[] = rows.map((r) => ({
-    ...r.tx,
-    type: r.tx.type as TransactionType,
-    fundName: r.fundName || fundMap.get(r.tx.fundId) || 'Quỹ',
-    targetFundName: r.tx.targetFundId ? fundMap.get(r.tx.targetFundId) || 'Quỹ nhận' : null,
-    studentName: r.studentFullName ? `${r.studentHolyName ? `${r.studentHolyName} ` : ''}${r.studentFullName}` : null,
-    className: r.className || null,
-  }))
+    const transactions: FinancialTransaction[] = rows.map((r) => ({
+      ...r.tx,
+      type: r.tx.type as TransactionType,
+      fundName: r.fundName || fundMap.get(r.tx.fundId) || 'Quỹ',
+      targetFundName: r.tx.targetFundId ? fundMap.get(r.tx.targetFundId) || 'Quỹ nhận' : null,
+      studentName: r.studentFullName ? `${r.studentHolyName ? `${r.studentHolyName} ` : ''}${r.studentFullName}` : null,
+      className: r.className || null,
+    }))
 
-  return { transactions, total: transactions.length }
+    return { transactions, total: Number(countRows[0]?.total || 0) }
+  })
 }
 
 /**
  * Gets full financial summary & dashboard statistics.
  */
 export async function getFinanceSummary(parishId: string, academicYear?: string): Promise<FinanceSummary> {
-  const targetAY = academicYear || getCurrentAcademicYear()
+  const targetAY = academicYear || await getActiveAcademicYearId(parishId)
   const allFunds = await listFunds(parishId)
 
   let totalBalance = 0
-  let totalIncome = 0
-  let totalExpense = 0
-
-  for (const fund of allFunds) {
-    totalBalance += fund.currentBalance
-    totalIncome += fund.totalIncome
-    totalExpense += fund.totalExpense
-  }
+  for (const fund of allFunds) totalBalance += fund.currentBalance
 
   const { transactions: recentTransactions } = await listTransactions(parishId, {
     academicYear: targetAY,
@@ -238,8 +239,12 @@ export async function getFinanceSummary(parishId: string, academicYear?: string)
     .select()
     .from(financialTransactions)
     .where(and(eq(financialTransactions.parishId, parishId), eq(financialTransactions.academicYear, targetAY)))
+  let totalIncome = 0
+  let totalExpense = 0
 
   for (const transaction of yearTransactions) {
+    if (transaction.type === 'INCOME') totalIncome += transaction.amount
+    else if (transaction.type === 'EXPENSE') totalExpense += transaction.amount
     if (!transaction.transactionDate || transaction.transactionDate.length < 7) continue
     const month = Number.parseInt(transaction.transactionDate.slice(5, 7), 10)
     if (month < 1 || month > 12) continue
@@ -299,13 +304,16 @@ export async function listClassFeeRecords(
   feeType: FeeType = 'NIEN_LIEM',
 ): Promise<StudentFeeRecord[]> {
   return runDbTransaction(async (tx) => {
-    const existingRecords = await tx.select().from(studentFeeRecords).where(and(
-      eq(studentFeeRecords.classId, classId), eq(studentFeeRecords.parishId, parishId),
-      eq(studentFeeRecords.academicYear, academicYear), eq(studentFeeRecords.feeType, feeType),
-    ))
     const [cls] = await tx.select().from(classes).where(and(eq(classes.id, classId), eq(classes.parishId, parishId))).limit(1)
     if (!cls) return []
+    const candidateRecords = await tx.select().from(studentFeeRecords).where(and(
+      eq(studentFeeRecords.classId, classId), eq(studentFeeRecords.parishId, parishId),
+      eq(studentFeeRecords.feeType, feeType),
+    ))
+    const normalizedRequestedYear = normalizeAcademicYear(academicYear)
+    const existingRecords = candidateRecords.filter(record => normalizeAcademicYear(record.academicYear) === normalizedRequestedYear)
     const [year] = await tx.select().from(academicYears).where(and(eq(academicYears.id, cls.academicYearId), eq(academicYears.parishId, parishId))).limit(1)
+
     const matchesClassYear = normalizeAcademicYear(cls.academicYearId) === normalizeAcademicYear(academicYear)
     const frozen = !!year && isAcademicYearClosedForWrite(year)
     const cohort = frozen && matchesClassYear ? await tx.select({ studentId: academicYearSnapshots.studentId }).from(academicYearSnapshots).where(and(
@@ -345,9 +353,10 @@ export async function listClassFeeRecords(
           studentCode: student.code,
           classId,
           className,
-          academicYear,
+          academicYear: record.academicYear,
           feeType: record.feeType as FeeType,
           title: record.title,
+
           expectedAmount: record.expectedAmount,
           paidAmount: record.paidAmount,
           status: record.status as FeeStatus,
@@ -372,7 +381,8 @@ export async function listClassFeeRecords(
         academicYear,
         feeType,
         title: `Niên liễm niên khóa ${academicYear}`,
-        expectedAmount: 100000,
+        expectedAmount: 0,
+
         paidAmount: 0,
         status: 'UNPAID' as FeeStatus,
         paidDate: null,

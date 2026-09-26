@@ -269,7 +269,7 @@ export default function OrganizationDashboardPage() {
       )}
 
       {/* Thống Kê Tổng Quan (Executive KPI Strip) */}
-      <section aria-label="Số liệu Xứ đoàn" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <section aria-label="Số liệu Xứ đoàn" className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-scroll-story="group">
         <Surface
           variant="card"
           as="button"
@@ -352,7 +352,7 @@ export default function OrganizationDashboardPage() {
         {/* CỘT TRÁI (8 CỘT): Ban Điều Hành + Lịch Sắp Tới + Cột Mốc Nổi Bật */}
         <div className="lg:col-span-8 space-y-5">
           {/* Widget: Ban Điều Hành & Nhân Sự Đương Nhiệm */}
-          <Surface variant="card" className="p-5 flex flex-col gap-3">
+          <Surface variant="card" className="p-5 flex flex-col gap-3" data-scroll-story="panel">
             <div className="flex items-center justify-between border-b border-surface-border pb-3">
               <div>
                 <h3 className="text-sm font-extrabold text-text-main m-0 flex items-center gap-2">
@@ -410,7 +410,7 @@ export default function OrganizationDashboardPage() {
           </Surface>
 
           {/* Widget: Lịch Sự Kiện & Phụng Vụ Sắp Tới */}
-          <Surface variant="card" className="p-5 flex flex-col gap-3">
+          <Surface variant="card" className="p-5 flex flex-col gap-3" data-scroll-story="panel">
             <div className="flex items-center justify-between border-b border-surface-border pb-3">
               <div>
                 <h3 className="text-sm font-extrabold text-text-main m-0 flex items-center gap-2">
@@ -471,7 +471,7 @@ export default function OrganizationDashboardPage() {
 
           {/* Widget: Hoạt Động & Cột Mốc Gần Nhất */}
           {recentHighlights.length > 0 && (
-            <Surface variant="card" className="p-5 flex flex-col gap-3">
+            <Surface variant="card" className="p-5 flex flex-col gap-3" data-scroll-story="panel">
               <div className="flex items-center justify-between border-b border-surface-border pb-3">
                 <div>
                   <h3 className="text-sm font-extrabold text-text-main m-0 flex items-center gap-2">
@@ -526,7 +526,7 @@ export default function OrganizationDashboardPage() {
         {/* CỘT PHẢI (4 CỘT): Thông Báo Điều Hành + Công Việc Xứ Đoàn */}
         <div className="lg:col-span-4 space-y-5">
           {/* Widget: Thông Báo Điều Hành Mới Nhất */}
-          <Surface variant="card" className="p-4 flex flex-col gap-3">
+          <Surface variant="card" className="p-4 flex flex-col gap-3" data-scroll-story="panel">
             <div className="flex items-center justify-between border-b border-surface-border pb-2.5">
               <h3 className="text-sm font-extrabold text-text-main m-0 flex items-center gap-2">
                 <Bell className="h-4 w-4 text-parish-primary" />
@@ -563,7 +563,7 @@ export default function OrganizationDashboardPage() {
           </Surface>
 
           {/* Công Việc Xứ Đoàn (Quick Access Launcher) */}
-          <Surface variant="card" className="p-4 flex flex-col gap-3">
+          <Surface variant="card" className="p-4 flex flex-col gap-3" data-scroll-story="panel">
             <h3 className="text-sm font-extrabold text-text-main m-0 flex items-center gap-2">
               <Building2 className="h-4 w-4 text-parish-primary" />
               Công Việc Xứ Đoàn

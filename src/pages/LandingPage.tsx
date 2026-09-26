@@ -2,8 +2,6 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import {
   Bell,
-  GraduationCap,
-  HeartHandshake,
   Layers,
   Menu,
   X,
@@ -18,15 +16,18 @@ import { LandingWorkspaceStories } from '../components/landing/LandingWorkspaceS
 import { LandingBranchJourney } from '../components/landing/LandingBranchJourney'
 import { LandingTrustStrip } from '../components/landing/LandingTrustStrip'
 import { LandingAccessPaths } from '../components/landing/LandingAccessPaths'
-import { LandingFaithMoment } from '../components/landing/LandingFaithMoment'
+import { LandingStatsStrip } from '../components/landing/LandingStatsStrip'
+import { LandingCommunityScene } from '../components/landing/LandingCommunityScene'
+import { landingMedia } from '../components/landing/landingMedia'
 
 export function LandingPage() {
   const navigate = useNavigate()
   const user = useAuthStore(s => s.user)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [activeStory, setActiveStory] = useState<PreviewWorkspace>('academic')
-  const manualOverrideRef = React.useRef(false)
-  const overrideTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [sequentialScenes, setSequentialScenes] = useState(() => typeof window !== 'undefined'
+    && (window.innerWidth < 1024 || window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true))
+  const landingRef = React.useRef<HTMLElement>(null)
 
   useEffect(() => {
     const prevTitle = document.title
@@ -36,46 +37,87 @@ export function LandingPage() {
     }
   }, [])
 
-  const handlePreviewTabChange = (tab: PreviewWorkspace) => {
-    setActiveStory(tab)
-    manualOverrideRef.current = true
-    if (overrideTimerRef.current) clearTimeout(overrideTimerRef.current)
-    overrideTimerRef.current = setTimeout(() => {
-      manualOverrideRef.current = false
-    }, 1800)
-  }
-
   useEffect(() => {
-    if (typeof window === 'undefined' || !('IntersectionObserver' in window)) return
-
-    const storyElements = document.querySelectorAll<HTMLElement>('[data-story-tab]')
-    if (!storyElements.length) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (manualOverrideRef.current) return
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const tab = entry.target.getAttribute('data-story-tab') as PreviewWorkspace
-            if (tab) {
-              setActiveStory(tab)
-            }
-          }
-        }
-      },
-      {
-        rootMargin: '-30% 0px -30% 0px',
-        threshold: 0.15,
+    const root = landingRef.current
+    if (!root || typeof window === 'undefined') return
+    const scenes = Array.from(root.querySelectorAll<HTMLElement>('[data-landing-scene]'))
+    const productStage = root.querySelector<HTMLElement>('#san-pham')
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    let sequentialMode: boolean | undefined
+    let frame = 0
+    const update = () => {
+      frame = 0
+      const nextSequentialMode = window.innerWidth < 1024 || reducedMotion?.matches === true
+      if (nextSequentialMode !== sequentialMode) {
+        sequentialMode = nextSequentialMode
+        setSequentialScenes(nextSequentialMode)
       }
-    )
+      const focusLine = window.innerHeight * 0.47
+      let nearest: { id: string; distance: number } | null = null
+      let nearestStory: { id: PreviewWorkspace; distance: number } | null = null
+      for (const scene of scenes) {
+        const rect = scene.getBoundingClientRect()
+        const id = scene.dataset.landingScene
+        if (!id) continue
+        const distance = rect.top <= focusLine && rect.bottom >= focusLine
+          ? 0
+          : Math.min(Math.abs(rect.top - focusLine), Math.abs(rect.bottom - focusLine))
+        if (!nearest || distance < nearest.distance) nearest = { id, distance }
+        if ((id === 'academic' || id === 'organization' || id === 'parent') && (!nearestStory || distance < nearestStory.distance)) {
+          nearestStory = { id, distance }
+        }
 
-    storyElements.forEach(el => observer.observe(el))
-
+        const animatedCopy = id.startsWith('community-') || id === 'academic' || id === 'organization' || id === 'parent'
+        if (animatedCopy && !reducedMotion?.matches && rect.bottom > 0 && rect.top < window.innerHeight) {
+          const enter = Math.max(0, Math.min(1, (window.innerHeight - rect.top) / (window.innerHeight * 0.72)))
+          scene.style.setProperty('--scene-shift', `${Math.round((1 - enter) * 28)}px`)
+          scene.style.setProperty('--scene-opacity', String(0.92 + enter * 0.08))
+        }
+      }
+      if (nearest && root.dataset.activeScene !== nearest.id) {
+        root.dataset.activeScene = nearest.id
+      }
+      const productRect = productStage?.getBoundingClientRect()
+      const productVisible = productRect && productRect.bottom > 0 && productRect.top < window.innerHeight
+      if (productVisible && nearestStory && root.dataset.activeWorkspace !== nearestStory.id) {
+        root.dataset.activeWorkspace = nearestStory.id
+        setActiveStory(nearestStory.id)
+      }
+      const hero = scenes[0]
+      if (hero && !reducedMotion?.matches) {
+        const heroRect = hero.getBoundingClientRect()
+        if (heroRect.bottom > 0 && heroRect.top < window.innerHeight) {
+          const exit = Math.max(0, Math.min(1, -heroRect.top / Math.max(1, heroRect.height)))
+          hero.style.setProperty('--hero-photo-scale', String(1 + exit * 0.055))
+          hero.style.setProperty('--hero-copy-opacity', '1')
+          hero.style.setProperty('--hero-copy-shift', `${Math.round(-exit * 34)}px`)
+          hero.style.setProperty('--hero-scrim-opacity', String(0.72 + exit * 0.25))
+        }
+      }
+      root.dataset.motionReady = reducedMotion?.matches ? 'false' : 'true'
+    }
+    const queueUpdate = () => {
+      if (!frame) frame = window.requestAnimationFrame(update)
+    }
+    update()
+    window.addEventListener('scroll', queueUpdate, { passive: true })
+    window.addEventListener('resize', queueUpdate)
+    reducedMotion?.addEventListener('change', queueUpdate)
     return () => {
-      observer.disconnect()
-      if (overrideTimerRef.current) clearTimeout(overrideTimerRef.current)
+      window.removeEventListener('scroll', queueUpdate)
+      window.removeEventListener('resize', queueUpdate)
+      reducedMotion?.removeEventListener('change', queueUpdate)
+      if (frame) window.cancelAnimationFrame(frame)
     }
   }, [])
+
+  const handlePreviewTabChange = (tab: PreviewWorkspace) => {
+    setActiveStory(tab)
+    document.getElementById(`story-${tab}`)?.scrollIntoView?.({
+      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth',
+      block: 'center',
+    })
+  }
 
   const homeTo = user ? (user.role === 'phuhuynh' ? '/parent' : '/dashboard') : '/login'
 
@@ -83,14 +125,14 @@ export function LandingPage() {
     setIsMobileMenuOpen(false)
     if (href.startsWith('#')) {
       const el = document.querySelector(href)
-      if (el) el.scrollIntoView({ behavior: 'smooth' })
+      if (el) el.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 'auto' : 'smooth' })
     } else {
       navigate({ to: href as any, viewTransition: true })
     }
   }
 
   return (
-    <main className="min-h-screen bg-surface-app text-text-main font-sans">
+    <main ref={landingRef} className="landing-page min-h-screen bg-surface-app text-text-main font-sans">
       <a href="#gioi-thieu-noi-dung" className="skip-link">Bỏ qua đến nội dung chính</a>
 
       {/* ── 01. Thanh điều hướng public ── */}
@@ -113,25 +155,25 @@ export function LandingPage() {
             </div>
           </div>
 
-          {/* Desktop navigation */}
-          <nav aria-label="Điều hướng chính" className="hidden sm:flex items-center gap-2">
+          {/* Desktop navigation (Hiện đầy đủ trên desktop >= 1024px để không vỡ dòng ở tablet 768px) */}
+          <nav aria-label="Điều hướng chính" className="hidden lg:flex items-center gap-1.5 xl:gap-2">
+            <a
+              href="#cong-dang-nhap"
+              className="min-h-11 inline-flex items-center px-3 text-sm font-semibold text-text-inverse/85 hover:text-text-inverse transition-colors"
+            >
+              Cổng đăng nhập
+            </a>
             <a
               href="#san-pham"
               className="min-h-11 inline-flex items-center px-3 text-sm font-semibold text-text-inverse/85 hover:text-text-inverse transition-colors"
             >
-              Catevia
+              Không gian làm việc
             </a>
             <a
               href="#tieu-de-nganh"
               className="min-h-11 inline-flex items-center px-3 text-sm font-semibold text-text-inverse/85 hover:text-text-inverse transition-colors"
             >
               5 Ngành TNTT
-            </a>
-            <a
-              href="#cong-dang-nhap"
-              className="min-h-11 inline-flex items-center px-3 text-sm font-semibold text-text-inverse/85 hover:text-text-inverse transition-colors"
-            >
-              Cổng đăng nhập
             </a>
             <a
               href="#cau-hoi-thuong-gap"
@@ -142,14 +184,14 @@ export function LandingPage() {
             <button
               type="button"
               onClick={() => navigate({ to: homeTo, viewTransition: true })}
-              className="btn bg-surface-card hover:bg-surface-hover text-parish-primary font-bold btn-sm min-h-11 rounded-lg shadow-sm"
+              className="btn bg-surface-card hover:bg-surface-hover text-parish-primary font-bold btn-sm min-h-11 rounded-lg shadow-sm ml-1"
             >
               {user ? 'Vào hệ thống' : 'Đăng nhập'}
             </button>
           </nav>
 
-          {/* Mobile hamburger button */}
-          <div className="flex items-center gap-2 sm:hidden">
+          {/* Mobile & Tablet hamburger button (< 1024px) */}
+          <div className="flex items-center gap-2 lg:hidden">
             <button
               type="button"
               onClick={() => navigate({ to: homeTo, viewTransition: true })}
@@ -169,18 +211,25 @@ export function LandingPage() {
           </div>
         </div>
 
-        {/* Mobile menu dropdown */}
+        {/* Mobile & Tablet menu dropdown */}
         {isMobileMenuOpen && (
           <nav
             aria-label="Menu di động"
-            className="sm:hidden bg-parish-primary text-text-inverse border-t border-white/15 px-4 py-3 flex flex-col gap-1 shadow-2xl animate-in fade-in"
+            className="lg:hidden bg-parish-primary text-text-inverse border-t border-white/15 px-4 py-3 flex flex-col gap-1 shadow-2xl animate-in fade-in"
           >
+            <button
+              type="button"
+              onClick={() => handleNavClick('#cong-dang-nhap')}
+              className="w-full min-h-11 px-3 text-left text-sm font-semibold text-text-inverse/90 hover:text-text-inverse hover:bg-white/10 rounded-lg flex items-center"
+            >
+              Cổng đăng nhập
+            </button>
             <button
               type="button"
               onClick={() => handleNavClick('#san-pham')}
               className="w-full min-h-11 px-3 text-left text-sm font-semibold text-text-inverse/90 hover:text-text-inverse hover:bg-white/10 rounded-lg flex items-center"
             >
-              Khám phá Catevia
+              Không gian làm việc
             </button>
             <button
               type="button"
@@ -188,13 +237,6 @@ export function LandingPage() {
               className="w-full min-h-11 px-3 text-left text-sm font-semibold text-text-inverse/90 hover:text-text-inverse hover:bg-white/10 rounded-lg flex items-center"
             >
               Năm ngành TNTT
-            </button>
-            <button
-              type="button"
-              onClick={() => handleNavClick('#cong-dang-nhap')}
-              className="w-full min-h-11 px-3 text-left text-sm font-semibold text-text-inverse/90 hover:text-text-inverse hover:bg-white/10 rounded-lg flex items-center"
-            >
-              Cổng đăng nhập
             </button>
             <button
               type="button"
@@ -216,90 +258,59 @@ export function LandingPage() {
 
       {/* ── 02. Unified Catevia x Parish Hero ── */}
       <section aria-label="Hình ảnh tập thể Xứ Đoàn Đức Mẹ Fatima" className="w-full">
-        <LandingParishGlassCard onLogin={() => navigate({ to: homeTo, viewTransition: true })} isLoggedIn={!!user} />
+        <LandingParishGlassCard onLogin={() => navigate({ to: homeTo, viewTransition: true })} isLoggedIn={!!user} videoSrc={landingMedia.heroVideo} />
       </section>
 
-      {/* ── 03. Thân bài narrative phân cấp ── */}
-      <div id="gioi-thieu-noi-dung" className="w-full max-w-7xl 2xl:max-w-[1720px] mx-auto px-3.5 sm:px-8 lg:px-12 2xl:px-16 pb-16 sm:pb-20 flex flex-col gap-10 sm:gap-16 lg:gap-24 pt-8 sm:pt-16">
-        
-        {/* ── 03. Product Stage & Workspace Scrollytelling (Scene 2) ── */}
-        <section id="san-pham" aria-labelledby="tieu-de-san-pham" className="flex flex-col gap-10 lg:gap-14 scroll-mt-24">
-          <div className="landing-narrative text-center flex flex-col items-center gap-3">
-            <span className="landing-eyebrow">
-              <Layers className="w-4 h-4" aria-hidden="true" />
-              <span>Giao Diện Thực Tế</span>
-            </span>
-            <h2 id="tieu-de-san-pham" className="landing-section-title m-0 text-balance">
-              Một nền tảng. Ba không gian làm việc.
-            </h2>
-            <p className="landing-lead m-0 text-balance">
-              Đồng bộ trải nghiệm giữa giáo lý viên, ban điều hành xứ đoàn và các bậc phụ huynh trên một hệ sinh thái duy nhất.
-            </p>
-          </div>
+      <LandingCommunityScene sequential={sequentialScenes} lessonImage={landingMedia.lessonImage} familyImage={landingMedia.familyImage} />
 
-          {/* Scrollytelling Stage: Desktop 2-column with sticky preview, Mobile sequential */}
-          <div className="scrolly-stage">
-            {/* Sticky preview mockup on desktop (right), top on mobile */}
-            <div className="scrolly-pinned-preview order-1 lg:order-2">
-              <LandingHeroPreview
-                externalActiveTab={activeStory}
-                onTabChange={handlePreviewTabChange}
-              />
+      {/* Ba điểm nhìn vào cùng một sản phẩm, mỗi chương có một nhịp thị giác riêng. */}
+      <section
+        id="san-pham"
+        aria-labelledby="tieu-de-san-pham"
+        data-active-story={activeStory}
+        className="landing-cinematic scroll-mt-16"
+      >
+        <div className="landing-product-background landing-product-background--organization" aria-hidden="true" />
+        <div className="landing-product-background landing-product-background--parent" aria-hidden="true" />
+        <div className="landing-cinematic__inner">
+          <header className="landing-product-intro" data-landing-scene="product-intro">
+            <span className="landing-eyebrow"><Layers aria-hidden="true" className="w-4 h-4" /> Catevia trong từng vai trò</span>
+            <h2 id="tieu-de-san-pham">Một nền tảng. <span>Ba cách đồng hành.</span></h2>
+            <p>{sequentialScenes ? 'Cuộn để xem Catevia theo nhịp công việc của từng người.' : 'Chọn một không gian hoặc cuộn để xem Catevia theo nhịp công việc của từng người.'}</p>
+          </header>
+          <div className="scrolly-stage landing-cinematic__stage">
+            {!sequentialScenes && <div className="scrolly-pinned-preview landing-cinematic__preview order-1 lg:order-2">
+              <div className="landing-cinematic__preview-heading" aria-hidden="true">
+                <span>Không gian {activeStory === 'academic' ? 'Học vụ' : activeStory === 'organization' ? 'Xứ đoàn' : 'Phụ huynh'}</span>
+                <span>{activeStory === 'academic' ? '01' : activeStory === 'organization' ? '02' : '03'} / 03</span>
+              </div>
+              <LandingHeroPreview externalActiveTab={activeStory} onTabChange={handlePreviewTabChange} />
+              <div className="landing-cinematic__progress" aria-hidden="true">
+                <span className={activeStory === 'academic' ? 'is-current' : ''} />
+                <span className={activeStory === 'organization' ? 'is-current' : ''} />
+                <span className={activeStory === 'parent' ? 'is-current' : ''} />
+              </div>
+            </div>}
+            <div className="landing-story-rail order-2 lg:order-1">
+              <LandingWorkspaceStories activeStory={activeStory} sequential={sequentialScenes} />
             </div>
-
-            {/* Narrative chapters on desktop (left), bottom on mobile */}
-            <div className="order-2 lg:order-1">
-              <LandingWorkspaceStories activeStory={activeStory} />
-            </div>
           </div>
-        </section>
-
-        {/* ── 04. Five-Branch TNTT Journey (Scene 3) ── */}
-        <LandingBranchJourney />
-
-        {/* ── 05. Parish / Faith Moment (Sanctuary Handoff) ── */}
-        <div className="faith-handoff-gradient -mx-3.5 sm:-mx-8 lg:-mx-12 2xl:-mx-16 px-3.5 sm:px-8 lg:px-12 2xl:px-16 py-4 sm:py-6">
-          <LandingFaithMoment />
         </div>
+      </section>
 
-        {/* ── 06. Trust & Reliability Pillars ── */}
+      {/* 04. Nền sáng trở lại để người dùng chọn đường vào sản phẩm. */}
+      <div className="landing-afterglow">
+        <div className="landing-afterglow__inner">
+          <LandingStatsStrip />
+        </div>
+      </div>
+
+      <div className="landing-final-sequence w-full max-w-7xl 2xl:max-w-[1720px] mx-auto px-3.5 sm:px-8 lg:px-12 2xl:px-16 pb-16 sm:pb-20 flex flex-col gap-10 sm:gap-16 lg:gap-20 pt-8 sm:pt-12">
+        <LandingBranchJourney />
         <LandingTrustStrip />
-
-        {/* ── 07. Two Access Paths + Compact Onboarding ── */}
         <LandingAccessPaths />
-
-        {/* ── 08. Frequently Asked Questions (FAQ) ── */}
         <LandingFAQ />
 
-        {/* ── 10. Final CTA ── */}
-        <section aria-labelledby="tieu-de-cta" className="card p-5 sm:p-10 lg:p-12 text-center flex flex-col items-center gap-4 sm:gap-5 max-w-3xl mx-auto w-full border border-surface-border">
-          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden shadow-card">
-            <img src={appLogo} alt="" aria-hidden="true" className="w-full h-full object-cover" />
-          </div>
-          <h2 id="tieu-de-cta" className="m-0 text-xl sm:text-3xl font-black tracking-tight text-text-main">
-            Sẵn sàng đồng hành cùng Xứ Đoàn?
-          </h2>
-          <p className="m-0 max-w-xl text-xs sm:text-base text-text-secondary leading-relaxed">
-            Đăng nhập để điểm danh, xem điểm, nhận thông báo và cùng nhau xây dựng đời sống đức tin cho các em thiếu nhi.
-          </p>
-          <div className="flex flex-col sm:flex-row justify-center gap-2.5 sm:gap-3 w-full max-w-xs sm:max-w-none pt-2">
-            <button type="button" onClick={() => navigate({ to: '/login/phuhuynh', viewTransition: true })} className="btn btn-primary btn-lg min-h-11 w-full sm:w-auto flex items-center justify-center gap-2">
-              <HeartHandshake aria-hidden="true" className="w-4 h-4" />
-              Cổng Phụ Huynh
-            </button>
-            <button type="button" onClick={() => navigate({ to: '/login/nhan-su', viewTransition: true })} className="btn btn-secondary btn-lg min-h-11 w-full sm:w-auto flex items-center justify-center gap-2">
-              <GraduationCap aria-hidden="true" className="w-4 h-4" />
-              Cổng GLV &amp; Huynh Trưởng
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate({ to: '/verify' })}
-            className="min-h-11 inline-flex items-center text-xs font-semibold text-parish-primary hover:underline pt-1"
-          >
-            Xác thực chứng chỉ Giáo lý
-          </button>
-        </section>
       </div>
 
       {/* ── 11. Chân trang ── */}
@@ -330,7 +341,7 @@ export function LandingPage() {
           </div>
           <div className="pt-3 border-t border-surface-border/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-text-muted">
             <p className="m-0">
-              Dữ liệu thuộc về Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn. Không chia sẻ cho bên thứ ba, tôn trọng quyền riêng tư của các gia đình.
+              Dữ liệu thuộc về Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn. Quyền truy cập được phân theo vai trò và phạm vi phụ trách.
             </p>
             <p className="m-0 shrink-0">
               Phong Trào Thiếu Nhi Thánh Thể

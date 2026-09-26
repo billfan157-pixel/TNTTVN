@@ -21,15 +21,41 @@ import { useToastStore } from './toastStore'
 import { useAppLockStore } from './appLockStore'
 
 import { db } from '../lib/db'
-import { getTenantScope, getTenantScopeKey } from '../lib/tenantScope'
+import { getTenantScope, getTenantScopeKey, type TenantScope } from '../lib/tenantScope'
+
+const DIRTY_TENANT_CACHE_PREFIX = 'parish_tenant_cache_dirty:'
+
+function dirtyTenantCacheKey(scope: TenantScope): string {
+  return `${DIRTY_TENANT_CACHE_PREFIX}${scope.parishId}:${scope.userId}`
+}
+
+export function isTenantCacheDirty(scope = getTenantScope()): boolean {
+  if (!scope) return false
+  try {
+    return localStorage.getItem(dirtyTenantCacheKey(scope)) !== null
+  } catch {
+    return true
+  }
+}
+
+function markTenantCacheDirty(scope: TenantScope | null): void {
+  if (!scope) return
+  try { localStorage.setItem(dirtyTenantCacheKey(scope), '1') } catch {}
+}
+
+function clearTenantCacheDirty(scope: TenantScope | null): void {
+  if (!scope) return
+  try { localStorage.removeItem(dirtyTenantCacheKey(scope)) } catch {}
+}
 
 export async function resetAllStoresToDefault(options: { clearPersisted?: boolean } = {}) {
   const clearPersisted = options.clearPersisted !== false
+  const scopeAtStart = getTenantScope()
   useStudentStore.setState({ students: [] })
   useGradeStore.setState({ grades: [] })
   useAttendanceStore.setState({ attendance: [] })
   
-  useDailyGradeStore.getState().setEntries([])
+  useDailyGradeStore.setState({ entries: [], serverEntries: [] })
   useSacramentStore.setState({ promotionQueue: [] })
   useClassStore.setState({ classes: [], branches: [], academicYears: [] })
   useFilterStore.setState({
@@ -46,6 +72,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
     sessions: [],
     selectedSessionId: null,
     results: [],
+    cachedResultsBySession: {},
     loading: false,
     saving: false,
     finalizing: false,
@@ -78,7 +105,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
     transactions: [],
     classFeeRecords: [],
     selectedFundId: 'ALL',
-    selectedAcademicYear: '2025-2026',
+    selectedAcademicYear: '',
     ledgerFilters: { type: 'ALL', startDate: '', endDate: '' },
     isLoading: false,
     error: null,
@@ -151,7 +178,10 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
         .map(item => item.id)
       if (completedIds.length > 0) await db.syncQueue.bulkDelete(completedIds)
     }
+    clearTenantCacheDirty(scopeAtStart)
   } catch (err) {
+    markTenantCacheDirty(scopeAtStart)
     console.error('Failed to clear Dexie DB:', err)
+    throw new Error('Không thể xóa toàn bộ dữ liệu tenant cục bộ', { cause: err })
   }
 }

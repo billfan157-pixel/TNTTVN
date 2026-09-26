@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { AlertTriangle, Loader2, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import { resetClientData } from '../../lib/resetClientData'
@@ -18,6 +18,17 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
   const [confirmKey, setConfirmKey] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [serverCommitted, setServerCommitted] = useState(false)
+
+  useEffect(() => {
+    if (isOpen) {
+      setPassword('')
+      setConfirmKey('')
+      setServerCommitted(false)
+      setError('')
+      setIsLoading(false)
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -30,7 +41,15 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
     setIsLoading(true)
     try {
       const res = await api.purgeAllData(password, confirmKey)
-      await resetClientData(res.purgeVersion)
+      setServerCommitted(true)
+      try {
+        await resetClientData(res.purgeVersion)
+      } catch (resetError: any) {
+        Sentry.captureException(resetError)
+        setError('Máy chủ đã xóa dữ liệu thành công, nhưng thiết bị chưa thể cách ly. Đừng thử xóa lại; hãy đăng xuất và xóa dữ liệu trình duyệt thủ công.')
+        setIsLoading(false)
+        return
+      }
       onPurged()
     } catch (err: any) {
       Sentry.captureException(err)
@@ -96,11 +115,11 @@ export const PurgeDataModal: React.FC<Props> = ({ isOpen, onClose, onPurged }) =
 
         <button
           onClick={handlePurge}
-          disabled={isLoading || !password || confirmKey.trim() !== CONFIRM_KEY}
+          disabled={isLoading || serverCommitted || !password || confirmKey.trim() !== CONFIRM_KEY}
           className="btn btn-danger w-full text-xs font-bold flex items-center justify-center gap-2"
         >
           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-          <span>{isLoading ? 'Đang xóa toàn bộ dữ liệu...' : 'Xóa Toàn Bộ Dữ Liệu'}</span>
+          <span>{isLoading ? 'Đang xóa toàn bộ dữ liệu...' : serverCommitted ? 'Đã xóa trên máy chủ — cần cách ly thiết bị' : 'Xóa Toàn Bộ Dữ Liệu'}</span>
         </button>
       </div>
     </ModalShell>

@@ -2694,4 +2694,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_external_import_items_run_index
 CREATE INDEX IF NOT EXISTS idx_external_import_items_target
   ON external_import_items(parish_id,target_student_id,date);
 ` },
+  { version: '20260925-266', sql: `
+DROP INDEX IF EXISTS push_subscriptions_endpoint_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint_unique
+  ON push_subscriptions(parish_id, endpoint);
+` },
+  { version: '20260925-267', sql: `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_transactions_receipt_parish
+  ON financial_transactions(parish_id, receipt_number)
+  WHERE receipt_number IS NOT NULL;
+` },
 ]

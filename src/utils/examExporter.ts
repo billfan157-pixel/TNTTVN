@@ -1,4 +1,4 @@
-import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../types'
+import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useToastStore } from '../stores/toastStore'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../lib/examVariants'
@@ -16,6 +16,7 @@ export interface ExamExportOptions {
   questionCount?: number
   answerKey?: Record<number, MultipleChoiceOption>
   answerVariants?: Partial<ExamAnswerVariants>
+  variantManifests?: ExamVariantManifestSet | string
   selectedVersion?: ExamVersionCode | 'ALL'
   includeAnswerKey?: boolean
   includeExplanations?: boolean
@@ -66,31 +67,81 @@ function resolveParishHeaders(options: ExamExportOptions) {
 }
 
 import { ReportExportService, sanitizeFilename } from '../services/reportExportService'
-import { buildExamPaperHtml, buildBatchExamPapersHtml } from './examSheets'
+import { buildExamPaperHtml, buildBatchExamPapersHtml, buildAllVariantsExamPapersHtml } from './examSheets'
+
+function parseVariantManifest(value: ExamExportOptions['variantManifests']): ExamVariantManifestSet | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value
+    if (!parsed || parsed.schemaVersion !== 1 || !parsed.variants || typeof parsed.variants !== 'object') return undefined
+    return parsed as ExamVariantManifestSet
+  } catch {
+    return undefined
+  }
+}
+
+function resolveQuestionsForVersion(options: ExamExportOptions, version: ExamVersionCode): { questions: ExamQuestion[]; answerKey: Record<number, MultipleChoiceOption> } {
+  const manifest = parseVariantManifest(options.variantManifests)
+  const entry = manifest?.variants[version]
+  const questions = entry?.questions?.length ? entry.questions : resolveExportQuestions(options)
+  assertContiguousQuestionIndexes(questions)
+  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
+  return {
+    questions: [...questions].sort((a, b) => a.index - b.index),
+    answerKey: entry?.answerKey || variants[version] || options.answerKey || {},
+  }
+}
+
+function configuredExportVersions(options: ExamExportOptions): ExamVersionCode[] {
+  const manifest = parseVariantManifest(options.variantManifests)
+  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, resolveExportQuestions(options).length)
+  const versions = EXAM_VERSION_CODES.filter(code => Boolean(manifest?.variants[code]) || Boolean(variants[code]))
+  return versions.length > 0 ? versions : (['A'] as ExamVersionCode[])
+}
+
+function resolveExportVersion(options: ExamExportOptions): ExamVersionCode {
+  const configuredVersions = configuredExportVersions(options)
+  const requestedVersion: ExamVersionCode = options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
+  return configuredVersions.includes(requestedVersion) ? requestedVersion : (configuredVersions[0] ?? 'A')
+}
+
+function answerKeyForVersion(options: ExamExportOptions, version: ExamVersionCode): Record<number, MultipleChoiceOption> {
+  const manifest = parseVariantManifest(options.variantManifests)
+  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, resolveExportQuestions(options).length)
+  return manifest?.variants[version]?.answerKey || variants[version] || options.answerKey || {}
+}
+
+function matrixSourceOrder(options: ExamExportOptions, version: ExamVersionCode, questions: ExamQuestion[]): number[] {
+  const manifest = parseVariantManifest(options.variantManifests)
+  const order = manifest?.variants[version]?.sourceQuestionOrder
+  if (!order || order.length !== questions.length || new Set(order).size !== order.length) return questions.map(question => question.index)
+  return order
+}
+
+function answerForSourceQuestion(options: ExamExportOptions, version: ExamVersionCode, sourceIndex: number): MultipleChoiceOption | '-' {
+  const manifest = parseVariantManifest(options.variantManifests)
+  const entry = manifest?.variants[version]
+  if (entry) {
+    if (!Array.isArray(entry.sourceQuestionOrder)) return answerKeyForVersion(options, version)[sourceIndex] || '-'
+    if (entry.sourceQuestionOrder.length !== entry.questions.length || new Set(entry.sourceQuestionOrder).size !== entry.sourceQuestionOrder.length) {
+      throw new Error(`Manifest mã đề ${version} có sourceQuestionOrder không hợp lệ.`)
+    }
+    const position = entry.sourceQuestionOrder.indexOf(sourceIndex)
+    return position >= 0 ? (entry.answerKey[position + 1] || '-') : '-'
+  }
+  return answerKeyForVersion(options, version)[sourceIndex] || '-'
+}
 
 /**
  * Chuyển đổi ExamExportOptions thành ExamPaperPrintOptions chuẩn cho engine in & xuất đề.
  */
 function convertExportOptionsToPrintOptions(options: ExamExportOptions) {
   const { parishName, dioceseName } = resolveParishHeaders(options)
-  const sourceQuestions = resolveExportQuestions(options)
-  assertContiguousQuestionIndexes(sourceQuestions)
-  const questions = [...sourceQuestions].sort((a, b) => a.index - b.index)
-
-  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
-  const configuredVersions = EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
-  const requestedVersion: ExamVersionCode =
-    options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
-  // A stale UI selection must never leak into a printed/scannable form. If the
-  // configured variants changed while the modal was open, fall back to the first
-  // actually configured key (normally A) instead of emitting an unknown QR version.
-  const versionCode: ExamVersionCode = configuredVersions.includes(requestedVersion)
-    ? requestedVersion
-    : (configuredVersions[0] ?? 'A')
-  const activeKey = variants[versionCode] || options.answerKey || {}
-  const mappedQuestions = questions.map(q => ({
+  const versionCode = resolveExportVersion(options)
+  const resolved = resolveQuestionsForVersion(options, versionCode)
+  const mappedQuestions = resolved.questions.map(q => ({
     ...q,
-    correctOption: activeKey[q.index] || q.correctOption || 'A',
+    correctOption: resolved.answerKey[q.index] || q.correctOption || 'A',
   }))
 
   return {
@@ -119,6 +170,21 @@ function convertExportOptionsToPrintOptions(options: ExamExportOptions) {
  * không còn homography marker và malformed OMR rows không thể được xuất/in nhầm.
  */
 export function generateExamWordHtml(options: ExamExportOptions): string {
+  if (options.selectedVersion === 'ALL') {
+    const { parishName, dioceseName } = resolveParishHeaders(options)
+    const variantsData = configuredExportVersions(options).map(code => {
+      const resolved = resolveQuestionsForVersion(options, code)
+      return { examVersion: code, questions: resolved.questions.map(q => ({ ...q, correctOption: resolved.answerKey[q.index] || q.correctOption || 'A' })) }
+    })
+    return prepareExamDocumentForOutput(buildAllVariantsExamPapersHtml({
+      parishName: parishName || 'Giáo Xứ', dioceseName: dioceseName || 'Giáo Phận',
+      subject: options.subject || 'BÀI KIỂM TRA', classLabel: options.classLabel || 'Lớp Giáo Lý',
+      academicYear: options.academicYear || '', durationMinutes: options.durationMinutes || 45,
+      showAnswerKey: Boolean(options.includeAnswerKey), includeExplanations: Boolean(options.includeExplanations),
+      layoutColumns: options.layoutColumns || 2, includeAnswerGrid: options.includeQuickAnswerGrid !== false,
+      includeGradingBox: true, sessionId: options.sessionId || 'SESS-001', variants: variantsData,
+    }))
+  }
   const printOptions = convertExportOptionsToPrintOptions(options)
   return prepareExamDocumentForOutput(buildExamPaperHtml(printOptions))
 }
@@ -130,6 +196,7 @@ export function generateBatchExamWordHtml(
   students: { id: string; code: string; name: string }[],
   options: ExamExportOptions
 ): string {
+  if (options.selectedVersion === 'ALL') throw new Error('Word/HTML hàng loạt chưa hỗ trợ ALL; hãy chọn từng mã đề để không gán sai đề cho học sinh.')
   const printOptions = convertExportOptionsToPrintOptions(options)
   return prepareExamDocumentForOutput(buildBatchExamPapersHtml(students, printOptions))
 }
@@ -144,7 +211,7 @@ export function exportExamToHtml(options: ExamExportOptions): void {
     const html = isBatch
       ? generateBatchExamWordHtml(options.students!, options)
       : generateExamWordHtml(options)
-    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion || 'A'}`}.html`)
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion === 'ALL' ? 'ALL' : resolveExportVersion(options)}`}.html`)
     ReportExportService.downloadHTML(html, filename)
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi: ${filename}`, 'success')
   } catch (err) {
@@ -166,7 +233,7 @@ export function exportExamToWord(options: ExamExportOptions): void {
     const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion || 'A'}`}.doc`)
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion === 'ALL' ? 'ALL' : resolveExportVersion(options)}`}.doc`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -186,13 +253,15 @@ export function exportExamToWord(options: ExamExportOptions): void {
  * Sinh Workbook Excel (.xlsx) chứa câu hỏi, bảng đáp án ma trận các mã đề, và metadata.
  */
 export async function generateExamExcelWorkbook(options: ExamExportOptions): Promise<Uint8Array> {
+  if (options.selectedVersion === 'ALL') throw new Error('Excel không thể biểu diễn nhiều mã đề trong một bảng; hãy chọn một mã đề cụ thể.')
   // PERF-XLSX-1: lazy-load xlsx — chunk chỉ tải khi user export Excel.
   const XLSX = await loadXlsx()
   const { parishName, dioceseName } = resolveParishHeaders(options)
-  const questions = resolveExportQuestions(options)
-  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
-  const activeCodes = EXAM_VERSION_CODES.filter(code => Boolean(variants[code]))
-  if (activeCodes.length === 0) activeCodes.push('A')
+  const selectedVersion = resolveExportVersion(options)
+  const resolved = resolveQuestionsForVersion(options, selectedVersion)
+  const questions = resolved.questions
+  const activeCodes = configuredExportVersions(options)
+  const baseKey = resolved.answerKey
 
   const wb = XLSX.utils.book_new()
 
@@ -211,7 +280,8 @@ export async function generateExamExcelWorkbook(options: ExamExportOptions): Pro
         q.options?.B || '',
         q.options?.C || '',
         q.options?.D || '',
-        isEssay ? '' : (options.answerKey?.[qNum] || q.correctOption || 'A'),
+         isEssay ? '' : (baseKey[qNum] || q.correctOption || 'A'),
+
         q.points ?? 1,
         q.explanation || '',
       ]
@@ -237,12 +307,10 @@ export async function generateExamExcelWorkbook(options: ExamExportOptions): Pro
   const matrixHeaders = ['Câu Số', ...activeCodes.map(c => `Mã Đề ${c}`)]
   const matrixRows: (string | number)[][] = [matrixHeaders]
 
-  for (let i = 1; i <= questions.length; i++) {
-    const row: (string | number)[] = [i]
-    for (const code of activeCodes) {
-      const keyForCode = variants[code] || {}
-      row.push(keyForCode[i] || '-')
-    }
+  const sourceOrder = matrixSourceOrder(options, selectedVersion, questions)
+  for (const sourceIndex of sourceOrder) {
+    const row: (string | number)[] = [sourceIndex]
+    for (const code of activeCodes) row.push(answerForSourceQuestion(options, code, sourceIndex))
     matrixRows.push(row)
   }
 
@@ -294,24 +362,24 @@ export async function exportExamToExcel(options: ExamExportOptions): Promise<voi
     useToastStore.getState().addToast(`Đã xuất file Excel: ${filename}`, 'success')
   } catch (err) {
     console.error('Error exporting exam to Excel:', err)
-    useToastStore.getState().addToast('Lỗi khi xuất file Excel!', 'error')
+    useToastStore.getState().addToast(err instanceof Error ? err.message : 'Lỗi khi xuất file Excel!', 'error', 7000)
   }
 }
 
 /** Xuất đề thi dạng văn bản thuần Text (.txt). */
 export function exportExamToText(options: ExamExportOptions): string {
+  if (options.selectedVersion === 'ALL') throw new Error('Text không thể gộp nhiều mã đề an toàn; hãy chọn một mã đề cụ thể.')
   const { parishName, dioceseName } = resolveParishHeaders(options)
-  const questions = resolveExportQuestions(options)
+  const versionCode = resolveExportVersion(options)
+  const resolved = resolveQuestionsForVersion(options, versionCode)
+  const questions = resolved.questions
   const subject = options.subject || 'BÀI KIỂM TRA'
   const classLabel = options.classLabel || 'Lớp Giáo Lý'
   const academicYear = options.academicYear || ''
   const duration = options.durationMinutes || 45
-  const versionCode = options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
   const includeKey = options.includeAnswerKey !== false
   const includeExp = options.includeExplanations !== false
-
-  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
-  const activeKey = variants[versionCode] || options.answerKey || {}
+  const activeKey = resolved.answerKey
 
   let text = `${dioceseName.toUpperCase()} - ${parishName.toUpperCase()}\n`
   text += `BAN GIÁO LÝ - THIẾU NHI THÁNH THỂ\n`
@@ -381,7 +449,7 @@ export function downloadExamText(options: ExamExportOptions): void {
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.txt`)
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion === 'ALL' ? 'ALL' : resolveExportVersion(options)}.txt`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -399,18 +467,18 @@ export function downloadExamText(options: ExamExportOptions): void {
 
 /** Xuất đề thi dạng Markdown (.md). */
 export function exportExamToMarkdown(options: ExamExportOptions): string {
+  if (options.selectedVersion === 'ALL') throw new Error('Markdown không thể gộp nhiều mã đề an toàn; hãy chọn một mã đề cụ thể.')
   const { parishName, dioceseName } = resolveParishHeaders(options)
-  const questions = resolveExportQuestions(options)
+  const versionCode = resolveExportVersion(options)
+  const resolved = resolveQuestionsForVersion(options, versionCode)
+  const questions = resolved.questions
   const subject = options.subject || 'BÀI KIỂM TRA'
   const classLabel = options.classLabel || 'Lớp Giáo Lý'
   const academicYear = options.academicYear || ''
   const duration = options.durationMinutes || 45
-  const versionCode = options.selectedVersion && options.selectedVersion !== 'ALL' ? options.selectedVersion : 'A'
   const includeKey = options.includeAnswerKey !== false
   const includeExp = options.includeExplanations !== false
-
-  const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
-  const activeKey = variants[versionCode] || options.answerKey || {}
+  const activeKey = resolved.answerKey
 
   let md = `# ${dioceseName.toUpperCase()} - ${parishName.toUpperCase()}\n`
   md += `### BAN GIÁO LÝ - THIẾU NHI THÁNH THỂ\n\n`
@@ -481,7 +549,7 @@ export function downloadExamMarkdown(options: ExamExportOptions): void {
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion || 'A'}.md`)
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_Ma${options.selectedVersion === 'ALL' ? 'ALL' : resolveExportVersion(options)}.md`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -504,6 +572,10 @@ export function generateExamJsonString(options: ExamExportOptions): string {
   // bịa ra (phiên key-only không có ngân hàng câu hỏi) để backup/tích hợp không
   // nhầm với dữ liệu thật.
   const syntheticQuestions = !(options.questions && options.questions.length > 0)
+  const includeKey = options.includeAnswerKey !== false
+  const exportedQuestions = includeKey
+    ? questions
+    : questions.map(({ correctOption: _correctOption, ...question }) => question)
   const payload = {
     version: '1.0',
     exportedAt: new Date().toISOString(),
@@ -519,9 +591,12 @@ export function generateExamJsonString(options: ExamExportOptions): string {
       questionCount: questions.length,
       syntheticQuestions,
     },
-    answerKey: options.answerKey,
-    answerVariants: options.answerVariants,
-    questions,
+    answerKeyIncluded: includeKey,
+    answerKey: includeKey ? options.answerKey : undefined,
+    answerVariants: includeKey ? options.answerVariants : undefined,
+    variantManifests: includeKey ? (parseVariantManifest(options.variantManifests) || options.variantManifests || null) : null,
+    questions: exportedQuestions,
+
   }
   return JSON.stringify(payload, null, 2)
 }

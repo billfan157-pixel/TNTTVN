@@ -31,16 +31,20 @@ const fakeClassList = [
   { id: 'AU2', code: 'AN-02', name: 'Ấu Nhi 2', branch: 'AuNhi', branchName: 'Ấu Nhi', academicYear: '2025-2026', room: null, catechistLeader: '', catechistAssistants: [] },
 ]
 
-vi.mock('../../stores/classStore', () => ({
-  useClassStore: Object.assign(
-    (selector?: any) => {
-      const state = { classes: fakeClassList, getClassList: () => fakeClassList }
-      return selector ? selector(state) : state
-    },
-    { getState: () => ({ getClassList: () => fakeClassList }) },
-  ),
-  getFilteredClassList: (classes: any[]) => classes,
-}))
+vi.mock('../../stores/classStore', async (importOriginal) => {
+  const actual: any = await importOriginal()
+  return {
+    ...actual,
+    useClassStore: Object.assign(
+      (selector?: any) => {
+        const state = { classes: fakeClassList, getClassList: () => fakeClassList }
+        return selector ? selector(state) : state
+      },
+      { getState: () => ({ getClassList: () => fakeClassList }) },
+    ),
+    getFilteredClassList: (classes: any[]) => classes,
+  }
+})
 
 vi.mock('lucide-react', () => ({
   X: 'svg',
@@ -58,9 +62,23 @@ vi.mock('lucide-react', () => ({
   FileText: 'svg',
   Layers: 'svg',
   Info: 'svg',
+  Lock: 'svg',
+}))
+
+const authMockState = {
+  user: { id: 'admin-1', role: 'admin', parishId: 'parish-test' },
+  role: 'admin',
+  isAdmin: true,
+}
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => authMockState,
 }))
 
 beforeEach(() => {
+  authMockState.role = 'admin'
+  authMockState.isAdmin = true
+  authMockState.user = { id: 'admin-1', role: 'admin', parishId: 'parish-test' }
   studentStoreMocks.addStudent.mockReset().mockResolvedValue(undefined)
   studentStoreMocks.updateStudent.mockReset().mockResolvedValue(undefined)
 })
@@ -229,6 +247,21 @@ describe('StudentModal Component', () => {
 
       expect(screen.getByText('Số điện thoại gồm 10-11 chữ số (bắt đầu bằng 0) hoặc định dạng +84.')).toBeDefined()
       expect(studentStoreMocks.updateStudent).not.toHaveBeenCalled()
+    })
+
+    it('disables submit and shows warning banner when non-admin opens student from unassigned class', () => {
+      authMockState.role = 'chunhiem'
+      authMockState.isAdmin = false
+      authMockState.user = { id: 'user-1', role: 'chunhiem', parishId: 'parish-test' }
+
+      render(<StudentModal isOpen={true} onClose={vi.fn()} studentToEdit={{
+        id: 'ST-99', fullName: 'Học sinh lớp khác', holyName: 'Gioan', gender: 'Nam', dateOfBirth: '2015-01-01',
+        branch: 'ThieuNhi', classId: 'TN99', status: 'Đang học',
+      } as any} />)
+
+      expect(screen.getByText('Bạn không có quyền chỉnh sửa học sinh này vì không phụ trách lớp của em.')).toBeDefined()
+      const submitBtn = screen.getByRole('button', { name: /Lưu Thay Đổi/i })
+      expect(submitBtn).toBeDisabled()
     })
   })
 })

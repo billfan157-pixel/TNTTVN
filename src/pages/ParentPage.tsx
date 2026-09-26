@@ -115,7 +115,7 @@ export const ParentPage: React.FC = () => {
             })}
           </div>
 
-          <section className="section-card space-y-5">
+          <section className="section-card space-y-5" data-scroll-story="panel">
             {reportLoading ? (
               <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-text-muted" /></div>
             ) : reportError ? (

@@ -34,7 +34,7 @@ export const FormField: React.FC<FormFieldProps> = ({
   ].filter(Boolean).join(' ') || undefined
 
   return (
-    <div className="form-group">
+    <div className={`form-group ${error ? 'field-shake' : ''}`.trim()}>
       <label htmlFor={htmlFor} className="form-label">
         {label}
         {required && <span className="text-parish-danger ml-0.5" aria-hidden="true">*</span>}

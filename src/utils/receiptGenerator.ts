@@ -75,6 +75,7 @@ export interface ReceiptPrintData {
   type: 'INCOME' | 'EXPENSE' | 'TRANSFER'
   receiptNumber: string
   date: string // YYYY-MM-DD
+  academicYear?: string
   personName: string
   personPhone?: string
   className?: string
@@ -297,7 +298,8 @@ export function buildReceiptHtml(data: ReceiptPrintData): string {
         <td class="header-right">
           <div><strong>Mẫu số: 01-${isIncome ? 'TT' : 'TC'}</strong></div>
           <div>Số phiếu: <strong style="color: #b91c1c;">${safe(data.receiptNumber)}</strong></div>
-          <div>Niên khóa: <strong>2025-2026</strong></div>
+           <div>Niên khóa: <strong>${safe(data.academicYear || 'Chưa xác định')}</strong></div>
+
         </td>
       </tr>
     </table>

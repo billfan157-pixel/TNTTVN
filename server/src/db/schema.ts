@@ -556,7 +556,7 @@ export const gradeImportHashes = sqliteTable('grade_import_hashes', {
 
 export const pushSubscriptions = sqliteTable('push_subscriptions', {
    id: text('id').notNull(),
-   endpoint: text('endpoint').notNull().unique(),
+   endpoint: text('endpoint').notNull(),
    p256dh: text('p256dh').notNull(),
    auth: text('auth').notNull(),
    userId: text('user_id'),
@@ -568,8 +568,10 @@ export const pushSubscriptions = sqliteTable('push_subscriptions', {
       columns: [table.parishId, table.userId],
       foreignColumns: [users.parishId, users.id],
     }).onDelete('cascade'),
-    index('idx_push_subscriptions_parish_id').on(table.parishId),
-   index('idx_push_subscriptions_user_id').on(table.userId),
+     index('idx_push_subscriptions_parish_id').on(table.parishId),
+     index('idx_push_subscriptions_user_id').on(table.userId),
+     uniqueIndex('idx_push_subscriptions_endpoint_unique').on(table.parishId, table.endpoint),
+
  ])
 
 // ADR-095: native app installations are authenticated user bindings, separate
@@ -1194,7 +1196,11 @@ export const financialTransactions = sqliteTable('financial_transactions', {
   index('idx_transactions_fund').on(table.parishId, table.fundId),
   index('idx_transactions_date').on(table.parishId, table.transactionDate),
   index('idx_transactions_academic').on(table.parishId, table.academicYear),
-  index('idx_transactions_class').on(table.parishId, table.classId),
+   index('idx_transactions_class').on(table.parishId, table.classId),
+   uniqueIndex('idx_financial_transactions_receipt_parish')
+     .on(table.parishId, table.receiptNumber)
+     .where(sql`${table.receiptNumber} IS NOT NULL`),
+
 ])
 
 export const studentFeeRecords = sqliteTable('student_fee_records', {

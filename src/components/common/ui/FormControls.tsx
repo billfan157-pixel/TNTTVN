@@ -19,7 +19,7 @@ export const TextInput = forwardRef<HTMLInputElement, TextInputProps>(function T
       {...props}
       ref={ref}
       aria-invalid={invalid || props['aria-invalid'] || undefined}
-      className={joinClasses(density === 'sm' ? 'form-input-sm' : 'form-input', className)}
+      className={joinClasses(density === 'sm' ? 'form-input-sm' : 'form-input', invalid && 'field-shake', className)}
     />
   )
 })
@@ -37,7 +37,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       {...props}
       ref={ref}
       aria-invalid={invalid || props['aria-invalid'] || undefined}
-      className={joinClasses('form-select', className)}
+      className={joinClasses('form-select', invalid && 'field-shake', className)}
     />
   )
 })
@@ -56,7 +56,7 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
       {...props}
       ref={ref}
       aria-invalid={invalid || props['aria-invalid'] || undefined}
-      className={joinClasses('form-textarea', className)}
+      className={joinClasses('form-textarea', invalid && 'field-shake', className)}
     />
   )
 })

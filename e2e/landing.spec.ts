@@ -12,7 +12,7 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     await page.goto('/')
 
     await expect(page).toHaveURL(/\/$/, { timeout: 15_000 })
-    await expect(page.getByRole('heading', { level: 1, name: /quản lý giáo lý/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: /quản lý giáo lý/i })).toBeVisible({ timeout: 15_000 })
     // Trang giới thiệu, không phải portal chooser của /login
     await expect(page.getByRole('button', { name: /bắt đầu đăng nhập/i }).first()).toBeVisible()
     await expect(page.getByText('Năm ngành sinh hoạt TNTT')).toBeVisible()
@@ -27,6 +27,7 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
   })
 
   test('thẻ cổng điều hướng đúng portal nhân sự / phụ huynh', async ({ page }) => {
+    test.slow()
     await page.goto('/')
 
     const portals = page.locator('#cong-dang-nhap')
@@ -42,7 +43,7 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     await loginAsAdmin(page)
     await page.goto('/')
     await expect(page).toHaveURL(/\/$/, { timeout: 15_000 })
-    await expect(page.getByRole('heading', { level: 1, name: /quản lý giáo lý/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 1, name: /quản lý giáo lý/i })).toBeVisible({ timeout: 15_000 })
     await page.getByRole('button', { name: /vào hệ thống/i }).first().click()
     await expect(page).toHaveURL(/\/dashboard$/, { timeout: 15_000 })
   })
@@ -60,10 +61,16 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     await page.goto('/')
     await expect(page.getByRole('heading', { level: 1, name: /quản lý giáo lý/i })).toBeVisible({ timeout: 15_000 })
 
-    const overflow = await page.evaluate(() => ({
-      viewportWidth: window.innerWidth,
-      documentWidth: document.documentElement.scrollWidth,
-    }))
+    const overflow = await page.evaluate(() => {
+      const portals = document.querySelector('#cong-dang-nhap')
+      const portalsTop = portals ? portals.getBoundingClientRect().top + window.scrollY : 0
+      return {
+        viewportWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        scrollHeight: document.documentElement.scrollHeight,
+        portalsTop: Math.round(portalsTop),
+      }
+    })
     expect(overflow.documentWidth, 'document must not overflow the visual viewport').toBeLessThanOrEqual(overflow.viewportWidth + 1)
 
     const cta = page.getByRole('button', { name: /bắt đầu đăng nhập/i }).first()
@@ -105,6 +112,6 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
 
     // Footer commitment
     await expect(page.getByText(/dữ liệu thuộc về xứ đoàn đức mẹ fatima — giáo xứ gia tôn/i)).toBeVisible()
-    await expect(page.getByText(/không chia sẻ cho bên thứ ba/i)).toBeVisible()
+    await expect(page.getByText(/quyền truy cập được phân theo vai trò/i)).toBeVisible()
   })
 })

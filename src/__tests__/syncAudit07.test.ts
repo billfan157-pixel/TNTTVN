@@ -4,7 +4,7 @@ import { setTenantScope, captureTenantScope } from '../lib/tenantScope'
 import * as cipher from '../lib/offlineCipher'
 import { useSyncStore } from '../stores/syncStore'
 import { api, ApiError, setTokens, clearTokens } from '../lib/api'
-import { syncSaveExamResults, syncCompleteExam } from '../lib/syncService'
+import { syncCreateExam, syncSaveExamResults, syncCompleteExam } from '../lib/syncService'
 import { flushAttendanceBatchWithIsolation } from '../lib/syncApply'
 import { runSyncFlow } from '../lib/syncCoordinator'
 import { processOperation } from '../lib/syncProcessor'
@@ -129,7 +129,21 @@ describe('Audit07 owner, compaction and completion barriers', () => {
     expect(await payload(rows[0])).toEqual({ fullName: 'Original', parentPhone: 'new' })
   })
 
+  it('holds dependent exam results while their parent CREATE is unsettled', async () => {
+    const parentId = await syncCreateExam({ id: 'EX-TEMP-PARENT', title: 'Synthetic', subject: 'Synthetic', classId: 'CL-1' })
+    const [child] = await syncSaveExamResults('EX-TEMP-PARENT', [{ studentId: 'ST-X', score: 8 }])
+    vi.spyOn(api, 'createExam').mockRejectedValue(new ApiError(503, 'Service unavailable', '/exams'))
+    const save = vi.spyOn(api, 'saveExamResults')
+
+    await runSyncFlow(true)
+
+    expect(save).not.toHaveBeenCalled()
+    expect((await db.syncQueue.get(parentId))?.status).toBe('retrying')
+    expect((await db.syncQueue.get(child.queueOpId))?.status).toBe('pending')
+  })
+
   it('holds complete after a result network failure and releases it after result ACK', async () => {
+
     const save = vi.spyOn(api, 'saveExamResults').mockRejectedValue(new ApiError(0, 'Network offline', '/exams'))
     const complete = vi.spyOn(api, 'completeExam').mockResolvedValue({ id: 'EX-X', status: 'completed' } as never)
     await syncSaveExamResults('EX-X', [{ studentId: 'ST-X', score: 8 }])

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useClassStore } from '../../stores/classStore'
 import { useFilterStore } from '../../stores/filterStore'
-import { BookOpen, Plus, Pencil, Trash2, School, Hash,   Calendar, User, Users, Eye, ArrowDownAZ, ArrowDownZA, ArrowUpDown } from 'lucide-react'
+import { BookOpen, Plus, Pencil, Trash2, School, Hash, Calendar, User, Users, Eye, ArrowDownAZ, ArrowDownZA, ArrowUpDown, Lock } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import { api } from '../../lib/api'
 import { useToastStore } from '../../stores/toastStore'
@@ -23,14 +23,26 @@ interface TeacherOption {
 
 type DesktopClassesLayout = 'responsive-table' | 'grid'
 
-export function DesktopClasses({ embedded = false, layout = 'responsive-table', onViewClassStudents }: { embedded?: boolean; layout?: DesktopClassesLayout; onViewClassStudents?: (classId: string) => void } = {}) {
+export function DesktopClasses({
+  embedded = false,
+  layout = 'responsive-table',
+  onViewClassStudents,
+  sortDirection: propSortDirection,
+}: {
+  embedded?: boolean
+  layout?: DesktopClassesLayout
+  onViewClassStudents?: (classId: string) => void
+  sortDirection?: 'asc' | 'desc'
+} = {}) {
   const navigate = useNavigate()
   const { classes, branches, academicYears, loading, fetchClasses, fetchBranches, fetchAcademicYears, createClass, updateClass, deleteClass } = useClassStore()
   const { role } = useAuth()
   const canEdit = role === 'admin'
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
 
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [internalSortDirection, setInternalSortDirection] = useState<'asc' | 'desc'>('asc')
+  const sortDirection = propSortDirection ?? internalSortDirection
+  const setSortDirection = setInternalSortDirection
 
   const sortedClasses = useMemo(() => {
     return sortClassesByHierarchy(classes, sortDirection)
@@ -49,6 +61,7 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState({ code: '', name: '', branchId: '', academicYearId: '', room: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [teachers, setTeachers] = useState<TeacherOption[]>([])
@@ -119,12 +132,15 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
   }
 
   const handleDelete = async (id: string) => {
+    if (deleting) return
+    setDeleting(true)
     try {
       await deleteClass(id)
       useToastStore.getState().addToast('Đã xóa lớp học thành công!', 'success')
     } catch {
       useToastStore.getState().addToast('Có lỗi xảy ra khi xóa lớp học. Vui lòng thử lại!', 'error')
     } finally {
+      setDeleting(false)
       setConfirmDelete(null)
     }
   }
@@ -150,7 +166,7 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
               <button
                 type="button"
                 onClick={() => setSortDirection('asc')}
-                className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
                   sortDirection === 'asc'
                     ? 'bg-parish-primary text-white shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
@@ -163,7 +179,7 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
               <button
                 type="button"
                 onClick={() => setSortDirection('desc')}
-                className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 ${
+                className={`min-h-[40px] px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
                   sortDirection === 'desc'
                     ? 'bg-parish-primary text-white shadow-xs'
                     : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
@@ -190,67 +206,25 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
         }
       />}
 
-      {embedded && (
-        <div className="flex flex-wrap items-center justify-between gap-2.5 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-subtle text-primary">
-              <BookOpen size={16} />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-base font-bold text-text-primary truncate">Lớp Học</h2>
-              <p className="text-xs text-text-muted truncate hidden xl:block">
-                {sortedClasses.length} lớp · Chọn lớp để xem danh sách hoặc phân công huynh trưởng
-              </p>
-            </div>
-          </div>
+      {embedded && <h2 className="sr-only">Lớp Học</h2>}
 
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Nút Sắp Xếp Cấp Bậc Lớp */}
-            <div className="flex items-center bg-surface-hover p-0.5 rounded-lg border border-surface-border shadow-inner gap-0.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => setSortDirection('asc')}
-                className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
-                  sortDirection === 'asc'
-                    ? 'bg-parish-primary text-text-inverse shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
-                }`}
-                title="Sắp xếp lớp từ thấp đến cao"
-              >
-                <ArrowDownAZ size={13} />
-                <span className="hidden 2xl:inline">Thấp → Cao</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSortDirection('desc')}
-                className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
-                  sortDirection === 'desc'
-                    ? 'bg-parish-primary text-text-inverse shadow-xs'
-                    : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
-                }`}
-                title="Sắp xếp lớp từ cao đến thấp"
-              >
-                <ArrowDownZA size={13} />
-                <span className="hidden 2xl:inline">Cao → Thấp</span>
-              </button>
-            </div>
-
-            {canEdit && (academicYears.length === 0 ? (
-              <button
-                className="btn btn-primary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
-                onClick={() => navigate({ to: '/academic-years' })}
-              >
-                <Calendar size={14} /> Tạo Năm Học Trước
-              </button>
-            ) : (
-              <button
-                className="btn btn-primary btn-sm h-8.5 text-xs font-bold flex items-center gap-1.5"
-                onClick={openCreate}
-              >
-                <Plus size={14} /> Thêm Lớp
-              </button>
-            ))}
-          </div>
+      {embedded && canEdit && layout !== 'grid' && (
+        <div className="flex justify-end">
+          {academicYears.length === 0 ? (
+            <button
+              className="btn btn-primary btn-sm min-h-[36px] flex items-center gap-1.5"
+              onClick={() => navigate({ to: '/academic-years' })}
+            >
+              <Calendar size={14} /> Tạo Năm Học Trước
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary btn-sm min-h-[36px] flex items-center gap-1.5"
+              onClick={openCreate}
+            >
+              <Plus size={14} /> Thêm Lớp
+            </button>
+          )}
         </div>
       )}
 
@@ -320,9 +294,22 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
                         >
                           {c.name.slice(0, 2).toUpperCase()}
                         </span>
-                        <span className="rounded-full border border-surface-border bg-surface-hover px-2 py-1 text-xs font-black text-text-main tabular-nums transition-colors group-hover:border-parish-primary group-hover:bg-parish-primary group-hover:text-text-inverse sm:px-2.5 shrink-0">
-                          {c.studentCount ?? 0} em
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {!canEdit && (
+                            c.assignedToCurrentUser ? (
+                              <span className="rounded-md bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                                Phụ trách
+                              </span>
+                            ) : (
+                              <span className="rounded-md bg-surface-hover border border-surface-border px-1.5 py-0.5 text-xs font-medium text-text-muted flex items-center gap-0.5">
+                                <Lock size={10} /> Chỉ xem
+                              </span>
+                            )
+                          )}
+                          <span className="rounded-full border border-surface-border bg-surface-hover px-2 py-1 text-xs font-black text-text-main tabular-nums transition-colors group-hover:border-parish-primary group-hover:bg-parish-primary group-hover:text-text-inverse sm:px-2.5">
+                            {c.studentCount ?? 0} em
+                          </span>
+                        </div>
                       </div>
 
                       {/* Tên lớp & Thông tin */}
@@ -390,6 +377,21 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
                 </article>
               )
             })}
+
+            {canEdit && (
+              <button
+                type="button"
+                onClick={academicYears.length === 0 ? () => navigate({ to: '/academic-years' }) : openCreate}
+                className="group flex min-h-[160px] flex-col items-center justify-center gap-2.5 rounded-2xl border-2 border-dashed border-surface-border bg-surface-card/40 p-4 text-text-muted hover:border-parish-primary hover:bg-parish-primary-light/10 hover:text-parish-primary transition-colors duration-200 cursor-pointer"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-hover text-text-muted group-hover:bg-parish-primary-light group-hover:text-parish-primary transition-colors shadow-xs">
+                  {academicYears.length === 0 ? <Calendar size={20} /> : <Plus size={20} />}
+                </div>
+                <span className="text-sm font-bold">
+                  {academicYears.length === 0 ? 'Tạo Năm Học Trước' : 'Thêm Lớp'}
+                </span>
+              </button>
+            )}
           </div>
         )
       ) : (
@@ -569,15 +571,28 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
                       </span>
                     </td>
                     <td className="py-2.5 px-3 font-semibold text-parish-primary text-base">
-                      <button
-                        type="button"
-                        onClick={() => viewClassStudents(c.id)}
-                        aria-label={`Xem danh sách lớp ${c.name}`}
-                        className="inline-flex items-center gap-1 bg-transparent p-0 font-semibold text-parish-primary hover:underline"
-                      >
-                        {c.name}
-                        <Eye size={14} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </button>
+                      <div className="inline-flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => viewClassStudents(c.id)}
+                          aria-label={`Xem danh sách lớp ${c.name}`}
+                          className="inline-flex items-center gap-1 bg-transparent p-0 font-semibold text-parish-primary hover:underline"
+                        >
+                          {c.name}
+                          <Eye size={14} className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                        {!canEdit && (
+                          c.assignedToCurrentUser ? (
+                            <span className="rounded bg-emerald-500/10 border border-emerald-500/30 px-1.5 py-0.2 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                              Phụ trách
+                            </span>
+                          ) : (
+                            <span className="rounded bg-surface-hover border border-surface-border px-1 py-0.2 text-xs font-medium text-text-muted inline-flex items-center gap-0.5">
+                              <Lock size={9} /> Chỉ xem
+                            </span>
+                          )
+                        )}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-text-muted">{c.branchName || getBranchName(c.branchId)}</td>
                     <td className="py-2.5 px-3 text-text-muted">
@@ -688,6 +703,7 @@ export function DesktopClasses({ embedded = false, layout = 'responsive-table', 
           message="Bạn có chắc muốn xóa lớp học này? Hành động này không thể hoàn tác."
           confirmText="Xóa"
           variant="danger"
+          isBusy={deleting}
           onConfirm={() => handleDelete(confirmDelete)}
           onCancel={() => setConfirmDelete(null)}
         />

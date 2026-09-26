@@ -23,7 +23,9 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   const receiptData = {
     type: transaction.type,
     receiptNumber: transaction.receiptNumber || `PT-${transaction.id.slice(-6)}`,
-    date: transaction.transactionDate,
+     date: transaction.transactionDate,
+     academicYear: transaction.academicYear,
+
     personName: transaction.personName || transaction.studentName || 'Người nộp/nhận',
     personPhone: transaction.personPhone || undefined,
     className: transaction.className || undefined,

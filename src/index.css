@@ -2,6 +2,7 @@
 @import "./styles/design-system/00-tokens.css";
 @import "./styles/design-system/10-foundations.css";
 @import "./styles/design-system/20-primitives.css";
+@import "./styles/design-system/25-landing.css";
 @import "./styles/design-system/30-theme-media.css";
 @import "./styles/design-system/40-mobile-shell.css";
 @import "./styles/design-system/50-app-shell.css";
@@ -24,4 +25,28 @@
 }
 .toast-slide-in {
   animation: toastSlideIn 0.25s ease-out;
+}
+
+@keyframes toastSlideOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(10px) scale(0.96); }
+}
+.toast-slide-out {
+  animation: toastSlideOut 0.2s ease-in forwards;
+}
+
+@keyframes toastCountdown {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+.toast-countdown-bar {
+  animation: toastCountdown linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-slide-in,
+  .toast-slide-out,
+  .toast-countdown-bar {
+    animation: none !important;
+  }
 }

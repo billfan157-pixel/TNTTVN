@@ -22,8 +22,7 @@ export default {
   async fetch(request, env) {
     if (env.TURSO_URL !== PRODUCTION_DATABASE_URL || !env.TURSO_AUTH_TOKEN
       || !env.JWT_SECRET || !env.JWT_REFRESH_SECRET || !env.REPORT_HMAC_SECRET
-      || !env.SUPER_ADMIN_ID || !env.OPS_TOKEN || !env.BACKUP_ENCRYPTION_KEY
-      || !env.PASSWORD_CIPHER_KEY) {
+      || !env.SUPER_ADMIN_ID || !env.OPS_TOKEN || !env.BACKUP_ENCRYPTION_KEY) {
       return new Response('Backend configuration incomplete', { status: 503 })
     }
     if (env.CATEVIA_TRAFFIC_ENABLED === 'yes' && !env.CATEVIA_PROXY_SHARED_SECRET) {

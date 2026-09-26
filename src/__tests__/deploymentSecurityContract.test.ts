@@ -169,6 +169,11 @@ describe('deployment and native privacy contracts', () => {
       .toBeLessThan(deploy.indexOf('Deploy exact SHA to Render production'))
   })
 
+  it('keeps production Worker password posture aligned with the no-reversible-password policy', () => {
+    expect(read('server/src/cloudflare/entry.js')).not.toContain('PASSWORD_CIPHER_KEY')
+    expect(read('tools/cloudflare-free-feasibility/put-production-secrets.mjs')).not.toContain('PASSWORD_CIPHER_KEY')
+  })
+
   it('moves production ingress only through a recorded, reversible cutover', () => {
     const deploy = read('.github/workflows/deploy-production.yml')
     const cutover = read('.github/workflows/cutover-production.yml')
@@ -193,5 +198,6 @@ describe('deployment and native privacy contracts', () => {
     // Rollback must not need the Worker credential that rollback removes.
     expect(cutover).toContain('remove_env_by_key CATEVIA_PROXY_SHARED_SECRET')
     expect(cutover).toContain('https://tnttvn.onrender.com')
+    expect(cutover).toContain('Restore Render to the verified release before rollback boundary')
   })
 })

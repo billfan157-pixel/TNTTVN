@@ -234,6 +234,7 @@ export function StudentsPage() {
           message={`Bạn có chắc muốn gửi phiếu điểm học kỳ ${selectedSemester} cho ${confirmSendInfo.count} em ${confirmSendInfo.label !== 'toàn xứ' ? `lớp ${confirmSendInfo.label}` : 'toàn xứ đang học'}? Phụ huynh đã liên kết SĐT sẽ nhận thông báo ứng dụng.`}
           confirmText={`Gửi ${confirmSendInfo.count} phiếu`}
           variant="info"
+          isBusy={sendingCards}
           onConfirm={handleSendReportCards}
           onCancel={() => setShowConfirmSend(false)}
         />
@@ -266,6 +267,7 @@ export function StudentsPage() {
         message={`Bạn có chắc muốn gửi phiếu điểm học kỳ ${selectedSemester} cho ${confirmSendInfo.count} em ${confirmSendInfo.label !== 'toàn xứ' ? `lớp ${confirmSendInfo.label}` : 'toàn xứ đang học'}?`}
         confirmText={`Gửi ${confirmSendInfo.count} phiếu`}
         variant="info"
+        isBusy={sendingCards}
         onConfirm={handleSendReportCards}
         onCancel={() => setShowConfirmSend(false)}
       />
