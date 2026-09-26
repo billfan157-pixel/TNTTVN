@@ -117,6 +117,9 @@ test.describe('Critical persisted business outcomes', () => {
   })
 
   test('@critical finance income updates both ledger and calculated fund balance', async ({ page }, testInfo) => {
+    // WebKit on CI runners needs more headroom than the 30s suite default: the income
+    // submit waits on the transaction POST round-trip plus the ledger recalculation.
+    test.setTimeout(60_000)
     const session = await getAdminSession(page.request)
     const key = testKey(testInfo, 'FIN')
     const amount = 125_000
