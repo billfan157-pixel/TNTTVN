@@ -126,5 +126,22 @@ describe('Vercel backend proxy', () => {
 
     expect(response.headers.get('x-render-origin-server')).toBe('Render')
     expect(response.headers.get('x-catevia-backend')).toBeNull()
+    // The ingress marker is what proves Routing Middleware ran instead of the
+    // external rewrites in vercel.json, which claim the same paths.
+    expect(response.headers.get('x-catevia-ingress')).toBe('routing-middleware')
+  })
+
+  it('strips a client-supplied ingress marker before forwarding', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('render', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    delete process.env.CATEVIA_PROXY_TARGET
+
+    const response = await proxy(new Request('https://tnttvn.vercel.app/api/auth/me', {
+      headers: { 'x-forwarded-for': '203.0.113.10', 'x-catevia-ingress': 'external-rewrite' },
+    }))
+
+    expect(response.headers.get('x-catevia-ingress')).toBe('routing-middleware')
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    expect(new Headers(init?.headers).get('x-catevia-ingress')).toBeNull()
   })
 })

@@ -4,6 +4,8 @@ const PROXY_SECRET_HEADER = 'x-catevia-proxy-secret'
 const CLIENT_IP_HEADER = 'x-catevia-client-ip'
 const BACKEND_HEADER = 'x-catevia-backend'
 const WORKER_BACKEND_MARKER = 'cloudflare-worker'
+const INGRESS_HEADER = 'x-catevia-ingress'
+const INGRESS_MARKER = 'routing-middleware'
 const CLIENT_IP_PATTERN = /^[0-9a-f:.]{2,45}$/i
 const DROPPED_HEADERS = [
   'host',
@@ -19,6 +21,7 @@ const DROPPED_HEADERS = [
   PROXY_SECRET_HEADER,
   CLIENT_IP_HEADER,
   BACKEND_HEADER,
+  INGRESS_HEADER,
   'x-forwarded-for',
   'x-real-ip',
   'x-vercel-forwarded-for',
@@ -71,12 +74,13 @@ export default async function proxy(request: Request): Promise<Response> {
       redirect: 'manual',
       signal: request.signal,
     })
-    // The public boundary verifier needs an unforgeable signal for which backend
-    // answered. A client cannot set it: DROPPED_HEADERS strips the inbound value,
-    // and the backend never emits this header itself.
-    if (!isWorkerTarget) return response
+    // Routing Middleware and the external rewrites in vercel.json both claim /api
+    // and /health, so the response states which layer actually served the request.
+    // A client cannot forge either header: DROPPED_HEADERS strips the inbound value
+    // and no backend emits them.
     const responseHeaders = new Headers(response.headers)
-    responseHeaders.set(BACKEND_HEADER, WORKER_BACKEND_MARKER)
+    responseHeaders.set(INGRESS_HEADER, INGRESS_MARKER)
+    if (isWorkerTarget) responseHeaders.set(BACKEND_HEADER, WORKER_BACKEND_MARKER)
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
