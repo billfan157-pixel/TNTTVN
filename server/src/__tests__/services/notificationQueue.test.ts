@@ -81,6 +81,39 @@ describe('notificationQueue web/native delivery and Telegram retirement', () => 
     }, { timeout: 3000 })
   })
 
+  it('keeps one item per Worker invocation and exposes remaining durable work for the next alarm', async () => {
+    const previousRuntime = process.env.CATEVIA_RUNTIME
+    const previousWebSocketPair = (globalThis as { WebSocketPair?: unknown }).WebSocketPair
+    process.env.CATEVIA_RUNTIME = 'cloudflare-worker'
+    Object.defineProperty(globalThis, 'WebSocketPair', { configurable: true, value: function WebSocketPair() {} })
+    const { enqueueNotification, runNotificationDeliveryCycle, getQueueLength } = await import('../../services/notificationQueue.js')
+    const { sendAppPushToUsers } = await import('../../services/appPushService.js')
+    try {
+      for (let index = 0; index < 3; index++) {
+        await enqueueNotification('webpush', 'info', `Batch item ${index}`, {}, parishId, undefined, { webpushUserIds: [parentId] })
+      }
+      expect(sendAppPushToUsers).not.toHaveBeenCalled()
+      await runNotificationDeliveryCycle()
+      expect(sendAppPushToUsers).toHaveBeenCalledTimes(1)
+      expect(getQueueLength()).toBe(1)
+      await runNotificationDeliveryCycle()
+      expect(sendAppPushToUsers).toHaveBeenCalledTimes(2)
+      await runNotificationDeliveryCycle()
+      expect(sendAppPushToUsers).toHaveBeenCalledTimes(3)
+      expect(getQueueLength()).toBe(0)
+      const rows = await db.select().from(notifications).where(eq(notifications.parishId, parishId))
+      expect(rows).toHaveLength(3)
+      expect(rows.every(row => row.status === 'sent' && row.attemptCount === 1)).toBe(true)
+    } finally {
+      // Drain any look-ahead item even if the assertion fails, for test isolation.
+      for (let index = 0; index < 3 && getQueueLength(); index++) await runNotificationDeliveryCycle()
+      if (previousRuntime === undefined) delete process.env.CATEVIA_RUNTIME
+      else process.env.CATEVIA_RUNTIME = previousRuntime
+      if (previousWebSocketPair === undefined) delete (globalThis as { WebSocketPair?: unknown }).WebSocketPair
+      else Object.defineProperty(globalThis, 'WebSocketPair', { configurable: true, value: previousWebSocketPair })
+    }
+  })
+
   it('leaves delivery to the Worker when Render no longer owns maintenance', async () => {
     const previousOwner = process.env.CATEVIA_MAINTENANCE_OWNER
     process.env.CATEVIA_MAINTENANCE_OWNER = 'cloudflare'

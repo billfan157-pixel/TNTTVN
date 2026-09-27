@@ -250,7 +250,9 @@ export async function recoverQueueFromDb(): Promise<void> {
       or(isNull(notifications.leaseExpiresAt), lte(notifications.leaseExpiresAt, now)),
       deploymentParishId ? eq(notifications.parishId, deploymentParishId) : undefined,
     ))
-    const pending = isCloudflareWorkerRuntime() ? await pendingQuery.limit(1) : await pendingQuery
+    // Deliver one item per Worker invocation, with one look-ahead item so the
+    // coordinator can continue a backlog instead of waiting for the idle poll.
+    const pending = isCloudflareWorkerRuntime() ? await pendingQuery.limit(2) : await pendingQuery
     for (const row of pending) {
       if (queue.some((queued) => queued.id === row.id && queued.parishId === row.parishId)) continue
       const item: NotificationQueueItem = {
