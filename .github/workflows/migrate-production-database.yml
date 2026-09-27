@@ -1,0 +1,90 @@
+name: Apply Approved Production Migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: 'Exact 40-character main SHA approved for this migration'
+        required: true
+        type: string
+      expected_worker_release:
+        description: 'Exact deployed Worker release used for the pre-migration backup gate'
+        required: true
+        type: string
+      expected_render_release:
+        description: 'Current Render SHA before cutover; unused when the active backend is worker'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deployment
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      TURSO_URL: ${{ secrets.TURSO_URL }}
+      TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+      DEPLOYMENT_PARISH_ID: ${{ vars.DEPLOYMENT_PARISH_ID }}
+      PARISH_TIME_ZONE: ${{ vars.PARISH_TIME_ZONE }}
+      MIGRATION_APPROVED_SHA: ${{ inputs.release_sha }}
+      EXPECTED_WORKER_RELEASE: ${{ inputs.expected_worker_release }}
+      EXPECTED_RENDER_RELEASE: ${{ inputs.expected_render_release }}
+      CATEVIA_BACKEND_TARGET: ${{ vars.CATEVIA_BACKEND_TARGET }}
+      OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      ALLOW_PRODUCTION_MIGRATION: 'true'
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+    steps:
+      - name: Checkout the approved release
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 1
+
+      - name: Validate release and credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${MIGRATION_APPROVED_SHA}"
+          test -n "$TURSO_URL"
+          test -n "$TURSO_AUTH_TOKEN"
+          test -n "$OPS_TOKEN"
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Capture a verified pre-migration backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe_json="$(node tools/cloudflare-free-feasibility/probe-production-backup.mjs \
+            "$EXPECTED_WORKER_RELEASE" "$EXPECTED_RENDER_RELEASE" "${CATEVIA_BACKEND_TARGET:-render}")"
+          echo "$probe_json"
+          export BACKUP_OBJECT_KEY="$(jq -er '.objectKey' <<<"$probe_json")"
+          export EXPECTED_ROW_COUNT="$(jq -er '.rowCount' <<<"$probe_json")"
+          export EXPECTED_ENCRYPTED_BYTES="$(jq -er '.encryptedBytes' <<<"$probe_json")"
+          export EXPECTED_SNAPSHOT_CHECKSUM="$(jq -er '.checksum' <<<"$probe_json")"
+          node --import tsx tools/cloudflare-free-feasibility/drill-production-backup-restore.mjs
+
+      - name: Apply migrations under the explicit approval guard
+        run: npm --prefix server run db:migrate:production
+
+      - name: Verify schema and tenant scope after migration
+        run: npm --prefix server run db:preflight:cloudflare

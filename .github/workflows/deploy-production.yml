@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   deploy-production:
-    name: Deploy verified SHA to Cloudflare, Vercel, and Render
+    name: Deploy verified SHA to the recorded production backend and Vercel
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
@@ -44,12 +44,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in VERCEL_TOKEN VERCEL_TEAM_ID VERCEL_PROJECT_ID RENDER_API_KEY RENDER_SERVICE_ID; do
+          for name in VERCEL_TOKEN VERCEL_TEAM_ID VERCEL_PROJECT_ID; do
             if [ -z "${!name:-}" ]; then
               echo "Missing required production secret: ${name}" >&2
               exit 1
             fi
           done
+          if [ "${CATEVIA_BACKEND_TARGET:-render}" = "render" ]; then
+            test -n "$RENDER_API_KEY"
+            test -n "$RENDER_SERVICE_ID"
+          fi
 
       - name: Confirm SHA is still the main head
         shell: bash
@@ -135,19 +139,42 @@ jobs:
           if [ "$CATEVIA_BACKEND_TARGET" = "render" ]; then
             expected_traffic=no
             expected_owner=render
+            # A recorded target change cannot make a normal release perform rollback.
+            # Inspect headers here so this gate also permits fixing a broken body encoder.
+            node --input-type=module <<'NODE'
+          const [web, worker] = await Promise.all([
+            fetch('https://tnttvn.vercel.app/health', { signal: AbortSignal.timeout(20000) }),
+            fetch('https://catevia-api.billfan157.workers.dev/api/auth/me', { signal: AbortSignal.timeout(20000) }),
+          ]);
+          if (web.status !== 200 || web.headers.get('x-render-origin-server') !== 'Render'
+            || worker.status !== 503 || await worker.text() !== 'Backend cutover pending') {
+            throw new Error('Render rollback has not been proven; use cutover-production first');
+          }
+          await web.body?.cancel();
+          NODE
           else
             expected_traffic=yes
             expected_owner=cloudflare
+            # Only the cutover workflow may open a closed backend. Changing the
+            # recorded target must not bypass backup/restore and writer checks.
+            node --input-type=module <<'NODE'
+          import { verifyProductionBoundary } from './tools/cloudflare-free-feasibility/verify-production-boundary.mjs';
+          const response = await fetch('https://tnttvn.vercel.app/health', { signal: AbortSignal.timeout(20000) });
+          const health = await response.json();
+          const boundary = await verifyProductionBoundary(health.releaseId, fetch, { mode: 'worker' });
+          if (!boundary.ok) throw new Error('Worker cutover has not been proven; use cutover-production first');
+          NODE
           fi
-          # The repository config is the single source of truth for the deployment
-          # shape; CI refuses to publish a Worker that disagrees with the recorded
-          # backend target, so a half-applied cutover can never reach production.
+          echo "WORKER_TRAFFIC=$expected_traffic" >> "$GITHUB_ENV"
+          echo "WORKER_OWNER=$expected_owner" >> "$GITHUB_ENV"
+          # A bare CLI deploy stays closed. Verified deployment/cutover workflows
+          # explicitly supply the recorded state instead of changing safe defaults.
           node --input-type=module <<NODE
           import fs from 'node:fs';
           const config = JSON.parse(fs.readFileSync('tools/cloudflare-free-feasibility/wrangler-catevia-production.jsonc', 'utf8'));
-          if (config.vars.CATEVIA_TRAFFIC_ENABLED !== '$expected_traffic'
-            || config.vars.CATEVIA_MAINTENANCE_OWNER !== '$expected_owner') {
-            throw new Error('Refusing the CI Worker deployment: CATEVIA_TRAFFIC_ENABLED must be $expected_traffic and CATEVIA_MAINTENANCE_OWNER must be $expected_owner for backend target $CATEVIA_BACKEND_TARGET.');
+          if (config.vars.CATEVIA_TRAFFIC_ENABLED !== 'no'
+            || config.vars.CATEVIA_MAINTENANCE_OWNER !== 'render') {
+            throw new Error('The default Worker configuration must remain closed and maintenance-inert.');
           }
           NODE
 
@@ -170,6 +197,8 @@ jobs:
           --config wrangler-catevia-production.jsonc
           --strict
           --var APP_RELEASE_ID:${{ env.VERIFIED_SHA }}
+          --var CATEVIA_TRAFFIC_ENABLED:${{ env.WORKER_TRAFFIC }}
+          --var CATEVIA_MAINTENANCE_OWNER:${{ env.WORKER_OWNER }}
           --message verified-sha-${{ env.VERIFIED_SHA }}
 
       - name: Verify the deployed Worker matches the recorded backend target

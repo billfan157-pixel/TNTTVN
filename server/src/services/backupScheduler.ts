@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { db, client, dbConfig } from '../db/index.js'
 import { systemSettings } from '../db/schema.js'
 import { and, eq } from 'drizzle-orm'
-import { putObject, listObjects, deleteObject } from './blobStorage.js'
+import { putObject, listObjects, deleteObject, type StoredObject } from './blobStorage.js'
 import { createAndStoreRemoteBackup } from './remoteBackup.js'
 import { getDeploymentParishId } from '../utils/deploymentParish.js'
 import { tryChmod600 } from '../utils/safetyDir.js'
@@ -46,7 +46,8 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
   if (dbConfig.isRemote) {
     try {
       const result = await createAndStoreRemoteBackup(client)
-      console.log(`[BACKUP SUCCESS] Encrypted Turso logical backup stored at ${result.objectKey} (${result.rowCount} rows)`)
+       console.log(`[BACKUP SUCCESS] Encrypted backup set stored at ${result.objectKey} (${result.rowCount} rows, ${result.archiveObjectCount} archive objects)`)
+
       await enforceRetention(getRetentionCount())
       return { success: true, destFile: result.objectKey }
     } catch (err: any) {
@@ -117,14 +118,49 @@ export async function runBackupNow(): Promise<{ success: boolean; destFile?: str
 
 async function enforceRetention(retentionCount: number): Promise<void> {
   try {
-    const objects = (await listObjects('backups/')).sort(
-      (a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0),
-    )
-    if (objects.length > retentionCount) {
-      for (const old of objects.slice(retentionCount)) {
+    const allObjects = await listObjects('backups/')
+    const v2Manifests = allObjects
+      .filter(object => /^backups\/v2\/[^/]+\/manifest\.json$/.test(object.key))
+      .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))
+    const retainedRoots = new Set(v2Manifests.slice(0, retentionCount).map(object => object.key.slice(0, -'manifest.json'.length)))
+    for (const manifest of v2Manifests.slice(retentionCount)) {
+      const root = manifest.key.slice(0, -'manifest.json'.length)
+      for (const object of allObjects.filter(item => item.key.startsWith(root))) {
+        await deleteObject(object.key)
+        console.log(`[BACKUP CLEANUP] Removed old backup set object ${object.key}`)
+      }
+    }
+    const oldestRetainedManifestTime = v2Manifests[retentionCount - 1]?.lastModified ?? v2Manifests[0]?.lastModified
+    if (oldestRetainedManifestTime !== undefined) {
+      const v2Roots = new Map<string, StoredObject[]>()
+      for (const object of allObjects.filter(item => item.key.startsWith('backups/v2/'))) {
+        const root = object.key.split('/').slice(0, 3).join('/') + '/'
+        const entries = v2Roots.get(root) || []
+        entries.push(object)
+        v2Roots.set(root, entries)
+      }
+      for (const [root, objects] of v2Roots) {
+        if (v2Manifests.some(manifest => manifest.key.startsWith(root))) continue
+        const newest = Math.max(...objects.map(object => object.lastModified ?? 0))
+        if (newest < oldestRetainedManifestTime) {
+          for (const object of objects) {
+            await deleteObject(object.key)
+            console.log(`[BACKUP CLEANUP] Removed orphaned backup set object ${object.key}`)
+          }
+        }
+      }
+    }
+    const legacyObjects = allObjects
+      .filter(object => !object.key.startsWith('backups/v2/'))
+      .sort((a, b) => (b.lastModified ?? 0) - (a.lastModified ?? 0))
+    if (legacyObjects.length > retentionCount) {
+      for (const old of legacyObjects.slice(retentionCount)) {
         await deleteObject(old.key)
         console.log(`[BACKUP CLEANUP] Removed old backup ${old.key}`)
       }
+    }
+    if (retainedRoots.size < v2Manifests.length) {
+      console.log(`[BACKUP CLEANUP] Retained ${retainedRoots.size} complete backup sets`)
     }
   } catch (cleanupErr: any) {
     console.warn('[BACKUP WARNING] Cleanup old backups encountered an issue:', cleanupErr?.message || cleanupErr)
@@ -142,7 +178,7 @@ async function enforceRetention(retentionCount: number): Promise<void> {
  * hour it happened at. Checks before the target hour never fire, so a fresh
  * day still waits for its scheduled window.
  */
-export async function runAutoBackupCheck(now: Date = new Date()): Promise<boolean> {
+export async function runAutoBackupCheck(now: Date = new Date(), { throwOnFailure = false } = {}): Promise<boolean> {
   if (process.env.AUTO_BACKUP_ENABLED === 'false') return false
   if (now.getHours() < getTargetHour()) return false
 
@@ -178,9 +214,11 @@ export async function runAutoBackupCheck(now: Date = new Date()): Promise<boolea
       }
       return true
     }
+    if (throwOnFailure) throw new Error('Scheduled backup did not complete')
     return false
   } catch (err) {
     console.error('[BACKUP CHECK ERROR]', err)
+    if (throwOnFailure) throw err
     return false
   }
 }

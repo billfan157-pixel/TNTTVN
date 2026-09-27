@@ -77,6 +77,9 @@ function getBackupDir(): string {
 }
 
 function resolveLocalPath(key: string): string {
+  if (!key || key.startsWith('/') || key.includes('..') || key.includes('\\') || key.includes('\0')) {
+    throw new Error(`Invalid blob key: ${key}`)
+  }
   if (key.startsWith('safety/')) {
     return path.join(getSafetyBackupDir(), key.slice('safety/'.length))
   }
@@ -230,17 +233,35 @@ export async function listObjects(prefix: string): Promise<StoredObject[]> {
     return out
   }
 
-  const dirPrefix = prefix.startsWith('safety/')
-    ? getSafetyBackupDir()
+  const basePrefix = prefix.startsWith('safety/')
+    ? 'safety/'
     : prefix.startsWith('backups/')
+      ? 'backups/'
+      : ''
+  const dirPrefix = basePrefix === 'safety/'
+    ? getSafetyBackupDir()
+    : basePrefix === 'backups/'
       ? getBackupDir()
       : process.env.BLOB_LOCAL_DIR || path.join(process.cwd(), 'blobs')
   if (!fs.existsSync(dirPrefix)) return []
-  return fs.readdirSync(dirPrefix).filter(name => !/\.(?:tmp|partial)-/.test(name)).map((name) => {
-    const p = path.join(dirPrefix, name)
-    const st = fs.statSync(p)
-    return { key: `${prefix}${name}`, size: st.size, lastModified: st.mtimeMs }
-  })
+  const objects: StoredObject[] = []
+  const walk = (directory: string, relative: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name.includes('.tmp-') || entry.name.includes('.partial-')) continue
+      const absolute = path.join(directory, entry.name)
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name
+      const key = `${basePrefix}${childRelative}`
+      if (entry.isDirectory()) {
+        if (prefix.startsWith(`${key}/`) || `${key}/`.startsWith(prefix)) walk(absolute, childRelative)
+        continue
+      }
+      if (!entry.isFile() || !key.startsWith(prefix)) continue
+      const stat = fs.statSync(absolute)
+      objects.push({ key, size: stat.size, lastModified: stat.mtimeMs })
+    }
+  }
+  walk(dirPrefix, '')
+  return objects
 }
 
 export async function deleteObject(key: string): Promise<void> {

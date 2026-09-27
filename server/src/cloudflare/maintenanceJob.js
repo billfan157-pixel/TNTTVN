@@ -11,6 +11,7 @@ import { runAutoBackupCheck } from '../services/backupScheduler.ts'
 import { withBlobBucket } from '../services/blobStorage.ts'
 import { client } from '../db/connection.ts'
 import { RECOVERY_QUARANTINE_KEY } from '../db/recoveryQuarantine.ts'
+import { cleanupExpiredRateLimits } from '../middleware/security.ts'
 
 // Each job uses a distinct Durable Object ID. The five-minute Cron repairs
 // missing alarms; each alarm supplies the shorter cadence used by Node timers.
@@ -24,12 +25,15 @@ export const MAINTENANCE_INTERVALS_MS = Object.freeze({
   'import-maintenance': 60 * 60_000,
   'receipt-maintenance': 24 * 60 * 60_000,
   backup: 60_000,
+  'rate-limit-cleanup': 60_000,
 })
 
 export class MaintenanceJob extends DurableObject {
+  activeAlarm = null
+
   async ensureScheduled(kind) {
     if (!(kind in MAINTENANCE_INTERVALS_MS)) throw new Error('Unknown maintenance job')
-    if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') {
+    if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare' || await this.ctx.storage.get('paused')) {
       await this.ctx.storage.deleteAlarm()
       return { enabled: false }
     }
@@ -44,9 +48,16 @@ export class MaintenanceJob extends DurableObject {
   }
 
   async alarm() {
+    if (this.activeAlarm) return this.activeAlarm
+    const work = this.executeAlarm()
+    this.activeAlarm = work
+    try { await work } finally { this.activeAlarm = null }
+  }
+
+  async executeAlarm() {
     const kind = await this.ctx.storage.get('kind')
     if (!(kind in MAINTENANCE_INTERVALS_MS)) throw new Error('Unknown maintenance job')
-    if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') return
+    if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare' || await this.ctx.storage.get('paused')) return
     const startedAt = Date.now()
     try {
       const marker = await client.execute({
@@ -63,13 +74,35 @@ export class MaintenanceJob extends DurableObject {
     } finally {
       // Schedule even after a downstream outage; Cron also repairs a missing
       // alarm if an isolate dies between the job and this write.
-      await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000,
-        startedAt + MAINTENANCE_INTERVALS_MS[kind]))
+      if (!await this.ctx.storage.get('paused')) {
+        await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000,
+          startedAt + MAINTENANCE_INTERVALS_MS[kind]))
+      }
     }
+  }
+
+  async pause() {
+    // Persist before draining: eviction/redeployment must not undo the pause.
+    await this.ctx.storage.put('paused', true)
+    await this.ctx.storage.deleteAlarm()
+    await this.activeAlarm
+    // Cover an alarm that was already rearming when the pause arrived.
+    await this.ctx.storage.deleteAlarm()
+    return this.status()
+  }
+
+  async resume(kind) {
+    if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') throw new Error('Maintenance owner is not Cloudflare')
+    if (!(kind in MAINTENANCE_INTERVALS_MS)) throw new Error('Unknown maintenance job')
+    await this.ctx.storage.put('paused', false)
+    return this.ensureScheduled(kind)
   }
 
   async status() {
     return {
+      releaseId: this.env.APP_RELEASE_ID || null,
+      paused: Boolean(await this.ctx.storage.get('paused')),
+      active: Boolean(this.activeAlarm),
       kind: await this.ctx.storage.get('kind') || null,
       nextAlarm: await this.ctx.storage.getAlarm(),
       lastEnsureAt: await this.ctx.storage.get('lastEnsureAt') || null,
@@ -99,7 +132,10 @@ export class MaintenanceJob extends DurableObject {
       case 'receipt-maintenance':
         return { compacted: await runOperationsReceiptMaintenance() }
       case 'backup':
-        return { completed: await withBlobBucket(this.env.BLOB_BUCKET, () => runAutoBackupCheck()) }
+        return { completed: await withBlobBucket(this.env.BLOB_BUCKET, () => runAutoBackupCheck(new Date(), { throwOnFailure: true })) }
+      case 'rate-limit-cleanup':
+        await cleanupExpiredRateLimits()
+        return { completed: true }
       default:
         throw new Error('Unknown maintenance job')
     }

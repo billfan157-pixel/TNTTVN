@@ -10,3 +10,4 @@ export type WorkerTrafficGateResult =
   | { response: Response; request?: never }
 
 export function gateWorkerRequest(request: Request, env: WorkerTrafficEnv): WorkerTrafficGateResult
+export function isOperatorRequest(request: Request, env: WorkerTrafficEnv): boolean

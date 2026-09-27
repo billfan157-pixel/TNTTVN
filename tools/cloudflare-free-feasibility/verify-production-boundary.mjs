@@ -49,19 +49,13 @@ export async function verifyProductionBoundary(expectedRelease, fetcher = fetch,
   }
 
   await Promise.all([
-    probe('renderHealth', URLS.renderHealth, async response => {
+    ...(workerActive ? [] : [probe('renderHealth', URLS.renderHealth, async response => {
       const body = await response.json().catch(() => ({}))
       const observed = { status: response.status, releaseId: body?.releaseId ?? null,
         database: body?.database ?? null }
-      if (workerActive) {
-        // After cutover Render is a rollback target, not the ingress. Whether it is
-        // suspended or frozen at another release is an owner decision, so this stays
-        // observed evidence and never gates the Worker boundary.
-        return { ...observed, pass: true, gating: false }
-      }
       return { ...observed, pass: response.status === 200 && body?.releaseId === expectedRelease
         && body?.database === 'connected' }
-    }),
+    })]),
     probe('webHealth', URLS.webHealth, async response => {
       const body = await response.json().catch(() => ({}))
       const renderOrigin = response.headers.get(RENDER_ORIGIN_HEADER)

@@ -2,27 +2,26 @@ name: Production Backend Cutover
 
 # Manual, deliberate backend switch between Render and the Cloudflare Worker.
 #
-# The repository config (tools/cloudflare-free-feasibility/wrangler-catevia-production.jsonc)
-# is the single source of truth for the Worker shape, and the Production environment
-# variable CATEVIA_BACKEND_TARGET records which backend Vercel ingress must reach.
-# This workflow never edits that config: it only moves the external ingress state
-# (Vercel environment) and then proves the recorded boundary, so a half-applied
-# cutover is impossible to mistake for a finished one.
+# Wrangler defaults remain closed. This workflow explicitly deploys the reviewed
+# release with open/closed flags only after the relevant recovery/ownership gates.
 #
 # Run order for opening traffic to the Worker:
-#   1. merge the config change (CATEVIA_TRAFFIC_ENABLED=yes, CATEVIA_MAINTENANCE_OWNER=cloudflare)
-#      and set the Production environment variable CATEVIA_BACKEND_TARGET=worker
-#   2. owner stops Render's scheduled writers by setting CATEVIA_MAINTENANCE_OWNER=cloudflare
-#      on the Render service (one dashboard value; this workflow only verifies it)
-#   3. run this workflow with mode=open
+#   1. obtain green CI for release_sha; record CATEVIA_BACKEND_TARGET=worker
+#   2. this workflow captures/restores a backup, then redeploys Render with writers paused
+#   3. run this workflow with mode=open and the exact pre-cutover backup releases
+#      (the workflow creates and restore-verifies an encrypted R2 backup first)
 #
-# Rollback is the same workflow with mode=rollback, then the owner restores Render's
-# CATEVIA_MAINTENANCE_OWNER=render. Rollback never touches the Worker, so the Worker
-# release stays available for a second attempt.
+# Rollback prepares Render with its writers disabled, moves ingress, closes the
+# Worker, then resumes Render's writers. Failure stops at that phase; never enable
+# both writers to compensate for an unsuccessful transition.
 
 on:
   workflow_dispatch:
     inputs:
+      release_sha:
+        description: 'Exact CI-passing release to deploy; rollback requires a schema-compatible release'
+        required: true
+        type: string
       mode:
         description: 'open = point Vercel ingress at the Worker, rollback = point it back at Render'
         required: true
@@ -32,12 +31,21 @@ on:
         description: 'Why this cutover step is running (recorded in the run summary)'
         required: true
         type: string
+      expected_worker_release:
+        description: 'Exact closed Worker release SHA for the pre-cutover backup gate'
+        required: true
+        type: string
+      expected_render_release:
+        description: 'Exact Render release SHA currently serving the rollback route'
+        required: true
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: production-backend-cutover
+  group: production-deployment
   cancel-in-progress: false
 
 jobs:
@@ -48,16 +56,62 @@ jobs:
     env:
       CUTOVER_MODE: ${{ inputs.mode }}
       CUTOVER_REASON: ${{ inputs.reason }}
+      CUTOVER_RELEASE: ${{ inputs.release_sha }}
+      EXPECTED_WORKER_RELEASE: ${{ inputs.expected_worker_release }}
+      EXPECTED_RENDER_RELEASE: ${{ inputs.expected_render_release }}
       CATEVIA_BACKEND_TARGET: ${{ vars.CATEVIA_BACKEND_TARGET }}
       OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
       CATEVIA_PROXY_SHARED_SECRET: ${{ secrets.CATEVIA_PROXY_SHARED_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
       RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
 
     steps:
+      - name: Checkout the recorded release
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_sha }}
+          fetch-depth: 1
+
+      - name: Require successful CI for the exact cutover release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for sha in "$CUTOVER_RELEASE" "$EXPECTED_WORKER_RELEASE" "$EXPECTED_RENDER_RELEASE"; do
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          done
+          test "$(git rev-parse HEAD)" = "$CUTOVER_RELEASE"
+          gh api "repos/${GH_REPO}/actions/workflows/ci.yml/runs?head_sha=${CUTOVER_RELEASE}&status=success" \
+            --jq '.workflow_runs | any(.conclusion == "success")' | grep -qx true
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tools/cloudflare-free-feasibility/package-lock.json
+
+      - name: Install application dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install pinned Wrangler dependencies
+        working-directory: tools/cloudflare-free-feasibility
+        run: npm ci --no-audit --no-fund
+
       - name: Refuse an unrecorded or ambiguous cutover intent
         shell: bash
         run: |
@@ -90,6 +144,43 @@ jobs:
             echo "Missing required production secret: CATEVIA_PROXY_SHARED_SECRET" >&2
             exit 1
           fi
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+
+      - name: Verify production Worker secret inventory
+        if: env.CUTOVER_MODE == 'open'
+        working-directory: tools/cloudflare-free-feasibility
+        run: node put-production-secrets.mjs --check
+
+      - name: Capture and restore-verify the pre-cutover backup
+        if: env.CUTOVER_MODE == 'open'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in R2_ENDPOINT R2_BUCKET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY BACKUP_ENCRYPTION_KEY; do
+            test -n "${!name:-}" || { echo "Missing backup drill secret: $name" >&2; exit 1; }
+          done
+          probe_json="$(node tools/cloudflare-free-feasibility/probe-production-backup.mjs \
+            "$EXPECTED_WORKER_RELEASE" "$EXPECTED_RENDER_RELEASE")"
+          echo "$probe_json"
+          object_key="$(jq -er '.objectKey' <<<"$probe_json")"
+          row_count="$(jq -er '.rowCount' <<<"$probe_json")"
+          encrypted_bytes="$(jq -er '.encryptedBytes' <<<"$probe_json")"
+          checksum="$(jq -er '.checksum' <<<"$probe_json")"
+          export BACKUP_OBJECT_KEY="$object_key" EXPECTED_ROW_COUNT="$row_count" \
+            EXPECTED_ENCRYPTED_BYTES="$encrypted_bytes" EXPECTED_SNAPSHOT_CHECKSUM="$checksum"
+          node --import tsx tools/cloudflare-free-feasibility/drill-production-backup-restore.mjs
+
+      - name: Pause Render writers after the verified backup
+        if: env.CUTOVER_MODE == 'open'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --output /dev/null --request PUT \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/CATEVIA_MAINTENANCE_OWNER" \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" --header "Content-Type: application/json" \
+            --data '{"value":"cloudflare"}'
+          node tools/cloudflare-free-feasibility/deploy-render-release.mjs "$EXPECTED_RENDER_RELEASE" disabled
 
       - name: Prove Render no longer owns scheduled writes when opening traffic
         if: env.CUTOVER_MODE == 'open'
@@ -98,8 +189,7 @@ jobs:
           set -euo pipefail
           # One writer only: Render keeps its own backup scheduler while it believes
           # it owns maintenance, which would race the Worker's Durable Object job on
-          # the same Turso database. The owner flips this single dashboard value; the
-          # workflow only refuses to continue while Render still claims ownership.
+          # the same Turso database. Verify both saved config and the deployed runtime.
           response="$(curl --fail-with-body --silent --show-error \
             --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars" \
             --header "Authorization: Bearer ${RENDER_API_KEY}")"
@@ -108,6 +198,60 @@ jobs:
             echo "Render still reports CATEVIA_MAINTENANCE_OWNER=${render_owner}. Set it to cloudflare on the Render service before opening Worker traffic." >&2
             exit 1
           fi
+          # Dashboard state alone is not evidence that the serving process stopped
+          # its timers. Require the paused runtime from the expected Render release.
+          ready="$(curl --fail --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${OPS_TOKEN}" https://tnttvn.onrender.com/ready)"
+          jq -e --arg sha "$EXPECTED_RENDER_RELEASE" \
+            '.status == "ready" and .releaseId == $sha and .maintenance.runtime == "node" and .maintenance.enabled == false' <<<"$ready" >/dev/null
+
+      - name: Open the verified Worker only after backup and ownership checks
+        if: env.CUTOVER_MODE == 'open'
+        working-directory: tools/cloudflare-free-feasibility
+        run: >-
+          npx --no-install wrangler deploy --config wrangler-catevia-production.jsonc --strict
+          --var APP_RELEASE_ID:${{ env.CUTOVER_RELEASE }}
+          --var CATEVIA_TRAFFIC_ENABLED:yes --var CATEVIA_MAINTENANCE_OWNER:cloudflare
+
+      - name: Prepare the Render rollback release with writers disabled
+        if: env.CUTOVER_MODE == 'rollback'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --output /dev/null --request PUT \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/CATEVIA_MAINTENANCE_OWNER" \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" --header "Content-Type: application/json" \
+            --data '{"value":"cloudflare"}'
+          node tools/cloudflare-free-feasibility/deploy-render-release.mjs "$CUTOVER_RELEASE" disabled
+
+      - name: Resume the approved Cloudflare jobs before verifying the destination
+        if: env.CUTOVER_MODE == 'open'
+        shell: bash
+        run: |
+          set -euo pipefail
+          jobs="$(curl --fail --silent --show-error --max-time 120 --request POST \
+            --header "x-catevia-canary-token: ${OPS_TOKEN}" \
+            'https://catevia-api.billfan157.workers.dev/__ops/maintenance?mode=resume')"
+          jq -e --arg sha "$CUTOVER_RELEASE" \
+            '.jobs | length == 10 and all(.releaseId == $sha and .paused == false and (.nextAlarm != null or .active == true))' <<<"$jobs" >/dev/null
+
+      - name: Verify the destination release before moving ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$CUTOVER_MODE" = "open" ]; then
+            endpoint=https://catevia-api.billfan157.workers.dev/ready
+            runtime=cloudflare-worker
+            enabled=true
+          else
+            endpoint=https://tnttvn.onrender.com/ready
+            runtime=node
+            enabled=false
+          fi
+          ready="$(curl --fail --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${OPS_TOKEN}" --header "x-catevia-canary-token: ${OPS_TOKEN}" "$endpoint")"
+          jq -e --arg sha "$CUTOVER_RELEASE" --arg runtime "$runtime" --argjson enabled "$enabled" \
+            '.status == "ready" and .releaseId == $sha and .maintenance.runtime == $runtime and .maintenance.enabled == $enabled' <<<"$ready" >/dev/null
 
       - name: Point Vercel ingress at the recorded backend
         id: vercel
@@ -127,7 +271,7 @@ jobs:
             payload="$(jq -n --arg key "$key" --arg value "$value" '{key:$key, value:$value, type:"encrypted", target:["production"]}')"
             curl --fail-with-body --silent --show-error --output /dev/null \
               --request POST \
-              --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
+              --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}&upsert=true" \
               --header "Authorization: Bearer ${VERCEL_TOKEN}" \
               --header "Content-Type: application/json" \
               --data "$payload"
@@ -137,7 +281,7 @@ jobs:
             envs="$(curl --fail-with-body --silent --show-error \
               --url "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_ID}/env?teamId=${VERCEL_TEAM_ID}" \
               --header "Authorization: Bearer ${VERCEL_TOKEN}")"
-            env_id="$(jq -r --arg key "$key" '[.envs[] | select(.key == $key and (.gitBranch == null)) | .id] | first // empty' <<<"$envs")"
+            env_id="$(jq -r --arg key "$key" '[.envs[] | select(.key == $key and (.gitBranch == null) and (.target == ["production"])) | .id] | first // empty' <<<"$envs")"
             [ -z "$env_id" ] && return 0
             curl --fail-with-body --silent --show-error --output /dev/null \
               --request DELETE \
@@ -153,13 +297,7 @@ jobs:
             remove_env_by_key CATEVIA_PROXY_SHARED_SECRET
           fi
 
-          latest_sha="$(curl --fail-with-body --silent --show-error \
-            --url "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_TEAM_ID}" \
-            --header "Authorization: Bearer ${VERCEL_TOKEN}" | jq -r '.latestDeployment.meta.githubCommitSha // empty')"
-          if [ -z "$latest_sha" ]; then
-            echo "Could not resolve the current Vercel release SHA." >&2
-            exit 1
-          fi
+          latest_sha="$CUTOVER_RELEASE"
           payload="$(jq -n \
             --arg name "tnttvn" \
             --arg project "$VERCEL_PROJECT_ID" \
@@ -198,6 +336,43 @@ jobs:
           done
           echo "Timed out waiting for the Vercel ingress deployment." >&2
           exit 1
+
+      - name: Drain Cloudflare jobs before closing the rollback source
+        if: env.CUTOVER_MODE == 'rollback'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pause the existing instances before deploying a new Worker version.
+          # Deployment convergence and /ready alone cannot prove in-flight jobs drained.
+          jobs="$(curl --fail --silent --show-error --max-time 120 --request POST \
+            --header "x-catevia-canary-token: ${OPS_TOKEN}" \
+            'https://catevia-api.billfan157.workers.dev/__ops/maintenance?mode=pause')"
+          jq -e --arg sha "$EXPECTED_WORKER_RELEASE" \
+            '.jobs | length == 10 and all(.releaseId == $sha and .paused == true and .active == false and .nextAlarm == null)' <<<"$jobs" >/dev/null
+
+      - name: Close Worker traffic and writers after rollback ingress is ready
+        if: env.CUTOVER_MODE == 'rollback'
+        working-directory: tools/cloudflare-free-feasibility
+        run: >-
+          npx --no-install wrangler deploy --config wrangler-catevia-production.jsonc --strict
+          --var APP_RELEASE_ID:${{ env.CUTOVER_RELEASE }}
+          --var CATEVIA_TRAFFIC_ENABLED:no --var CATEVIA_MAINTENANCE_OWNER:render
+
+      - name: Restore Render to the verified release before rollback boundary
+        if: env.CUTOVER_MODE == 'rollback'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready="$(curl --fail --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer ${OPS_TOKEN}" --header "x-catevia-canary-token: ${OPS_TOKEN}" \
+            https://catevia-api.billfan157.workers.dev/ready)"
+          jq -e --arg sha "$CUTOVER_RELEASE" \
+            '.status == "ready" and .releaseId == $sha and .maintenance.runtime == "cloudflare-worker" and .maintenance.enabled == false' <<<"$ready" >/dev/null
+          curl --fail --silent --show-error --output /dev/null --request PUT \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/CATEVIA_MAINTENANCE_OWNER" \
+            --header "Authorization: Bearer ${RENDER_API_KEY}" --header "Content-Type: application/json" \
+            --data '{"value":"render"}'
+          node tools/cloudflare-free-feasibility/deploy-render-release.mjs "$CUTOVER_RELEASE" enabled
 
       - name: Prove the recorded production boundary
         shell: bash

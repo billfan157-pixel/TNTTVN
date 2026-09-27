@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 if (process.argv[2] === '--check') {
   const required = [
     'TURSO_URL', 'TURSO_AUTH_TOKEN', 'JWT_SECRET', 'JWT_REFRESH_SECRET', 'REPORT_HMAC_SECRET',
-    'OPS_TOKEN', 'PASSWORD_CIPHER_KEY', 'BACKUP_ENCRYPTION_KEY', 'SUPER_ADMIN_ID',
+    'OPS_TOKEN', 'BACKUP_ENCRYPTION_KEY', 'SUPER_ADMIN_ID',
     'CATEVIA_PROXY_SHARED_SECRET', 'FIREBASE_SERVICE_ACCOUNT_JSON', 'APNS_KEY_ID', 'APNS_TEAM_ID',
     'APNS_PRIVATE_KEY', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY',
   ]
@@ -40,7 +40,7 @@ const entries = raw.trimEnd().split(/\r?\n/).map(line => {
 const values = new Map(entries)
 if (values.size !== entries.length) throw new Error('Duplicate production secret name')
 const coreSecrets = ['TURSO_URL', 'TURSO_AUTH_TOKEN', 'JWT_SECRET', 'JWT_REFRESH_SECRET',
-  'REPORT_HMAC_SECRET', 'OPS_TOKEN', 'PASSWORD_CIPHER_KEY', 'BACKUP_ENCRYPTION_KEY', 'SUPER_ADMIN_ID',
+  'REPORT_HMAC_SECRET', 'OPS_TOKEN', 'BACKUP_ENCRYPTION_KEY', 'SUPER_ADMIN_ID',
   'CATEVIA_PROXY_SHARED_SECRET']
 const providerSecrets = ['FIREBASE_SERVICE_ACCOUNT_JSON', 'APNS_KEY_ID', 'APNS_TEAM_ID',
   'APNS_PRIVATE_KEY', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']
@@ -78,7 +78,6 @@ if (providerMode) {
   for (const key of ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'REPORT_HMAC_SECRET', 'OPS_TOKEN', 'CATEVIA_PROXY_SHARED_SECRET']) {
     if (values.get(key).length < 32) throw new Error(`Weak ${key}`)
   }
-  if (!/^[a-f0-9]{64}$/i.test(values.get('PASSWORD_CIPHER_KEY'))) throw new Error('Invalid PASSWORD_CIPHER_KEY')
   const backupKey = values.get('BACKUP_ENCRYPTION_KEY')
   if (!/^[a-f0-9]{64}$/i.test(backupKey)
     && (!/^[A-Za-z0-9+/_-]{43}=?$/.test(backupKey) || Buffer.from(backupKey, 'base64').length !== 32)) {

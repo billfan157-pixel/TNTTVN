@@ -4,6 +4,7 @@ import { db } from '../db/index.js'
 import { sql } from 'drizzle-orm'
 import { metricsRegistry } from '../middleware/metrics.js'
 import { getAutoBackupStatus } from '../services/backupScheduler.js'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 const healthRouter = new Hono()
 
@@ -68,6 +69,13 @@ healthRouter.get('/ready', async (c) => {
 
     return c.json({
       status: 'ready',
+      releaseId: getPublicReleaseId(),
+      maintenance: {
+        runtime: isCloudflareWorkerRuntime() ? 'cloudflare-worker' : 'node',
+        enabled: isCloudflareWorkerRuntime()
+          ? process.env.CATEVIA_MAINTENANCE_OWNER === 'cloudflare'
+          : process.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare',
+      },
       backup: await getAutoBackupStatus(),
       database: 'connected',
       latencyMs,

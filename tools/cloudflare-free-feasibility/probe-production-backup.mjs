@@ -1,4 +1,4 @@
-// Creates one encrypted backup through the closed production Worker, then checks
+// Creates one encrypted backup through the operator-authenticated Worker, then checks
 // that the same Worker can read, decrypt, and verify the R2 object. No DB writes.
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -6,10 +6,10 @@ import { verifyProductionBoundary } from './verify-production-boundary.mjs'
 
 const WORKER = 'https://catevia-api.billfan157.workers.dev'
 
-export async function probeProductionBackup({ expectedWorkerRelease, expectedRenderRelease, token, fetcher = fetch }) {
+export async function probeProductionBackup({ expectedWorkerRelease, expectedRenderRelease, token, mode = 'render', fetcher = fetch }) {
   if (!/^[a-f0-9]{40}$/.test(expectedWorkerRelease || '')) throw new Error('Exact Worker release SHA required')
   if (typeof token !== 'string' || token.length < 32) throw new Error('Operator token unavailable')
-  const boundary = await verifyProductionBoundary(expectedRenderRelease, fetcher)
+  const boundary = await verifyProductionBoundary(mode === 'worker' ? expectedWorkerRelease : expectedRenderRelease, fetcher, { mode })
   if (!boundary.ok) throw new Error('Render routing or closed Worker boundary failed')
 
   const canaryHeaders = { 'x-catevia-canary-token': token }
@@ -62,7 +62,7 @@ export async function probeProductionBackup({ expectedWorkerRelease, expectedRen
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   try {
     const result = await probeProductionBackup({ expectedWorkerRelease: process.argv[2],
-      expectedRenderRelease: process.argv[3], token: process.env.OPS_TOKEN })
+      expectedRenderRelease: process.argv[3], mode: process.argv[4] || 'render', token: process.env.OPS_TOKEN })
     process.stdout.write(`${JSON.stringify(result)}\n`)
   } catch (error) {
     process.stderr.write(`${JSON.stringify({ ok: false, errorClass: error?.name || 'UnknownError',

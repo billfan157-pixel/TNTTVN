@@ -87,14 +87,17 @@ async function getRateLimitEntry(key: string): Promise<RateLimitEntry> {
 
 let cleanupInterval: ReturnType<typeof setInterval> | null = null
 
+export async function cleanupExpiredRateLimits(now = Date.now()): Promise<void> {
+  await client.execute({ sql: 'DELETE FROM rate_limits WHERE reset_at <= ?', args: [now] })
+}
+
 // A long-running Node process owns this maintenance timer. Importing HTTP
 // middleware must not start background work in an ephemeral Worker isolate.
 export function startRateLimitCleanup(): void {
   if (cleanupInterval) return
   cleanupInterval = setInterval(() => {
-    const now = Date.now()
     // DB: dọn row hết hạn (chống phình bảng) — best-effort.
-    client.execute({ sql: 'DELETE FROM rate_limits WHERE reset_at <= ?', args: [now] }).catch(() => {})
+    cleanupExpiredRateLimits().catch(() => {})
   }, 60_000)
   cleanupInterval.unref?.()
 }

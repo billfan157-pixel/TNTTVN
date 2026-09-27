@@ -1,5 +1,5 @@
 import puppeteer from 'puppeteer'
-import type { Browser, PDFMargin } from 'puppeteer'
+import type { Browser, Page, PDFMargin } from 'puppeteer'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { sanitizePDFHTML, isAllowedPdfResourceUrl } from '../utils/pdfSanitizer.js'
@@ -42,9 +42,10 @@ export async function generatePDFFromHTML(
   if (remoteRenderer) return remoteRenderer(htmlContent, options)
   const sanitizedHTML = sanitizePDFHTML(htmlContent)
   const b = await getBrowser()
-  const page = await b.newPage()
+  let page: Page | undefined
 
   try {
+    page = await b.newPage()
     // PDF input is presentation-only; do not execute any script even if an
     // unusual HTML/SVG encoding evades the string sanitizer.
     await page.setJavaScriptEnabled(false)
@@ -82,8 +83,9 @@ export async function generatePDFFromHTML(
 
     return pdfBuffer
   } finally {
-    await page.close()
-    if (isCloudflareWorkerRuntime()) await b.close()
+    try { await page?.close() } finally {
+      if (isCloudflareWorkerRuntime()) await b.close()
+    }
   }
 }
 

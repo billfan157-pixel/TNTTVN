@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'fs'
 import path from 'path'
-import { runBackupNow } from '../services/backupScheduler.js'
+import { runBackupNow, runAutoBackupCheck } from '../services/backupScheduler.js'
 import { client } from '../db/index.js'
 
 // DR-P2-002: a failure during the post-publish blob upload must not leave a
@@ -64,5 +64,11 @@ describe('backup artifact survives post-publish blob failure (DR-P2-002)', () =>
     const residue = fs.readdirSync(TEST_BACKUP_DIR)
       .filter((name) => name.includes('.partial-') || name.includes('.tmp-'))
     expect(residue).toEqual([])
+  })
+
+  it('propagates scheduled backup failure to the Worker alarm instead of recording a successful invocation', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    await expect(runAutoBackupCheck(new Date(2099, 0, 1, 12), { throwOnFailure: true }))
+      .rejects.toThrow('Scheduled backup did not complete')
   })
 })
