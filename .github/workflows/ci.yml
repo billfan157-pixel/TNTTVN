@@ -55,6 +55,7 @@ jobs:
         # quiet green run, so they run as unit tests here rather than only live.
         run: |
           node --test \
+            tools/cloudflare-free-feasibility/production-secret-policy.test.mjs \
             tools/cloudflare-free-feasibility/verify-preview-ingress.test.mjs \
             tools/cloudflare-free-feasibility/probe-production-backup.test.mjs \
             tools/cloudflare-free-feasibility/drill-production-backup-restore.test.mjs \
