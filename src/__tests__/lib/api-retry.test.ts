@@ -176,4 +176,14 @@ describe('A12 — method-aware retry (api request)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toContain('/auth/login')
   })
+
+  it('public password-reset request không cần access token và không refresh khi 401', async () => {
+    clearTokens()
+    setTenantScope(null)
+    fetchMock.mockResolvedValueOnce(fakeResponse(401, { success: false, error: { message: 'invalid public request' } }))
+    await expect(api.requestParentPasswordReset('0900000000')).rejects.toMatchObject({ status: 401 })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toContain('/password-reset-requests')
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined()
+  })
 })

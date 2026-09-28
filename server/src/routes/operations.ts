@@ -2154,7 +2154,10 @@ operationsRouter.post('/workstreams', zValidator('json', workstreamCreateSchema)
                 parishId: user.parishId,
                 workstreamId: row.id,
                 userId: leader.userId ?? null,
-                personId: leader.personId ?? null,
+                // Membership accepts exactly one identity target. Use the
+                // account as the canonical target when this service-term
+                // owner has a linked login; otherwise retain the parish person.
+                personId: leader.userId ? null : leader.personId ?? null,
                 operationRole: 'WORKSTREAM_LEAD' as const,
                 assignedBy: user.userId,
                 assignedAt: now,

@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 import { createMiddleware } from 'hono/factory'
 import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
-import bcrypt from 'bcryptjs'
 import { db, runDbTransaction } from '../db/index.js'
 import { users, auditLogs } from '../db/schema.js'
 import { eq, and, sql, isNull, inArray } from 'drizzle-orm'
@@ -10,6 +9,7 @@ import { authMiddleware, isSuperAdminAccount, isSuperAdmin } from '../middleware
 import { loginRateLimiter, adminReauthRateLimiter, parentForgotRateLimiter } from '../middleware/security.js'
 import { maskPhoneForAudit } from '../utils/auditRedact.js'
 import { BCRYPT_COST, consumeRejectedLogin, isLegacyCostHash, verifyLoginPassword } from '../utils/passwordPolicy.js'
+import { comparePassword, hashPassword } from '../utils/passwordCompute.js'
 import { generateId } from '../utils/id.js'
 import { captureAdminReauth, AdminAuthorizationChangedError } from '../services/userService.js'
 import { resolvePublicParishId } from '../utils/deploymentParish.js'
@@ -190,7 +190,7 @@ auth.post('/login', loginRateLimiter, zValidator('json', loginSchema), async (c)
   // cùng 1 transaction — không còn khe "reset đã commit nhưng session/audit mất".
   const now = new Date().toISOString()
   const upgradedHash = isLegacyCostHash(user.passwordHash)
-    ? await bcrypt.hash(password, BCRYPT_COST)
+    ? await hashPassword(password, BCRYPT_COST)
     : undefined
   const tokens = await runDbTransaction(async (tx) => {
     // Password verification is expensive and runs outside the write lock. Its
@@ -248,17 +248,17 @@ auth.post('/change-password', authMiddleware, zValidator('json', changePasswordS
   const [user] = await db.select().from(users).where(and(eq(users.id, jwtUser.userId), eq(users.parishId, jwtUser.parishId))).limit(1)
   if (!user) return errorResponse(c, 'USER_NOT_FOUND', 'Tài khoản không tồn tại', 404)
 
-  const valid = await bcrypt.compare(currentPassword, user.passwordHash)
+  const valid = await comparePassword(currentPassword, user.passwordHash)
   if (!valid) {
     return errorResponse(c, 'INVALID_CURRENT_PASSWORD', 'Mật khẩu hiện tại không chính xác', 400)
   }
 
-  const isSame = await bcrypt.compare(newPassword, user.passwordHash)
+  const isSame = await comparePassword(newPassword, user.passwordHash)
   if (isSame) {
     return errorResponse(c, 'SAME_PASSWORD', 'Mật khẩu mới không được trùng với mật khẩu hiện tại', 400)
   }
 
-  const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST)
+  const passwordHash = await hashPassword(newPassword, BCRYPT_COST)
   // Phase 1 (Auth split-tx): password/tokenVersion + revoke sessions + session
   // mới + audit commit cùng 1 transaction — không còn khe "pass đổi nhưng không
   // có session mới". tokenVersion tăng atomic qua SQL + RETURNING nên double-
@@ -354,7 +354,7 @@ auth.post('/admin-change-password', authMiddleware, adminReauthRateLimiter, zVal
   const [target] = await db.select().from(users).where(and(eq(users.id, userId), eq(users.parishId, jwtUser.parishId))).limit(1)
   if (!target) return errorResponse(c, 'USER_NOT_FOUND', 'Tài khoản không tồn tại', 404)
 
-  const passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST)
+  const passwordHash = await hashPassword(newPassword, BCRYPT_COST)
   // Phase 1 (Auth split-tx): reset pass + revoke sessions + audit cùng 1
   // transaction — không còn khe "pass mới đã commit nhưng session cũ còn row".
   // tokenVersion tăng atomic (double-reset song song không lost-update).

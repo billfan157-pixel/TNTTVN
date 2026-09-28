@@ -1,0 +1,119 @@
+{
+  "worker": "127.0.0.1",
+  "scenario": "bcrypt-sharded",
+  "beganAt": "2026-09-24T07:03:16.304Z",
+  "endedAt": "2026-09-24T07:03:40.276Z",
+  "count": 20,
+  "concurrency": 5,
+  "validCount": 20,
+  "statusCounts": {
+    "200": 20
+  },
+  "firstRequestMs": 6600.88,
+  "minMs": 4845.67,
+  "p50Ms": 5771.34,
+  "p95Ms": 6792.51,
+  "maxMs": 7005.1,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 6600.88,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6694.32,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 7005.1,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6792.51,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6689.63,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5466.78,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6164.76,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6029.87,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6067.81,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5856.29,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5313.32,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5365.29,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5429.91,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5773.69,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5771.34,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 4895.73,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 4845.67,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5265.22,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5286.55,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5220.6,
+      "valid": true
+    }
+  ]
+}

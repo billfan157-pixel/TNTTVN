@@ -14,13 +14,25 @@ import {
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { normalizeAcademicYear } from '../../utils/academicYear'
 
-type PreviewWorkspace = 'academic' | 'organization' | 'parent'
+export type PreviewWorkspace = 'academic' | 'organization' | 'parent'
 
-export function LandingHeroPreview() {
-  const [activeTab, setActiveTab] = useState<PreviewWorkspace>('academic')
+export interface LandingHeroPreviewProps {
+  externalActiveTab?: PreviewWorkspace
+  onTabChange?: (tab: PreviewWorkspace) => void
+}
+
+export function LandingHeroPreview({ externalActiveTab, onTabChange }: LandingHeroPreviewProps = {}) {
+  const [internalTab, setInternalTab] = useState<PreviewWorkspace>('academic')
   const currentYear = useAcademicYearStore(s => s.currentYear)
   const activeYear = normalizeAcademicYear(currentYear) || '2025-2026'
   const displayYear = activeYear.replace('-', '–')
+
+  const activeTab = externalActiveTab ?? internalTab
+
+  const handleTabClick = (tab: PreviewWorkspace) => {
+    setInternalTab(tab)
+    onTabChange?.(tab)
+  }
 
   return (
     <div className="relative group/mockup select-none [perspective:1200px]">
@@ -31,32 +43,41 @@ export function LandingHeroPreview() {
       />
 
       {/* Khung thiết bị 2.5D với góc nghiêng tinh tế */}
-      <div className="relative rounded-2xl border border-surface-border bg-surface-card shadow-card overflow-hidden transition-transform duration-300 motion-reduce:transform-none lg:[transform:rotateX(2deg)_rotateY(-2deg)] lg:group-hover/mockup:[transform:rotateX(0deg)_rotateY(0deg)]">
+      <div className="relative rounded-2xl border border-surface-border bg-surface-card shadow-card card-border-beam overflow-hidden transition-transform duration-300 motion-reduce:transform-none lg:[transform:rotateX(2deg)_rotateY(-2deg)] lg:group-hover/mockup:[transform:rotateX(0deg)_rotateY(0deg)]">
         {/* Top simulated browser / app title bar */}
-        <div className="bg-surface-app border-b border-surface-border px-4 py-2.5 flex items-center justify-between">
+        <div className="bg-surface-app border-b border-surface-border px-3 sm:px-4 py-2 sm:py-2.5 flex items-center justify-between">
           <div className="flex items-center gap-1.5" aria-hidden="true">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-400/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80" />
-            <span className="ml-2 text-xs font-semibold text-text-muted">app.catevia.vn</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-parish-danger/80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-parish-warning/80" />
+            <span className="w-2.5 h-2.5 rounded-full bg-parish-success/80" />
+            <span className="ml-1 sm:ml-2 text-xs font-semibold text-text-muted truncate">Catevia · Bản minh họa</span>
           </div>
-          <span className="text-xs font-medium text-parish-primary flex items-center gap-1">
+          <span className="text-xs font-medium text-parish-primary flex items-center gap-1 shrink-0">
             <span className="w-1.5 h-1.5 rounded-full bg-parish-success animate-pulse" />
             Trực tuyến
           </span>
         </div>
 
-      {/* Tabs chooser */}
-      <div className="p-3 bg-surface-app/50 border-b border-surface-border">
-        <div className="grid grid-cols-3 gap-1 bg-surface-app p-1 rounded-xl border border-surface-border" role="tablist" aria-label="Không gian làm việc minh họa">
+      {/* Tabs chooser with sliding pill indicator */}
+      <div className="p-2 sm:p-3 bg-surface-app/50 border-b border-surface-border">
+        <div className="relative grid grid-cols-3 gap-1 bg-surface-app p-1 rounded-xl border border-surface-border" role="tablist" aria-label="Không gian làm việc minh họa">
+          {/* Con trỏ viên nang trượt mượt mà (Sliding pill) */}
+          <div
+            aria-hidden="true"
+            className="absolute top-1 bottom-1 w-[calc(33.333%-2px)] rounded-lg bg-surface-card shadow-sm border border-surface-border/50 mockup-tab-pill pointer-events-none"
+            style={{
+              transform: `translateX(${activeTab === 'academic' ? '2px' : activeTab === 'organization' ? 'calc(100% + 2px)' : 'calc(200% + 2px)'})`,
+            }}
+          />
+
           <button
             type="button"
             role="tab"
             aria-selected={activeTab === 'academic'}
-            onClick={() => setActiveTab('academic')}
-            className={`min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
+            onClick={() => handleTabClick('academic')}
+            className={`relative z-10 min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'academic'
-                ? 'bg-surface-card text-parish-primary shadow-sm'
+                ? 'text-parish-primary'
                 : 'text-text-secondary hover:text-text-main'
             }`}
           >
@@ -68,10 +89,10 @@ export function LandingHeroPreview() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'organization'}
-            onClick={() => setActiveTab('organization')}
-            className={`min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
+            onClick={() => handleTabClick('organization')}
+            className={`relative z-10 min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'organization'
-                ? 'bg-surface-card text-parish-primary shadow-sm'
+                ? 'text-parish-primary'
                 : 'text-text-secondary hover:text-text-main'
             }`}
           >
@@ -83,10 +104,10 @@ export function LandingHeroPreview() {
             type="button"
             role="tab"
             aria-selected={activeTab === 'parent'}
-            onClick={() => setActiveTab('parent')}
-            className={`min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
+            onClick={() => handleTabClick('parent')}
+            className={`relative z-10 min-h-11 px-2 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
               activeTab === 'parent'
-                ? 'bg-surface-card text-parish-primary shadow-sm'
+                ? 'text-parish-primary'
                 : 'text-text-secondary hover:text-text-main'
             }`}
           >
@@ -97,15 +118,18 @@ export function LandingHeroPreview() {
       </div>
 
       {/* Tab content panel */}
-      <div className="p-4 sm:p-5 flex flex-col gap-3 min-h-[260px] justify-between">
+      <div key={activeTab} className="relative preview-panel-fade p-4 sm:p-5 flex flex-col gap-3 min-h-[260px] justify-between">
         {activeTab === 'academic' && (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="m-0 text-xs font-extrabold text-text-main">Lớp Thiếu Nhi 1A — niên khóa {displayYear}</p>
-                <p className="m-0 text-xs text-text-muted">GLV Chủ Nhiệm: Huynh trưởng Têrêsa</p>
+          <div className="relative flex flex-col gap-3">
+            {/* Tia laser quét OMR & điểm danh mô phỏng */}
+            <div className="mockup-scanner-line" aria-hidden="true" />
+
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="m-0 text-xs font-extrabold text-text-main truncate">Lớp Thiếu Nhi 1A — niên khóa {displayYear}</p>
+                <p className="m-0 text-xs text-text-muted truncate">GLV Chủ Nhiệm: Huynh trưởng Têrêsa</p>
               </div>
-              <span className="badge badge-primary text-xs">32 Thiếu Nhi</span>
+              <span className="badge badge-primary text-xs shrink-0">32 Thiếu Nhi</span>
             </div>
 
             {/* Simulated mini metric cards */}
@@ -152,12 +176,12 @@ export function LandingHeroPreview() {
 
         {activeTab === 'organization' && (
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="m-0 text-xs font-extrabold text-text-main">Xứ Đoàn Đức Mẹ Fatima</p>
-                <p className="m-0 text-xs text-text-muted">Giáo Xứ Gia Tôn — Ban Điều hành</p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="m-0 text-xs font-extrabold text-text-main truncate">Xứ Đoàn Đức Mẹ Fatima</p>
+                <p className="m-0 text-xs text-text-muted truncate">Giáo Xứ Gia Tôn — Ban Điều hành</p>
               </div>
-              <span className="badge badge-info text-xs">5 Ngành TNTT</span>
+              <span className="badge badge-info text-xs shrink-0">5 Ngành TNTT</span>
             </div>
 
             <div className="space-y-2">
@@ -190,12 +214,12 @@ export function LandingHeroPreview() {
 
         {activeTab === 'parent' && (
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="m-0 text-xs font-extrabold text-text-main">Sổ liên lạc điện tử</p>
-                <p className="m-0 text-xs text-text-muted">Con của bạn (Chi đoàn Thiếu 2)</p>
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="m-0 text-xs font-extrabold text-text-main truncate">Sổ liên lạc điện tử</p>
+                <p className="m-0 text-xs text-text-muted truncate">Con của bạn (Chi đoàn Thiếu 2)</p>
               </div>
-              <span className="badge badge-success text-xs">Đang theo học</span>
+              <span className="badge badge-success text-xs shrink-0">Đang theo học</span>
             </div>
 
             <div className="p-3 rounded-xl bg-parish-primary-light border border-parish-primary/20 space-y-2">

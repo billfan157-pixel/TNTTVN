@@ -59,3 +59,7 @@ playwright-report/
 .secrets-render.local.txt
 
 .render-env-paste.txt
+
+# Disposable Cloudflare staging credentials and encrypted backup fixture
+tools/cloudflare-free-feasibility/.dev.vars*
+tools/cloudflare-free-feasibility/.backup-probe*

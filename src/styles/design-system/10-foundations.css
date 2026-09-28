@@ -2,6 +2,16 @@
    GLOBAL RESET & BASE
    ═══════════════════════════════════════════════════ */
 
+html {
+  scroll-padding-top: 4.5rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   font-family: var(--font-family);
   background-color: var(--color-surface-app);

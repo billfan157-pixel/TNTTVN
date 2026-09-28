@@ -1,0 +1,71 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "bcrypt-sharded",
+  "beganAt": "2026-09-24T07:20:12.769Z",
+  "endedAt": "2026-09-24T07:20:25.066Z",
+  "count": 10,
+  "concurrency": 5,
+  "validCount": 9,
+  "statusCounts": {
+    "200": 9,
+    "TypeError": 1
+  },
+  "firstRequestMs": 1700.33,
+  "minMs": 918.97,
+  "p50Ms": 1700.33,
+  "p95Ms": 10594.98,
+  "maxMs": 10594.98,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 1700.33,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 2139.03,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 2236.31,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1625.04,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 2278.41,
+      "valid": true
+    },
+    {
+      "status": null,
+      "wallMs": 10594.98,
+      "valid": false,
+      "error": "TypeError"
+    },
+    {
+      "status": 200,
+      "wallMs": 1065.98,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 918.97,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1126.79,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 1843.17,
+      "valid": true
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "capturedAt": "2026-09-24T18:43:15.864Z",
+  "scope": "disposable-turso-manual-jobs-only",
+  "observations": [
+    {
+      "job": "notification",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 619,
+      "numeric": {
+        "queueLength": 0
+      }
+    },
+    {
+      "job": "operation-reminders",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 450,
+      "numeric": {
+        "claimed": 0,
+        "enqueued": 0,
+        "delivered": 0,
+        "failed": 0
+      }
+    },
+    {
+      "job": "operation-lifecycle",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 364,
+      "numeric": {
+        "scanned": 0,
+        "transitioned": 0,
+        "started": 0,
+        "completed": 0,
+        "skipped": 0,
+        "failed": 0
+      }
+    },
+    {
+      "job": "operation-dispatch",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 352,
+      "numeric": {
+        "scanned": 0,
+        "invited": 0,
+        "skipped": 0,
+        "failed": 0
+      }
+    },
+    {
+      "job": "manager-reminders",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 411,
+      "numeric": {
+        "scanned": 0,
+        "eligible": 0,
+        "created": 0,
+        "skipped": 0,
+        "failed": 0
+      }
+    },
+    {
+      "job": "sunday-reminders",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 305,
+      "numeric": {
+        "checked": 0,
+        "sent": 0,
+        "failed": 0
+      }
+    },
+    {
+      "job": "import-maintenance",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 423,
+      "numeric": {
+        "completed": true
+      }
+    },
+    {
+      "job": "receipt-maintenance",
+      "status": 200,
+      "ok": true,
+      "elapsedMs": 396,
+      "numeric": {
+        "compacted": 0
+      }
+    }
+  ]
+}

@@ -14,7 +14,7 @@ import {
   classes,
 } from '../db/schema.js'
 import { eq, and, ne, inArray, isNull } from 'drizzle-orm'
-import bcrypt from 'bcryptjs'
+import { comparePassword, hashPassword } from '../utils/passwordCompute.js'
 import { generateId } from '../utils/id.js'
 import { isSuperAdmin, isSuperAdminAccount } from '../middleware/auth.js'
 import { revokeAllSessionsWith } from './refreshSessionService.js'
@@ -136,7 +136,7 @@ export async function createUser(
 
   const id = generateId('USR')
   const tempPass = `Parish@${randomInt(100000, 999999)}`
-  const passwordHash = await bcrypt.hash(tempPass, BCRYPT_COST)
+  const passwordHash = await hashPassword(tempPass, BCRYPT_COST)
   const now = new Date().toISOString()
 
   try {
@@ -267,7 +267,7 @@ export async function resetUserPassword(id: string, adminUserId: string, parishI
   if (await isSuperAdminAccount(id, parishId)) return null
 
   const tempPass = `Reset@${randomInt(100000, 999999)}`
-  const passwordHash = await bcrypt.hash(tempPass, BCRYPT_COST)
+  const passwordHash = await hashPassword(tempPass, BCRYPT_COST)
 
   return runDbTransaction(async (tx) => {
     if (reauth) await reauth(tx, adminUserId, parishId, id, 'RESET_PASSWORD_FAILED')
@@ -343,7 +343,7 @@ export async function captureAdminReauth(
   }
   let passwordValid = false
   try {
-    passwordValid = await bcrypt.compare(adminPassword, admin.passwordHash)
+    passwordValid = await comparePassword(adminPassword, admin.passwordHash)
   } catch {
     passwordValid = false
   }
@@ -693,7 +693,7 @@ export async function provisionParentAccounts(
 
   for (const candidate of candidates) {
     const tempPass = `Parish@${randomInt(100000, 999999)}`
-    const passwordHash = await bcrypt.hash(tempPass, BCRYPT_COST)
+    const passwordHash = await hashPassword(tempPass, BCRYPT_COST)
     const id = generateId('USR')
     try {
       await db.insert(users).values({

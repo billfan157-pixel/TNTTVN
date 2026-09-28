@@ -1,0 +1,165 @@
+{
+  "capturedAt": "2026-09-24T17:41:24.843Z",
+  "scope": "disposable-turso-real-hono-routes",
+  "mode": "direct-worker",
+  "count": 30,
+  "concurrency": 5,
+  "statusCounts": {
+    "200": 30
+  },
+  "p50Ms": 409,
+  "p95Ms": 638,
+  "maxMs": 743,
+  "samples": [
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 430
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 610
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 635
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 638
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 743
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 360
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 619
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 485
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 391
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 525
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 412
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 399
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 397
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 409
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 386
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 402
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 403
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 412
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 415
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 402
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 383
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 397
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 348
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 404
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 407
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 434
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 443
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 200,
+      "elapsedMs": 415
+    },
+    {
+      "path": "/api/students",
+      "status": 200,
+      "elapsedMs": 409
+    },
+    {
+      "path": "/api/classes",
+      "status": 200,
+      "elapsedMs": 431
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "capturedAt": "2026-09-24T09:48:38.982Z",
+  "scope": "disposable-turso-synthetic-user-only",
+  "concurrency": 5,
+  "statusCounts": {
+    "401": 5
+  },
+  "userStatus": "LOCKED",
+  "failedAttempts": 5,
+  "tokenVersion": 2,
+  "elapsedMs": [
+    1929,
+    2234,
+    2948,
+    3088,
+    3275
+  ],
+  "passed": true
+}

@@ -1,15 +1,18 @@
 import bcrypt from 'bcryptjs'
-import { randomBytes } from 'node:crypto'
+import { comparePassword } from './passwordCompute.js'
 
 // Current password-write policy. Legacy cost-10 hashes upgrade on successful
 // login; rejected logins normalize their bcrypt work separately below.
 export const BCRYPT_COST = 12
 
-const dummyPasswordHash = bcrypt.hashSync(randomBytes(16).toString('hex'), BCRYPT_COST)
-const legacyDummyPasswordHash = bcrypt.hashSync(randomBytes(16).toString('hex'), 10)
+// Random dummy passwords were discarded after these hashes were generated.
+// Precomputed hashes keep the existing bcrypt work factor on every request
+// without a costly first-request hash in an ephemeral Worker isolate.
+const dummyPasswordHash = '$2a$12$hcE04azSpsRauqqqVYl6ZOi.zo.xflIHF8EqZnbWHwoCgLIG5CYXa'
+const legacyDummyPasswordHash = '$2a$10$z7zBU3SzHd9.NlSh2EMzw.SL5ZgHjp/RDkq7YCSbTmYt02KBfwQse'
 
 export async function consumeDummyPassword(password: string): Promise<void> {
-  await bcrypt.compare(password, dummyPasswordHash)
+  await comparePassword(password, dummyPasswordHash)
 }
 
 /**
@@ -20,24 +23,24 @@ export async function consumeDummyPassword(password: string): Promise<void> {
  */
 async function consumeRejectedLoginRemainder(password: string, actualRounds?: number): Promise<void> {
   if (actualRounds === 12) {
-    await bcrypt.compare(password, legacyDummyPasswordHash)
+    await comparePassword(password, legacyDummyPasswordHash)
     return
   }
   if (actualRounds === 11) {
-    await bcrypt.compare(password, legacyDummyPasswordHash)
-    await bcrypt.compare(password, legacyDummyPasswordHash)
-    await bcrypt.compare(password, legacyDummyPasswordHash)
+    await comparePassword(password, legacyDummyPasswordHash)
+    await comparePassword(password, legacyDummyPasswordHash)
+    await comparePassword(password, legacyDummyPasswordHash)
     return
   }
   if (actualRounds === 10) {
-    await bcrypt.compare(password, dummyPasswordHash)
+    await comparePassword(password, dummyPasswordHash)
     return
   }
   // Unknown user/status and unusually cheap legacy/test hashes receive the
   // complete target budget. Hashes above policy are not padded further.
   if (actualRounds === undefined || actualRounds < 10) {
-    await bcrypt.compare(password, dummyPasswordHash)
-    await bcrypt.compare(password, legacyDummyPasswordHash)
+    await comparePassword(password, dummyPasswordHash)
+    await comparePassword(password, legacyDummyPasswordHash)
   }
 }
 
@@ -46,7 +49,7 @@ export async function consumeRejectedLogin(password: string): Promise<void> {
 }
 
 export async function verifyLoginPassword(password: string, passwordHash: string): Promise<boolean> {
-  const valid = await bcrypt.compare(password, passwordHash)
+  const valid = await comparePassword(password, passwordHash)
   if (valid) return true
 
   let rounds: number | undefined

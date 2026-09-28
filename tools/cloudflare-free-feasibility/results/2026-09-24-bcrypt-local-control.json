@@ -1,0 +1,119 @@
+{
+  "worker": "127.0.0.1",
+  "scenario": "bcrypt",
+  "beganAt": "2026-09-24T07:02:51.671Z",
+  "endedAt": "2026-09-24T07:03:16.174Z",
+  "count": 20,
+  "concurrency": 5,
+  "validCount": 20,
+  "statusCounts": {
+    "200": 20
+  },
+  "firstRequestMs": 4674.34,
+  "minMs": 4674.34,
+  "p50Ms": 5985.91,
+  "p95Ms": 6764.71,
+  "maxMs": 6834.96,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 4674.34,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5949.69,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5985.91,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6160.64,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6189.42,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6764.71,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6025.31,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5922.06,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5773.16,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5816.45,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5234.48,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5870.2,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5868.06,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 5857.88,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6172.27,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6834.96,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6532.62,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6535.52,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6570.77,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 6252.3,
+      "valid": true
+    }
+  ]
+}

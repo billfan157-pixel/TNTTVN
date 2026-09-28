@@ -1,0 +1,30 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "pdf",
+  "beganAt": "2026-09-24T04:11:42.816Z",
+  "endedAt": "2026-09-24T04:11:56.504Z",
+  "count": 1,
+  "concurrency": 1,
+  "validCount": 1,
+  "statusCounts": {
+    "200": 1
+  },
+  "firstRequestMs": 13687.26,
+  "minMs": 13687.26,
+  "p50Ms": 13687.26,
+  "p95Ms": 13687.26,
+  "maxMs": 13687.26,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 13687.26,
+      "pdf": {
+        "pdfValid": true,
+        "bytes": 22636,
+        "scriptRan": false,
+        "guardrailsBlocked": true
+      },
+      "valid": true
+    }
+  ]
+}

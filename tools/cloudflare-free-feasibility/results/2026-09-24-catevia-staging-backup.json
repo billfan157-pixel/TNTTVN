@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-09-24T18:41:29.079Z",
+  "scope": "disposable-turso-and-test-r2-only",
+  "result": {
+    "status": 200,
+    "elapsedMs": 2341,
+    "ok": true,
+    "rowCount": 427,
+    "objectKey": "backups/turso-2026-09-24T18-41-28-501Z.json.gz.enc"
+  }
+}

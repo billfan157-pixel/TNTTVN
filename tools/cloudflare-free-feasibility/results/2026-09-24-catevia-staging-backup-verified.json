@@ -1,0 +1,10 @@
+{
+  "capturedAt": "2026-09-24T18:45:53.115Z",
+  "scope": "downloaded-disposable-r2-object",
+  "envelopeSha256": "2fa1d988328e610357381bab6d0feec554e481c5f76d15fadaeefdbefed4f90b",
+  "encryptedBytes": 4414114,
+  "verified": true,
+  "tableCount": 78,
+  "rowCount": 447,
+  "snapshotChecksum": "0471ea72d9a05a6e5115d2c1b47ca2f738150f7ecb8101c24bc6a63649c41fc6"
+}

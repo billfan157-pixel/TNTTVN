@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createVerify, generateKeyPairSync } from 'node:crypto'
 
 const fcm = vi.hoisted(() => ({ sign: vi.fn(() => 'signed-service-account-jwt'), fetch: vi.fn() }))
 vi.mock('jsonwebtoken', () => ({ default: { sign: fcm.sign } }))
@@ -11,13 +12,44 @@ describe('fcmPushProvider HTTP v1', () => {
       project_id: 'catevia-test',
       token_uri: 'https://oauth.example/token',
     })
+    fcm.sign.mockClear()
     fcm.fetch.mockReset()
     vi.stubGlobal('fetch', fcm.fetch)
   })
 
   afterEach(() => {
     delete process.env.FIREBASE_SERVICE_ACCOUNT_JSON
+    vi.unstubAllEnvs()
     vi.unstubAllGlobals()
+  })
+
+  it('signs a verifiable RS256 service-account assertion in Workers', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    process.env.FIREBASE_SERVICE_ACCOUNT_JSON = JSON.stringify({
+      client_email: 'push-worker@catevia-test.iam.gserviceaccount.com',
+      private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      project_id: 'catevia-test',
+      token_uri: 'https://oauth.example/token',
+    })
+    vi.stubEnv('CATEVIA_RUNTIME', 'cloudflare-worker')
+    vi.stubGlobal('WebSocketPair', class {})
+    fcm.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'WORKER_ACCESS', expires_in: 3600 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ name: 'message/1' }), { status: 200 }))
+
+    const { sendFcmPush } = await import('../../services/fcmPushProvider.js')
+    const result = await sendFcmPush(['synthetic-token'], { title: 'T', body: 'B' })
+    const assertion = fcm.fetch.mock.calls[0][1].body.get('assertion') as string
+    const [header, claims, signature] = assertion.split('.')
+    const verifier = createVerify('RSA-SHA256')
+    verifier.update(`${header}.${claims}`)
+    expect(verifier.verify(publicKey, Buffer.from(signature, 'base64url'))).toBe(true)
+    expect(JSON.parse(Buffer.from(claims, 'base64url').toString())).toMatchObject({
+      iss: 'push-worker@catevia-test.iam.gserviceaccount.com',
+      scope: 'https://www.googleapis.com/auth/firebase.messaging',
+      aud: 'https://oauth.example/token',
+    })
+    expect(result.sent).toBe(1)
+    expect(fcm.sign).not.toHaveBeenCalled()
   })
 
   it('uses OAuth assertion and removes only provider-confirmed dead tokens', async () => {

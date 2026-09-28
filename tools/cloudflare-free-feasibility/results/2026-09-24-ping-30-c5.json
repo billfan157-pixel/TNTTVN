@@ -1,0 +1,169 @@
+{
+  "worker": "catevia-free-feasibility.billfan157.workers.dev",
+  "scenario": "ping",
+  "beganAt": "2026-09-24T03:39:25.508Z",
+  "endedAt": "2026-09-24T03:39:26.324Z",
+  "count": 30,
+  "concurrency": 5,
+  "validCount": 30,
+  "statusCounts": {
+    "200": 30
+  },
+  "firstRequestMs": 317.47,
+  "minMs": 62.14,
+  "p50Ms": 78.51,
+  "p95Ms": 293.22,
+  "maxMs": 317.47,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 317.47,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 230.57,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 258.56,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 254.74,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 293.22,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 264.22,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 75.37,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 79.85,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 83.27,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 73.03,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 85.56,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 73.36,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 76.94,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 92.29,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 67.97,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 80.96,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 65.68,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 76.29,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 86.71,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 70.57,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 66.24,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 80.24,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 73.68,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 75.63,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 69.32,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 181.05,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 62.14,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 86.64,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 78.51,
+      "valid": true
+    },
+    {
+      "status": 200,
+      "wallMs": 66.67,
+      "valid": true
+    }
+  ]
+}

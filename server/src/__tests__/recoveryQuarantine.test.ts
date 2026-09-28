@@ -47,6 +47,14 @@ describe('DR-P2-005 restored-target quarantine', () => {
     } finally { source.close(); target.close() }
   }, 30_000)
 
+  it('refuses a snapshot whose parish identity differs from the target', async () => {
+    const { source, target, snapshot } = await fixture()
+    try {
+      await expect(restoreLogicalSnapshot(target, snapshot, { ...targetIdentity, parishId: 'different-parish' })).rejects.toThrow(/parish identity/i)
+      expect((await target.execute('SELECT * FROM facts')).rows).toHaveLength(0)
+    } finally { source.close(); target.close() }
+  })
+
   it('persists one declared metadata delta, preserving every source fact, and blocks the application bootstrap', async () => {
     const { source, target, snapshot, dbPath } = await fixture()
     try {

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { generateKeyPairSync, verify } from 'node:crypto'
 
 const apns = vi.hoisted(() => ({
   status: 200,
@@ -76,5 +77,44 @@ describe('apnsPushProvider', () => {
       successfulTokens: [],
       lastProviderError: 'APNS:410:Unregistered',
     })
+  })
+
+  it('signs an ES256 provider token and classifies responses through Worker fetch', async () => {
+    const originalWebSocketPair = Object.getOwnPropertyDescriptor(globalThis, 'WebSocketPair')
+    const originalRuntime = process.env.CATEVIA_RUNTIME
+    const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+    process.env.APNS_PRIVATE_KEY = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+    process.env.CATEVIA_RUNTIME = 'cloudflare-worker'
+    Object.defineProperty(globalThis, 'WebSocketPair', { configurable: true, value: function WebSocketPair() {} })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ reason: 'Unregistered' }), { status: 410 }))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const { sendApnsPush } = await import('../../services/apnsPushProvider.js')
+      const result = await sendApnsPush(['alive-ios-token', 'dead-ios-token'], { title: 'Catevia', body: 'Có thông báo' })
+      expect(result).toEqual({
+        sent: 1,
+        failed: 1,
+        deadTokens: ['dead-ios-token'],
+        successfulTokens: ['alive-ios-token'],
+        lastProviderError: 'APNS:410:Unregistered',
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('https://api.sandbox.push.apple.com/3/device/alive-ios-token')
+      expect(init.headers).toMatchObject({ 'apns-topic': 'com.tnttvn.app', 'apns-push-type': 'alert' })
+      const token = String((init.headers as Record<string, string>).authorization).slice('bearer '.length)
+      const [header, claims, signature] = token.split('.')
+      expect(JSON.parse(Buffer.from(header, 'base64url').toString())).toMatchObject({ alg: 'ES256', kid: 'KEY123' })
+      expect(JSON.parse(Buffer.from(claims, 'base64url').toString())).toMatchObject({ iss: 'TEAM123' })
+      expect(verify('sha256', Buffer.from(`${header}.${claims}`), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+      if (originalWebSocketPair) Object.defineProperty(globalThis, 'WebSocketPair', originalWebSocketPair)
+      else Reflect.deleteProperty(globalThis, 'WebSocketPair')
+      if (originalRuntime === undefined) delete process.env.CATEVIA_RUNTIME
+      else process.env.CATEVIA_RUNTIME = originalRuntime
+    }
   })
 })

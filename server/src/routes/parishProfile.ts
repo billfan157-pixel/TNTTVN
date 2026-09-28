@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { adminReauthRateLimiter } from '../middleware/security.js'
-import { deleteObject, getObject, isR2Enabled, putObject } from '../services/blobStorage.js'
+import { deleteObject, getObject, hasDurableBlobStorage, putObject } from '../services/blobStorage.js'
 import {
   createExternalParishAsset,
   createParishPeople,
@@ -308,7 +308,7 @@ parishProfileRouter.post('/assets/external', roleMiddleware('admin'), zValidator
 parishProfileRouter.post('/assets/upload', roleMiddleware('admin'), async c => {
   let objectKey: string | null = null
   try {
-    if (process.env.NODE_ENV === 'production' && !isR2Enabled) {
+    if (process.env.NODE_ENV === 'production' && !hasDurableBlobStorage()) {
       return c.json({ success: false, error: { code: 'ARCHIVE_STORAGE_UNAVAILABLE', message: 'Kho tư liệu production chưa cấu hình R2' } }, 503)
     }
     const form = await c.req.raw.formData()

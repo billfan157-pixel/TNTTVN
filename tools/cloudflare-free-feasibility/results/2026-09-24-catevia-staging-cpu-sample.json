@@ -1,0 +1,18 @@
+{
+  "capturedAt": "2026-09-24T09:37:00Z",
+  "scope": "Workers Free staging with disposable Turso database; one sequential auth workflow",
+  "workerVersion": "0a402ffb-249c-4ed0-89e9-a0f669784735",
+  "source": "Cloudflare wrangler tail; only CPU, route, and response code retained",
+  "samples": [
+    { "path": "/api/auth/login", "status": 401, "cpuMs": 14 },
+    { "path": "/api/auth/login", "status": 200, "cpuMs": 13 },
+    { "path": "/api/auth/me", "status": 200, "cpuMs": 6 },
+    { "path": "/api/students", "status": 200, "cpuMs": 7 },
+    { "path": "/api/classes", "status": 200, "cpuMs": 6 },
+    { "path": "/api/notifications", "status": 403, "cpuMs": 4 },
+    { "path": "/api/auth/refresh", "status": 200, "cpuMs": 14 },
+    { "path": "/api/auth/logout", "status": 200, "cpuMs": 4 }
+  ],
+  "separateDurableObjectCpuMs": [461, 102, 318],
+  "notes": "A previous first login after PDF deployment sampled 64 ms Worker CPU. The authenticated PDF request sampled 100 ms Worker CPU. These are small samples and do not establish a distribution."
+}

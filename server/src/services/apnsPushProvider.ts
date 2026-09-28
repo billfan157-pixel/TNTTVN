@@ -1,11 +1,13 @@
 import * as http2 from 'node:http2'
 import jwt from 'jsonwebtoken'
 import type { AppPushPayload, NativeProviderResult } from './pushTypes.js'
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 const APNS_PAYLOAD_LIMIT = 4096
 const APNS_JWT_TTL_MS = 50 * 60 * 1000
 const APNS_BATCH_LIMIT = 100
 let cachedJwt: { value: string; createdAt: number } | null = null
+let cachedWorkerJwt: { value: string; createdAt: number } | null = null
 
 interface ApnsConfig {
   keyId: string
@@ -45,6 +47,30 @@ function providerToken(config: ApnsConfig): string {
     keyid: config.keyId,
   })
   cachedJwt = { value, createdAt: now }
+  return value
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+async function workerProviderToken(config: ApnsConfig): Promise<string> {
+  const now = Date.now()
+  if (cachedWorkerJwt && now - cachedWorkerJwt.createdAt < APNS_JWT_TTL_MS) return cachedWorkerJwt.value
+
+  const pem = config.privateKey.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s/g, '')
+  const keyBytes = Uint8Array.from(atob(pem), char => char.charCodeAt(0))
+  const key = await crypto.subtle.importKey('pkcs8', keyBytes, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign'])
+  const encoder = new TextEncoder()
+  const header = base64Url(encoder.encode(JSON.stringify({ alg: 'ES256', kid: config.keyId })))
+  const claims = base64Url(encoder.encode(JSON.stringify({ iss: config.teamId, iat: Math.floor(now / 1000) })))
+  const signingInput = `${header}.${claims}`
+  const signature = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, encoder.encode(signingInput)))
+  if (signature.length !== 64) throw new Error('Invalid APNs ES256 signature length')
+  const value = `${signingInput}.${base64Url(signature)}`
+  cachedWorkerJwt = { value, createdAt: now }
   return value
 }
 
@@ -108,6 +134,35 @@ function sendOne(
   })
 }
 
+async function sendOneFromWorker(
+  token: string,
+  authorization: string,
+  config: ApnsConfig,
+  body: string,
+): Promise<{ ok: boolean; dead: boolean; errorReason?: string }> {
+  const response = await fetch(`${config.host}/3/device/${encodeURIComponent(token)}`, {
+    method: 'POST',
+    headers: {
+      authorization: `bearer ${authorization}`,
+      'apns-topic': config.bundleId,
+      'apns-push-type': 'alert',
+      'apns-priority': '10',
+    },
+    body,
+  })
+  let reason = ''
+  try { reason = (await response.json() as { reason?: string }).reason || '' } catch {}
+  const ok = response.status === 200
+  const dead = response.status === 410 || reason === 'BadDeviceToken' || reason === 'Unregistered' || reason === 'DeviceTokenNotForTopic'
+  if (!ok) {
+    console.warn(`[apnsPushProvider] delivery rejected (${response.status}):`, {
+      reason: reason || 'unknown',
+      tokenPrefix: `${token.slice(0, 8)}...`,
+    })
+  }
+  return { ok, dead, errorReason: !ok ? `APNS:${response.status}:${reason || 'REJECTED'}` : undefined }
+}
+
 export async function sendApnsPush(
   tokens: string[],
   payload: AppPushPayload,
@@ -116,7 +171,27 @@ export async function sendApnsPush(
   const config = getApnsConfig()
   if (!config) return { sent: 0, failed: tokens.length, deadTokens: [], successfulTokens: [], lastProviderError: 'APNS:NOT_CONFIGURED' }
 
-  const client = http2.connect(config.host)
+  const workerRuntime = isCloudflareWorkerRuntime()
+  const client = workerRuntime ? null : http2.connect(config.host)
+  if (workerRuntime) {
+    const authorization = await workerProviderToken(config)
+    const body = buildPayload(payload)
+    const responses: Array<{ ok: boolean; dead: boolean; errorReason?: string }> = []
+    const batchSize = 4
+    for (let offset = 0; offset < tokens.length; offset += batchSize) {
+      responses.push(...await Promise.all(
+        tokens.slice(offset, offset + batchSize)
+          .map(token => sendOneFromWorker(token, authorization, config, body)),
+      ))
+    }
+    const deadTokens = responses.flatMap((response, index) => response.dead ? [tokens[index]] : [])
+    const successfulTokens = responses.flatMap((response, index) => response.ok ? [tokens[index]] : [])
+    const sent = successfulTokens.length
+    const lastProviderError = responses.find(r => r.errorReason)?.errorReason
+    return { sent, failed: responses.length - sent, deadTokens, successfulTokens, lastProviderError }
+  }
+
+  if (!client) throw new Error('APNs HTTP/2 client unavailable')
   client.on('error', () => { /* individual streams reject; prevent process-level crash */ })
   try {
     const authorization = providerToken(config)

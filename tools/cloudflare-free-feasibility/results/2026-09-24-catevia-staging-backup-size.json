@@ -1,0 +1,11 @@
+{
+  "capturedAt": "2026-09-24T18:41:57.754Z",
+  "scope": "disposable-db-and-test-r2-only",
+  "fixtureBytes": 3276800,
+  "inserted": 20,
+  "backupStatus": 200,
+  "backupElapsedMs": 2254,
+  "rowCount": 447,
+  "cleaned": true,
+  "objectKey": "backups/turso-2026-09-24T18-42-17-767Z.json.gz.enc"
+}

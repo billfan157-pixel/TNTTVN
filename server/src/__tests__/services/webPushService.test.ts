@@ -90,6 +90,19 @@ describe('webPushService', () => {
     })
   })
 
+  it('caps a delivery batch and resumes using the persisted endpoint list', async () => {
+    const endpoints = ['https://batch-a.example', 'https://batch-b.example', 'https://batch-c.example']
+    for (const endpoint of endpoints) await insertSub(endpoint, userOneId)
+    webPushMock.sendNotification.mockResolvedValue(undefined as never)
+    const { sendWebPushToUsers } = await import('../../services/webPushService.js')
+    const first = await sendWebPushToUsers(parishId, [userOneId], { title: 'T', body: 'B' }, [], 2)
+    expect(first).toMatchObject({ sent: 2, deferred: 1 })
+    const second = await sendWebPushToUsers(parishId, [userOneId], { title: 'T', body: 'B' }, first.successfulEndpoints, 2)
+    expect(second).toMatchObject({ sent: 1, deferred: 0 })
+    expect(new Set([...(first.successfulEndpoints || []), ...(second.successfulEndpoints || [])])).toEqual(new Set(endpoints))
+    expect(webPushMock.sendNotification).toHaveBeenCalledTimes(3)
+  })
+
   it('xóa subscription chết (404/410) nhưng giữ sub lỗi tạm thời (500)', async () => {
     const { sendWebPushToParish } = await import('../../services/webPushService.js')
     const dead = 'https://endpoint-dead.example'

@@ -12,6 +12,9 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/seed.ts",
     "db:backup": "node ../scripts/backup-db.mjs",
+    "db:preflight:cloudflare": "node --env-file-if-exists=.env --import tsx src/scripts/preflightCloudflareBackend.ts",
+    "db:migrate:production": "node --env-file-if-exists=.env --import tsx src/scripts/applyProductionMigrations.ts",
+    "db:preflight:backup": "node --env-file-if-exists=.env --import tsx src/scripts/preflightRemoteBackup.ts",
     "db:prepare:restore-target": "node --env-file-if-exists=.env --import tsx src/scripts/prepareRemoteRestoreTarget.ts",
     "db:restore:remote": "node --env-file-if-exists=.env --import tsx src/scripts/restoreRemoteBackup.ts",
     "db:audit:promotion-reconciliation": "node --env-file-if-exists=.env --import tsx src/scripts/auditPromotionReconciliation.ts",
@@ -25,6 +28,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1111.0",
+    "@cloudflare/puppeteer": "^1.4.0",
     "@hono/node-server": "^2.0.11",
     "@hono/zod-validator": "^0.4.3",
     "@libsql/client": "^0.17.4",

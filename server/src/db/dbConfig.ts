@@ -1,8 +1,6 @@
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = dirname(__filename)
+import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
 
 export interface DbConfig {
   isRemote: boolean
@@ -26,7 +24,12 @@ export function getDbConfig(): DbConfig {
       authToken: process.env.TURSO_AUTH_TOKEN,
     }
   }
-  const dbPath = process.env.DB_PATH || join(__dirname, '../../data/parish.db')
+  if (isCloudflareWorkerRuntime()) {
+    throw new Error('TURSO_URL is required in Cloudflare Worker runtime')
+  }
+  // Worker bundles do not provide a module file URL. Resolve the local-only
+  // fallback only after the remote Turso branch has been ruled out.
+  const dbPath = process.env.DB_PATH || join(dirname(fileURLToPath(import.meta.url)), '../../data/parish.db')
   return {
     isRemote: false,
     url: `file:${dbPath}`,

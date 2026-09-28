@@ -2,7 +2,17 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    // Node cannot resolve the Workers runtime module. Tests must explicitly mock
+    // that platform boundary; this resolver does not simulate Cloudflare storage.
+    name: 'cloudflare-runtime-test-boundary',
+    resolveId(id) { if (id === 'cloudflare:workers') return '\0cloudflare:workers' },
+    load(id) {
+      if (id === '\0cloudflare:workers') {
+        return 'export class DurableObject { constructor() { throw new Error("Mock cloudflare:workers explicitly in Node tests") } }'
+      }
+    },
+  }],
   resolve: {
     modules: ['node_modules', 'server/node_modules'],
   },

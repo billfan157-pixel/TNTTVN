@@ -2,13 +2,17 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "main": true
+      "main": false
     }
   },
   "framework": "vite",
   "buildCommand": "npm run build:frontend",
   "outputDirectory": "dist",
   "installCommand": "npm ci --allow-remote=all",
+  "proxy": {
+    "entrypoint": "proxy.ts",
+    "matcher": ["/api/:path*", "/health"]
+  },
   "headers": [
     {
       "source": "/(.*)",
@@ -40,14 +44,6 @@
     }
   ],
   "rewrites": [
-    {
-      "source": "/health",
-      "destination": "https://tnttvn.onrender.com/health"
-    },
-    {
-      "source": "/api/:path*",
-      "destination": "https://tnttvn.onrender.com/api/:path*"
-    },
     {
       "source": "/(.*)",
       "destination": "/index.html"

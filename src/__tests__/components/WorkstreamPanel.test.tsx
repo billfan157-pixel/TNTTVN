@@ -29,11 +29,19 @@ vi.mock('../../lib/tenantScope', () => ({ getTenantScopeKey: () => scope }))
 const group = { id: 'g', parishId: 'p', operationEventId: 'e', name: 'Phụng vụ', status: 'PLANNING', version: 4, isRequired: true }
 const event = { event: { id: 'e', parishId: 'p', status: 'PLANNING' }, workstreams: [group], permissions: { 'operations.workstream.create': true } } as unknown as OperationEventDetail
 beforeEach(() => { scope = 'p:u'; vi.resetAllMocks(); vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [], permissions: { 'operations.workstream.mark_ready': true } } as any) })
+// Opening a workstream detail settles `detail` and the in-flight `busy` flag in two
+// separate commits, so a control that is gated on `busy` can be observed disabled for
+// one paint. Clicking it is a silent no-op, so every detail command waits for the
+// enabled edge instead of racing it.
+async function clickWhenEnabled(element: HTMLElement): Promise<void> {
+  await waitFor(() => expect(element).toBeEnabled())
+  fireEvent.click(element)
+}
 it('loads resource permissions and sends the current aggregate version', async () => {
   const refresh = vi.fn()
   render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
-  fireEvent.click(await screen.findByText('Mảng đã sẵn sàng'))
+  await clickWhenEnabled(await screen.findByText('Mảng đã sẵn sàng'))
   await waitFor(() => expect(operationsApi.setWorkstreamReady).toHaveBeenCalledWith('g', { version: 4, status: 'READY' }, expect.any(String)))
   await waitFor(() => expect(refresh).toHaveBeenCalled())
 })
@@ -57,7 +65,7 @@ it('discards stale command controls on conflict without refreshing or replaying'
   const refresh = vi.fn()
   render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
-  fireEvent.click(await screen.findByText('Mảng đã sẵn sàng'))
+  await clickWhenEnabled(await screen.findByText('Mảng đã sẵn sàng'))
   expect(await screen.findByRole('alert')).toHaveTextContent('VERSION_CONFLICT')
   expect(screen.queryByText('Mảng đã sẵn sàng')).not.toBeInTheDocument()
   expect(refresh).not.toHaveBeenCalled()
@@ -80,10 +88,12 @@ it('updates membership validity with both current versions and a reason', async 
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
   await screen.findByText(/Thành viên Một · Theo dõi/)
   // W3.5 (U-16): labels are member display names, not raw ids.
-  fireEvent.change(screen.getByLabelText('Bắt đầu vai trò của Thành viên Một'), { target: { value: '2026-12-01T08:00' } })
+  const startInput = await screen.findByLabelText('Bắt đầu vai trò của Thành viên Một')
+  await waitFor(() => expect(startInput).toBeEnabled())
+  fireEvent.change(startInput, { target: { value: '2026-12-01T08:00' } })
   fireEvent.change(screen.getByLabelText('Kết thúc vai trò của Thành viên Một'), { target: { value: '2026-12-31T17:00' } })
   fireEvent.change(screen.getByLabelText('Lý do đổi thời hạn vai trò của Thành viên Một'), { target: { value: 'Phân công tháng 12' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Lưu thời hạn' }))
+  await clickWhenEnabled(screen.getByRole('button', { name: 'Lưu thời hạn' }))
   await waitFor(() => expect(operationsApi.updateWorkstreamMemberValidity).toHaveBeenCalledWith('g', 'member-1', {
     version: 4,
     memberVersion: 2,
@@ -103,12 +113,16 @@ it('offers only the atomic lead handover while the event is LIVE', async () => {
   const refresh = vi.fn()
   render(<WorkstreamPanel event={liveEvent} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
-  await screen.findByText('Bàn giao Trưởng Mảng đang trực')
+  // The detail load is awaited behind a resolved mock, but the assertion budget must
+  // survive a starved event loop (CI runs the whole suite with coverage, serially).
+  expect(await screen.findByText('Bàn giao Trưởng Mảng đang trực', undefined, { timeout: 5000 })).toBeInTheDocument()
   expect(screen.queryByText('Phân công vào Mảng')).not.toBeInTheDocument()
   expect(screen.queryByText('Thu hồi vai trò')).not.toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText('Trưởng Mảng mới'), { target: { value: 'person:person-1' } })
+  const handoverSelect = await screen.findByLabelText('Trưởng Mảng mới')
+  await waitFor(() => expect(handoverSelect).toBeEnabled())
+  fireEvent.change(handoverSelect, { target: { value: 'person:person-1' } })
   fireEvent.change(screen.getByLabelText('Lý do bàn giao Trưởng Mảng'), { target: { value: 'Đổi ca trực' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Bàn giao ngay' }))
+  await clickWhenEnabled(screen.getByRole('button', { name: 'Bàn giao ngay' }))
   await waitFor(() => expect(operationsApi.replaceWorkstreamLead).toHaveBeenCalledWith('g', {
     version: 7,
     currentLeadMemberId: 'lead-1',
@@ -126,9 +140,9 @@ it('W2.5: saves group rename/description through PUT with OCC version and a stab
   render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
   fireEvent.click(await screen.findByRole('button', { name: 'Sửa Mảng' }))
-  fireEvent.change(screen.getByLabelText('Tên mảng mới'), { target: { value: 'Phụng Vụ Thánh' } })
+  fireEvent.change(await screen.findByLabelText('Tên mảng mới'), { target: { value: 'Phụng Vụ Thánh' } })
   fireEvent.change(screen.getByLabelText('Mô tả nhóm'), { target: { value: 'Lưu ý áo lễ' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Lưu' }))
+  await clickWhenEnabled(screen.getByRole('button', { name: 'Lưu' }))
   await waitFor(() => expect(operationsApi.updateWorkstream).toHaveBeenCalledWith('g', expect.objectContaining({
     // isRequired prefills from the stored group (true here).
     version: 4, name: 'Phụng Vụ Thánh', description: 'Lưu ý áo lễ', isRequired: true,
@@ -166,12 +180,13 @@ it('U-21: Trưởng Xứ đoàn bổ nhiệm Trưởng Mảng ngoài LIVE bằng
   render(<WorkstreamPanel event={{ ...event, workstreams: [planningGroup] } as OperationEventDetail} enabled refresh={refresh} />)
   fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
   await screen.findByText('Bổ nhiệm Trưởng Mảng')
-  fireEvent.change(screen.getByLabelText('Trưởng Mảng mới'), { target: { value: 'person:person-1' } })
+  const leadSelect = await screen.findByLabelText('Trưởng Mảng mới')
+  await waitFor(() => expect(leadSelect).toBeEnabled())
+  fireEvent.change(leadSelect, { target: { value: 'person:person-1' } })
   fireEvent.change(screen.getByLabelText('Lý do bổ nhiệm Trưởng Mảng'), { target: { value: 'Nhận Mảng phụng vụ' } })
   // Guard against silent no-op clicks: the submit gate must be satisfied.
   const appointButton = screen.getByRole('button', { name: 'Bổ nhiệm ngay' })
-  await waitFor(() => expect(appointButton).toBeEnabled())
-  fireEvent.click(appointButton)
+  await clickWhenEnabled(appointButton)
   await waitFor(() => expect(operationsApi.replaceWorkstreamLead).toHaveBeenCalledWith('g', {
     version: 5,
     currentLeadMemberId: null,
@@ -206,13 +221,13 @@ it('defaults Field Lead to active Unit Leader and hides manual appointment form 
   expect(screen.queryByRole('button', { name: 'Bổ nhiệm ngay' })).not.toBeInTheDocument()
 
   // Clicking "Bàn giao / Đổi Trưởng Mảng" reveals the form
-  fireEvent.click(screen.getByRole('button', { name: 'Bàn giao / Đổi Trưởng Mảng' }))
+  await clickWhenEnabled(screen.getByRole('button', { name: 'Bàn giao / Đổi Trưởng Mảng' }))
   expect(await screen.findByLabelText('Lý do bổ nhiệm Trưởng Mảng')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Bổ nhiệm ngay' })).toBeInTheDocument()
 
   // Clicking "Hủy đổi" collapses the form back down
   fireEvent.click(screen.getByRole('button', { name: 'Hủy đổi' }))
-  expect(screen.queryByLabelText('Lý do bổ nhiệm Trưởng Mảng')).not.toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByLabelText('Lý do bổ nhiệm Trưởng Mảng')).not.toBeInTheDocument())
 })
 
 it('sends autoAssignLeader: true when creating a new workstream', async () => {
@@ -261,13 +276,15 @@ it('deletes workstream cleanly when empty after user confirmation', async () => 
 
   // Click "Xóa Mảng"
   const deleteBtn = await screen.findByRole('button', { name: 'Xóa Mảng' })
-  fireEvent.click(deleteBtn)
+  // The control stays disabled until the in-flight detail load settles; clicking a
+  // disabled button is a no-op, so the assertion below would race the busy state.
+  await clickWhenEnabled(deleteBtn)
 
   // Confirmation box appears
-  expect(screen.getByText(/Xác nhận xóa Mảng "Mảng Âm Thanh"\?/)).toBeInTheDocument()
+  expect(await screen.findByText(/Xác nhận xóa Mảng "Mảng Âm Thanh"\?/)).toBeInTheDocument()
 
   // Confirm delete
-  fireEvent.click(screen.getByRole('button', { name: 'Xác nhận xóa Mảng' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Xác nhận xóa Mảng' }))
 
   await waitFor(() => expect(operationsApi.deleteWorkstream).toHaveBeenCalledWith(
     'ws-del',
@@ -294,10 +311,10 @@ it('blocks deleting workstream when it contains active tasks', async () => {
 
   // Click "Xóa Mảng"
   const deleteBtn = await screen.findByRole('button', { name: 'Xóa Mảng' })
-  fireEvent.click(deleteBtn)
+  await clickWhenEnabled(deleteBtn)
 
   // Block alert appears
-  expect(screen.getByText(/Không thể xóa Mảng "Mảng Âm Thanh"/)).toBeInTheDocument()
+  expect(await screen.findByText(/Không thể xóa Mảng "Mảng Âm Thanh"/)).toBeInTheDocument()
   expect(screen.getByText(/hiện đang có/)).toBeInTheDocument()
   expect(operationsApi.deleteWorkstream).not.toHaveBeenCalled()
 })

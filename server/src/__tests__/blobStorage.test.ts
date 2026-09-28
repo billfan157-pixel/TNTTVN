@@ -58,6 +58,25 @@ describe('blobStorage (ADR-041) — local fallback', () => {
     const listed = await listObjects('backups/')
     expect(listed.map((o) => o.key)).toContain(key)
   })
+
+  it('rejects path traversal keys before touching the filesystem', async () => {
+    await expect(getObject('backups/../../outside.txt')).rejects.toThrow(/invalid blob key/i)
+    await expect(putObject('backups/../../outside.txt', 'blocked')).rejects.toThrow(/invalid blob key/i)
+  })
+
+  it('nested backup prefixes list only matching objects with correct keys', async () => {
+    await putObject('backups/v2/set-a/db.enc', 'db')
+    await putObject('backups/v2/set-a/parts/000001.enc', 'part')
+    await putObject('backups/v1/legacy.json', 'legacy')
+
+    expect((await listObjects('backups/v2/')).map(object => object.key).sort()).toEqual([
+      'backups/v2/set-a/db.enc',
+      'backups/v2/set-a/parts/000001.enc',
+    ])
+    expect((await listObjects('backups/v2/set-a/parts/')).map(object => object.key)).toEqual([
+      'backups/v2/set-a/parts/000001.enc',
+    ])
+  })
 })
 
 describe('getDbConfig (ADR-041) — Turso detection', () => {

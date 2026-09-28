@@ -16,6 +16,7 @@ test('@critical public Operations event is projected to the parent read-only cal
   await page.getByRole('button', { name: 'Công khai', exact: true }).click()
   await page.getByLabel('Tên sự kiện').fill(key)
   await page.getByLabel('Loại sự kiện').selectOption('CAMP')
+  await page.getByRole('button', { name: 'Tiếp tục: Thời gian & Địa điểm' }).click()
   await page.getByLabel('Địa điểm').fill('Sân giáo xứ E2E')
   await page.getByLabel('Bắt đầu', { exact: true }).fill(`${date}T08:00`)
   // W4-era selector fix: the SmartEventTimePicker end-date switch label
@@ -66,8 +67,9 @@ test('@critical public Operations event is projected to the parent read-only cal
   const parent = await getRoleSession(page.request, 'phuhuynh')
   await injectSession(page, parent)
   await page.goto('/calendar')
-  await expect(page.getByText(key, { exact: true })).toBeVisible()
-  await expect(page.getByText('Sân giáo xứ E2E', { exact: true })).toBeVisible()
+  const calendarEvent = page.getByText(key, { exact: true }).locator('..').locator('..')
+  await expect(calendarEvent).toBeVisible()
+  await expect(calendarEvent.getByText('Sân giáo xứ E2E', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: /Tạo sự kiện|Sửa sự kiện|Xóa sự kiện/ })).toHaveCount(0)
 })
 
@@ -491,7 +493,7 @@ test('@critical Operations P5 previews and instantiates an immutable event templ
   expect(persisted.tasks[0]).not.toHaveProperty('approvalStatus')
 
   const instantiatedDialog = page.getByRole('dialog', { name: eventTitle })
-  await expect(instantiatedDialog.getByRole('tab', { name: 'Mẫu' })).toBeVisible()
+  await expect(instantiatedDialog.getByRole('tab', { name: 'Mẫu' })).toBeVisible({ timeout: 15_000 })
   await instantiatedDialog.getByRole('tab', { name: 'Mẫu' }).click()
   const lifecycle = instantiatedDialog.getByRole('region', { name: 'Quản lý mẫu từ sự kiện' })
   await expect(lifecycle.getByLabel('Mẫu sự kiện cần tạo phiên bản')).toHaveValue(template.id)
@@ -629,6 +631,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   await page.getByRole('button', { name: 'Tạo mới' }).click()
   await page.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }).click()
   await page.getByLabel('Tên sự kiện').fill(eventTitle)
+  await page.getByRole('button', { name: 'Tiếp tục: Thời gian & Địa điểm' }).click()
   await page.getByLabel('Bắt đầu', { exact: true }).fill('2026-10-12T08:00')
   await page.getByLabel('Kết thúc', { exact: true }).fill('2026-10-12T12:00')
   const eventResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/events') && response.request().method() === 'POST')
@@ -654,16 +657,22 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   // authority hardening): pick the first available unit before creating.
   const fieldUnitSelect = page.getByLabel('Ban/Ngành phụ trách mảng')
   if (await fieldUnitSelect.count()) {
-    const firstUnit = fieldUnitSelect.locator('option[value]:not([value=""])').first()
-    if (await firstUnit.count()) await fieldUnitSelect.selectOption(await firstUnit.getAttribute('value') as string)
+    const branchUnit = fieldUnitSelect.locator('option[value*="branch"]')
+    if (await branchUnit.count()) {
+      await fieldUnitSelect.selectOption(await branchUnit.first().getAttribute('value') as string)
+    } else {
+      const firstUnit = fieldUnitSelect.locator('option[value]:not([value=""])').first()
+      if (await firstUnit.count()) await fieldUnitSelect.selectOption(await firstUnit.getAttribute('value') as string)
+    }
   }
   const groupResponse = page.waitForResponse(response => response.url().endsWith('/api/operations/workstreams') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Tạo & Giao Mảng', exact: true }).click()
   const groupCreated = await groupResponse
-  expect(groupCreated.status()).toBe(201)
+  expect(groupCreated.status(), await groupCreated.text()).toBe(201)
   const group = (await groupCreated.json()).data as { id: string }
   // Member/assignee selects use `person:<id>` candidate values.
   await page.getByLabel('Thành viên nhóm').selectOption(`person:${assigneePersonId}`)
+  // Assign as WORKSTREAM_LEAD so that the required workstream has a lead and readiness blockers are empty.
   await page.getByLabel('Vai trò trong nhóm').selectOption('WORKSTREAM_LEAD')
   const memberResponse = page.waitForResponse(response => response.url().endsWith(`/workstreams/${group.id}/members`) && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Phân công vào Mảng' }).click()

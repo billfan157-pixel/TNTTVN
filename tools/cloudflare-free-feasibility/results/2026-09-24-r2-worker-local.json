@@ -1,0 +1,24 @@
+{
+  "worker": "127.0.0.1",
+  "scenario": "r2",
+  "beganAt": "2026-09-24T07:10:34.728Z",
+  "endedAt": "2026-09-24T07:10:35.209Z",
+  "count": 1,
+  "concurrency": 1,
+  "validCount": 1,
+  "statusCounts": {
+    "200": 1
+  },
+  "firstRequestMs": 479.36,
+  "minMs": 479.36,
+  "p50Ms": 479.36,
+  "p95Ms": 479.36,
+  "maxMs": 479.36,
+  "samples": [
+    {
+      "status": 200,
+      "wallMs": 479.36,
+      "valid": true
+    }
+  ]
+}

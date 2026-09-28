@@ -4,6 +4,7 @@ import { RouterProvider } from '@tanstack/react-router'
 import { router } from './router'
 import { ErrorBoundary } from './components/common/ErrorBoundary'
 import { ToastContainer } from './components/common/ToastContainer'
+import { BackendActivityIndicator } from './components/common/BackendActivityIndicator'
 import { initSentry } from './lib/sentry'
 import { initDB } from './lib/db'
 import { loadTokens } from './lib/api'
@@ -30,6 +31,9 @@ createRoot(document.getElementById('root')!).render(
       <BiometricLockGate>
         <RouterProvider router={router} />
       </BiometricLockGate>
+      {/* UX-FEEDBACK-1: chỉ báo "đang chờ máy chủ" cho MỌI hoạt động backend —
+          mount ngoài router nên phủ cả trang đăng nhập/verification. */}
+      <BackendActivityIndicator />
       <ToastContainer />
     </ErrorBoundary>
   </StrictMode>,

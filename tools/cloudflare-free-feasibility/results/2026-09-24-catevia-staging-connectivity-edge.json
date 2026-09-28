@@ -1,0 +1,80 @@
+{
+  "capturedAt": "2026-09-24T08:40:48.699Z",
+  "observations": [
+    {
+      "sequence": 1,
+      "target": "local-turso",
+      "status": 200,
+      "elapsedMs": 1775
+    },
+    {
+      "sequence": 1,
+      "target": "worker-health",
+      "status": 200,
+      "elapsedMs": 3438
+    },
+    {
+      "sequence": 1,
+      "target": "worker-auth-unknown",
+      "status": "error",
+      "elapsedMs": 30017,
+      "errorClass": 23
+    },
+    {
+      "sequence": 2,
+      "target": "local-turso",
+      "status": 200,
+      "elapsedMs": 2462
+    },
+    {
+      "sequence": 2,
+      "target": "worker-health",
+      "status": 200,
+      "elapsedMs": 1636
+    },
+    {
+      "sequence": 2,
+      "target": "worker-auth-unknown",
+      "status": 401,
+      "elapsedMs": 4264
+    },
+    {
+      "sequence": 3,
+      "target": "local-turso",
+      "status": "error",
+      "elapsedMs": 10666,
+      "errorClass": "TypeError"
+    },
+    {
+      "sequence": 3,
+      "target": "worker-health",
+      "status": 200,
+      "elapsedMs": 6746
+    },
+    {
+      "sequence": 3,
+      "target": "worker-auth-unknown",
+      "status": 401,
+      "elapsedMs": 17305
+    },
+    {
+      "sequence": 4,
+      "target": "local-turso",
+      "status": 200,
+      "elapsedMs": 1661
+    },
+    {
+      "sequence": 4,
+      "target": "worker-health",
+      "status": 200,
+      "elapsedMs": 1236
+    },
+    {
+      "sequence": 4,
+      "target": "worker-auth-unknown",
+      "status": "error",
+      "elapsedMs": 30012,
+      "errorClass": 23
+    }
+  ]
+}

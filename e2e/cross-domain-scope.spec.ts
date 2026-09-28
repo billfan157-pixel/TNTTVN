@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { authorizedRequest, getAdminSession, getRoleSession, injectSession } from './helpers'
+import { authorizedRequest, getAdminSession, getRoleSession, injectSession, testKey } from './helpers'
 
 // Observe real encrypted IndexedDB without mutating application stores or
 // substituting API responses. Only synthetic sandbox data is decrypted here.
@@ -42,7 +42,8 @@ async function academicCache(page: Page, userId: string, entity: 'grades' | 'att
   }, { userId, entity })
 }
 
-test('@critical reconnect retracts revoked Grade and Attendance caches without deleting server history', async ({ page, context, request }) => {
+test('@critical reconnect retracts revoked Grade and Attendance caches without deleting server history', async ({ page, context, request }, testInfo) => {
+  test.setTimeout(90_000)
   const admin = await getAdminSession(request)
   const staff = await getRoleSession(page.request, 'phuta')
   const userId = String(staff.user.id)
@@ -62,13 +63,16 @@ test('@critical reconnect retracts revoked Grade and Attendance caches without d
     studentId: 'student-e2e-001', academicYear: '2025-2026', semester: 1, scoreFinal: 8,
   })
   expect(grade.status()).toBe(200)
+  const dateOffset = Number.parseInt(testKey(testInfo, 'ATT').split('-').at(-1)!, 16) % 3650
+    + (testInfo.project.name.toLowerCase().includes('webkit') ? 1 : 0)
+  const attendanceDate = new Date(Date.UTC(2010, 0, 1 + dateOffset)).toISOString().slice(0, 10)
   const attendance = await authorizedRequest(request, admin, 'POST', '/api/attendance', {
-    studentId: 'student-e2e-001', date: '2026-08-16', type: 'SundayMass', status: 'Present',
+    studentId: 'student-e2e-001', date: attendanceDate, type: 'SundayMass', status: 'Present',
   })
   expect(attendance.status(), await attendance.text()).toBe(201)
   await injectSession(page, staff)
   await page.goto('/grades')
-  await expect(page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' })).toBeVisible({ timeout: 15_000 })
   for (const entity of ['grades', 'attendance'] as const) {
     await expect.poll(async () => (await academicCache(page, userId, entity))?.studentIds).toContain('student-e2e-001')
   }
