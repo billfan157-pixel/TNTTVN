@@ -7,4 +7,25 @@ description = "Allowlist for test fixtures, dummy test signatures, and local dev
 paths = [
   '''server/src/utils/jwtSecretPolicy\.ts''',
   '''server/src/__tests__/routes/cspReport\.test\.ts''',
+  # Audit snapshots and diagnostic evidence embed synthetic sample tokens.
+  '''^docs/authentication-authorization-rbac-snapshot.*\.json$''',
+  '''^src/lib/continuousScanDiagnostics\.ts$''',
+  '''^src/lib/omrSequenceEvidence\.ts$''',
+  '''^scripts/verify-omr-e2e\.ts$''',
+  # False positive: the "secret" is a CSS layer filename in a test fixture.
+  '''^src/__tests__/designSystemCssGraph\.test\.ts$''',
+]
+# Synthetic fixture credentials: never real secrets. New fixtures should follow
+# the `'o'.repeat(40)` style used in cloudflareEntry.test.ts instead of adding
+# entries here.
+regexes = [
+  '''operator-secret-with-at-least-32-characters''',
+  '''proxy-secret-with-at-least-32-characters''',
+  '''test-jwt-secret-key-32-chars-long-parish-lms''',
+  '''test-jwt-refresh-secret-key-32-chars-long-parish-lms''',
+  '''default-test-jwt-secret-key-32-chars-long''',
+  '''parish_jwt_secret_key_2026_dev''',
+  '''PRIVATE_KEY_123''',
+  '''idempotency-(test|safe|race)-\d+''',
+  '''0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab''',
 ]
