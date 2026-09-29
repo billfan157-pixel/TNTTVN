@@ -73,6 +73,9 @@ describe('blobStorage (ADR-041) — local fallback', () => {
       'backups/v2/set-a/db.enc',
       'backups/v2/set-a/parts/000001.enc',
     ])
+    expect((await listObjects('backups/v2/set-a/parts/')).map(object => object.key)).toEqual([
+      'backups/v2/set-a/parts/000001.enc',
+    ])
   })
 })
 

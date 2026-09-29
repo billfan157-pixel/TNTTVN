@@ -2,14 +2,12 @@
 // catevia-api Worker. Never echo values or put them in command arguments.
 import { readFileSync, statSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+import {
+  evaluateProductionSecretInventory, selectProductionSecretUploadKeys,
+  FCM_SECRET, APNS_SECRETS,
+} from './production-secret-policy.mjs'
 
 if (process.argv[2] === '--check') {
-  const required = [
-    'TURSO_URL', 'TURSO_AUTH_TOKEN', 'JWT_SECRET', 'JWT_REFRESH_SECRET', 'REPORT_HMAC_SECRET',
-    'OPS_TOKEN', 'BACKUP_ENCRYPTION_KEY', 'SUPER_ADMIN_ID',
-    'CATEVIA_PROXY_SHARED_SECRET', 'FIREBASE_SERVICE_ACCOUNT_JSON', 'APNS_KEY_ID', 'APNS_TEAM_ID',
-    'APNS_PRIVATE_KEY', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY',
-  ]
   const run = spawnSync(process.execPath, [
     './node_modules/wrangler/bin/wrangler.js', 'secret', 'list',
     '--config', 'wrangler-catevia-production.jsonc',
@@ -17,10 +15,9 @@ if (process.argv[2] === '--check') {
   if (run.status !== 0) throw new Error(`Production secret inventory failed (exit ${run.status})`)
   let live
   try { live = JSON.parse(run.stdout) } catch { throw new Error('Production secret inventory was not valid JSON') }
-  const names = new Set(live.map(entry => entry.name))
-  const missing = required.filter(name => !names.has(name))
-  process.stdout.write(`${JSON.stringify({ ok: missing.length === 0, required: required.length, missing })}\n`)
-  process.exitCode = missing.length === 0 ? 0 : 1
+  const result = evaluateProductionSecretInventory(live.map(entry => entry.name))
+  process.stdout.write(`${JSON.stringify(result)}\n`)
+  process.exitCode = result.ok ? 0 : 1
   process.exit()
 }
 
@@ -39,32 +36,27 @@ const entries = raw.trimEnd().split(/\r?\n/).map(line => {
 })
 const values = new Map(entries)
 if (values.size !== entries.length) throw new Error('Duplicate production secret name')
-const coreSecrets = ['TURSO_URL', 'TURSO_AUTH_TOKEN', 'JWT_SECRET', 'JWT_REFRESH_SECRET',
-  'REPORT_HMAC_SECRET', 'OPS_TOKEN', 'BACKUP_ENCRYPTION_KEY', 'SUPER_ADMIN_ID',
-  'CATEVIA_PROXY_SHARED_SECRET']
-const providerSecrets = ['FIREBASE_SERVICE_ACCOUNT_JSON', 'APNS_KEY_ID', 'APNS_TEAM_ID',
-  'APNS_PRIVATE_KEY', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']
-const allowed = providerMode ? providerSecrets : coreSecrets
-if (entries.some(([key]) => !coreSecrets.includes(key) && !providerSecrets.includes(key))
-  || allowed.some(key => !values.get(key))) {
-  throw new Error('Missing or unexpected production secret name')
-}
+const allowed = selectProductionSecretUploadKeys(values, providerMode)
 if (providerMode) {
-  let firebase
-  try {
-    firebase = JSON.parse(values.get('FIREBASE_SERVICE_ACCOUNT_JSON'))
-  } catch {
-    throw new Error('Invalid FIREBASE_SERVICE_ACCOUNT_JSON')
+  if (allowed.includes(FCM_SECRET)) {
+    let firebase
+    try {
+      firebase = JSON.parse(values.get(FCM_SECRET))
+    } catch {
+      throw new Error('Invalid FIREBASE_SERVICE_ACCOUNT_JSON')
+    }
+    if (!firebase || typeof firebase !== 'object'
+      || typeof firebase.project_id !== 'string' || typeof firebase.client_email !== 'string'
+      || typeof firebase.private_key !== 'string' || !firebase.private_key.includes('BEGIN')) {
+      throw new Error('Incomplete FIREBASE_SERVICE_ACCOUNT_JSON')
+    }
   }
-  if (!firebase || typeof firebase !== 'object'
-    || typeof firebase.project_id !== 'string' || typeof firebase.client_email !== 'string'
-    || typeof firebase.private_key !== 'string' || !firebase.private_key.includes('BEGIN')) {
-    throw new Error('Incomplete FIREBASE_SERVICE_ACCOUNT_JSON')
+  if (allowed.includes(APNS_SECRETS[0])) {
+    for (const key of ['APNS_KEY_ID', 'APNS_TEAM_ID']) {
+      if (!/^[A-Z0-9]{10}$/.test(values.get(key))) throw new Error(`Malformed ${key}`)
+    }
+    if (!values.get('APNS_PRIVATE_KEY').includes('BEGIN')) throw new Error('Malformed APNS_PRIVATE_KEY')
   }
-  for (const key of ['APNS_KEY_ID', 'APNS_TEAM_ID']) {
-    if (!/^[A-Z0-9]{10}$/.test(values.get(key))) throw new Error(`Malformed ${key}`)
-  }
-  if (!values.get('APNS_PRIVATE_KEY').includes('BEGIN')) throw new Error('Malformed APNS_PRIVATE_KEY')
   for (const key of ['VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY']) {
     if (!/^[A-Za-z0-9_-]{32,512}$/.test(values.get(key))) throw new Error(`Malformed ${key}`)
   }

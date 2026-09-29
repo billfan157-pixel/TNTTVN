@@ -30,6 +30,18 @@ afterEach(async () => {
 })
 
 describe('Cloudflare maintenance lifecycle', () => {
+  it('continues a notification backlog promptly and returns to polling after it drains', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now())
+    const { job, storage } = coordinator('notification')
+    vi.spyOn(job, 'run').mockResolvedValueOnce({ queueLength: 1 }).mockResolvedValueOnce({ queueLength: 0 })
+    const start = Date.now()
+    await job.alarm()
+    expect(storage.setAlarm.mock.calls[0][0] - start).toBeLessThan(5_000)
+    const drainedAt = Date.now()
+    await job.alarm()
+    expect(storage.setAlarm.mock.calls[1][0] - drainedAt).toBeGreaterThanOrEqual(30_000)
+  })
+
   it('pauses durably and drains a running job before acknowledging rollback', async () => {
     const { job, storage, values } = coordinator('notification')
     let finish!: () => void

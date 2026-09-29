@@ -245,21 +245,19 @@ export async function listObjects(prefix: string): Promise<StoredObject[]> {
       : process.env.BLOB_LOCAL_DIR || path.join(process.cwd(), 'blobs')
   if (!fs.existsSync(dirPrefix)) return []
   const objects: StoredObject[] = []
-  const relativePrefix = (basePrefix ? prefix.slice(basePrefix.length) : '').replace(/\/+$/, '')
-  const keyPrefix = basePrefix || prefix
   const walk = (directory: string, relative: string): void => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       if (entry.name.includes('.tmp-') || entry.name.includes('.partial-')) continue
       const absolute = path.join(directory, entry.name)
       const childRelative = relative ? `${relative}/${entry.name}` : entry.name
-      if (relativePrefix && childRelative !== relativePrefix && !childRelative.startsWith(`${relativePrefix}/`)) continue
+      const key = `${basePrefix}${childRelative}`
       if (entry.isDirectory()) {
-        walk(absolute, childRelative)
+        if (prefix.startsWith(`${key}/`) || `${key}/`.startsWith(prefix)) walk(absolute, childRelative)
         continue
       }
-      if (!entry.isFile()) continue
+      if (!entry.isFile() || !key.startsWith(prefix)) continue
       const stat = fs.statSync(absolute)
-      objects.push({ key: `${keyPrefix}${childRelative}`, size: stat.size, lastModified: stat.mtimeMs })
+      objects.push({ key, size: stat.size, lastModified: stat.mtimeMs })
     }
   }
   walk(dirPrefix, '')

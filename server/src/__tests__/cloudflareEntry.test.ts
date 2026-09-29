@@ -4,8 +4,9 @@ import worker from '../cloudflare/entry.js'
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }))
 vi.mock('../cloudflare/pdfJob.js', () => ({ PdfJob: class {} }))
 
-const token = 'operator-secret-with-at-least-32-characters'
-const proxySecret = 'proxy-secret-with-at-least-32-characters'
+// Distinct synthetic credentials exercise the two authority boundaries.
+const token = 'o'.repeat(40)
+const proxySecret = 'p'.repeat(40)
 function environment(traffic = 'yes') {
   const createBackup = vi.fn(async () => ({ objectKey: 'backups/test', rowCount: 7 }))
   const env = {

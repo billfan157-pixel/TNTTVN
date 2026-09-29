@@ -59,13 +59,15 @@ export class MaintenanceJob extends DurableObject {
     if (!(kind in MAINTENANCE_INTERVALS_MS)) throw new Error('Unknown maintenance job')
     if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare' || await this.ctx.storage.get('paused')) return
     const startedAt = Date.now()
+    let interval = MAINTENANCE_INTERVALS_MS[kind]
     try {
       const marker = await client.execute({
         sql: 'SELECT key FROM system_settings WHERE key = ? LIMIT 1',
         args: [RECOVERY_QUARANTINE_KEY],
       })
       if (marker.rows.length > 0) throw new Error('RECOVERY_QUARANTINED')
-      await this.run(kind)
+      const result = await this.run(kind)
+      if (kind === 'notification' && result?.queueLength > 0) interval = 1_000
       await this.ctx.storage.put('lastSuccessAt', new Date().toISOString())
     } catch (error) {
       await this.ctx.storage.put('lastFailureAt', new Date().toISOString())
@@ -76,7 +78,7 @@ export class MaintenanceJob extends DurableObject {
       // alarm if an isolate dies between the job and this write.
       if (!await this.ctx.storage.get('paused')) {
         await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000,
-          startedAt + MAINTENANCE_INTERVALS_MS[kind]))
+          startedAt + interval))
       }
     }
   }
