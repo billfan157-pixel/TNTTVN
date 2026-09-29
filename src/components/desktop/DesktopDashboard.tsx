@@ -216,7 +216,7 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{item.avg.toFixed(1)}</span>
+                      <span className="text-lg font-black text-parish-success dark:text-parish-success">{item.avg.toFixed(1)}</span>
                       <span className="block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 mt-0.5">{item.label}</span>
                     </div>
                   </div>

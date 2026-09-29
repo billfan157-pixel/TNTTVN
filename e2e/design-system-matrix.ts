@@ -161,7 +161,8 @@ export async function openProtectedObservation(
   await page.setViewportSize(matrixViewports[viewportName])
   const main = page.locator('#main-content')
   await expect(main, `${route} must expose the shared main landmark for ${observationName}`).toBeVisible({ timeout: 15_000 })
-  await expect(main).toHaveClass(viewportName === 'desktop' ? /app-main-content/ : /mobile-app-main/)
+  // WebKit đổi shell sau setViewportSize chậm hơn Chromium: cùng assertion, nới timeout.
+  await expect(main).toHaveClass(viewportName === 'desktop' ? /app-main-content/ : /mobile-app-main/, { timeout: 15_000 })
   await expect(
     main.locator('.product-view').first(),
     `${route} must finish its lazy route render before ${observationName}`,

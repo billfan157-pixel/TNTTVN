@@ -218,6 +218,23 @@
       color-mix(in srgb, var(--color-brand-deep) 52%, transparent) 100%),
     color-mix(in srgb, var(--color-brand-deep) 90%, transparent);
 }
+/* Dark-mode compensation for the parish kicker (14px/700 cream on photo).
+   --color-brand-deep derives from --color-parish-primary, which is lighter in
+   dark mode (#60A5FA vs #1E3A8A), so the same scrim lets more of the bright
+   centre (white shirts) through and the kicker measured 4.33:1 < 4.5:1 at
+   dark@1440. Strengthen only the dark background — top stop 76%→84% where the
+   kicker sits, base 90%→93% — keeping the uniform edge-free plate, opacity
+   mechanism, light theme, tokens, and layout untouched. */
+.dark .landing-hero-scrim {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--color-brand-deep) 84%, transparent) 0%,
+      color-mix(in srgb, var(--color-brand-deep) 20%, transparent) 22%,
+      transparent 38%,
+      color-mix(in srgb, var(--color-brand-deep) 18%, transparent) 72%,
+      color-mix(in srgb, var(--color-brand-deep) 52%, transparent) 100%),
+    color-mix(in srgb, var(--color-brand-deep) 93%, transparent);
+}
 /* W19/W20 — the rail under the header, and the name of the current stop.
    `scaleX` rather than `width` so the bar animates on the compositor instead of
    re-laying out 60 times a second. The fill starts at scaleX(0) because the transform is

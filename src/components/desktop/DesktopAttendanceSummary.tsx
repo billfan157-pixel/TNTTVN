@@ -452,7 +452,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
                 >
                   <div className="flex justify-between items-center gap-2">
                     <StudentName holyName={item.student.holyName} fullName={item.student.fullName} size="xs" />
-                    <span className="text-[11px] font-black text-rose-600 bg-rose-500/10 px-1.5 py-0.5 rounded">
+                    <span className="text-[11px] font-black text-parish-danger-hover bg-parish-danger-bg px-1.5 py-0.5 rounded">
                       {item.summary.overall.rate}%
                     </span>
                   </div>

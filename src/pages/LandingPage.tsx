@@ -217,7 +217,24 @@ export function LandingPage() {
 
     root.dataset.landingRevealArmed = 'true'
     for (const element of pending) observer.observe(element)
+    // Fallback for jumps that skip intersection frames (observed in WebKit on
+    // anchor navigation: the page arrives but an intermediate section never
+    // intersected, so IO never fired and it stayed invisible). Any scroll that
+    // leaves a section at or above the viewport bottom reveals it. IO remains
+    // the primary path; the dataset write is idempotent. Below-the-fold
+    // content still starts hidden — this only runs on scroll.
+    const revealPassed = () => {
+      for (const element of pending) {
+        if (element.dataset.landingRevealed) continue
+        if (element.getBoundingClientRect().top < window.innerHeight) {
+          element.dataset.landingRevealed = 'true'
+          observer.unobserve(element)
+        }
+      }
+    }
+    window.addEventListener('scroll', revealPassed, { passive: true })
     return () => {
+      window.removeEventListener('scroll', revealPassed)
       observer.disconnect()
       delete root.dataset.landingRevealArmed
     }

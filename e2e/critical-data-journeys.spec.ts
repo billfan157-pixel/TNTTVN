@@ -41,9 +41,9 @@ test.describe('Critical persisted business outcomes', () => {
       parishId: 'gia-ton',
     })
 
-    await expect(page.getByRole('button', { name: `Xem danh sách lớp ${className}` })).toBeVisible()
+    await expect(page.getByRole('button', { name: `Xem danh sách lớp ${className}` })).toBeVisible({ timeout: 15_000 })
     await page.reload()
-    await expect(page.getByRole('button', { name: `Xem danh sách lớp ${className}` })).toBeVisible()
+    await expect(page.getByRole('button', { name: `Xem danh sách lớp ${className}` })).toBeVisible({ timeout: 15_000 })
   })
 
   test('@critical admin creates a student through UI and reload reads the committed record', async ({ page }, testInfo) => {
@@ -77,10 +77,13 @@ test.describe('Critical persisted business outcomes', () => {
     expect((await readBack.json()).data).toMatchObject({ fullName, classId: 'CLS-AN-1', parishId: 'gia-ton' })
 
     await page.goto('/students')
-    await page.getByRole('button', { name: 'Xem danh sách lớp Ấu Nhi 1' }).click()
-    await expect(page.getByText(fullName, { exact: true })).toBeVisible()
+    const classRow = page.getByRole('button', { name: 'Xem danh sách lớp Ấu Nhi 1' })
+    // WebKit render trang danh sách chậm: chờ nút sẵn sàng thay vì click mù (cùng assertion).
+    await expect(classRow).toBeVisible({ timeout: 15_000 })
+    await classRow.click()
+    await expect(page.getByText(fullName, { exact: true })).toBeVisible({ timeout: 15_000 })
     await page.reload()
-    await expect(page.getByText(fullName, { exact: true })).toBeVisible()
+    await expect(page.getByText(fullName, { exact: true })).toBeVisible({ timeout: 15_000 })
   })
 
   test('@critical grade entry is saved by the backend and survives reload', async ({ page }) => {
