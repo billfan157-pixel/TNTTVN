@@ -17,6 +17,27 @@ afterEach(() => {
 })
 
 describe('Vercel backend proxy', () => {
+  it('forwards a decoded upstream body without stale compression or framing headers', async () => {
+    const body = JSON.stringify({ status: 'ok', releaseId: 'a'.repeat(40), database: 'connected' })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, {
+      headers: {
+        'content-type': 'application/json', 'content-encoding': 'br',
+        'content-length': '42', 'transfer-encoding': 'chunked',
+        'cache-control': 'no-store', 'set-cookie': 'refresh=opaque; HttpOnly; Secure',
+      },
+    })))
+    delete process.env.CATEVIA_PROXY_TARGET
+    const response = await proxy(new Request('https://tnttvn.vercel.app/health', {
+      headers: { 'x-forwarded-for': '203.0.113.10' },
+    }))
+    expect(await response.text()).toBe(body)
+    for (const name of ['content-encoding', 'content-length', 'transfer-encoding']) {
+      expect(response.headers.get(name)).toBeNull()
+    }
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(response.headers.get('set-cookie')).toBe('refresh=opaque; HttpOnly; Secure')
+  })
+
   it('keeps the current Render target as the default ingress', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('render', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)

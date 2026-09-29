@@ -1,0 +1,15 @@
+{
+  "verified": true,
+  "rowCount": 5027,
+  "tableCount": 78,
+  "foreignKeyViolations": 0,
+  "quarantineBlocksStartup": true,
+  "localDurationMs": 7673,
+  "scope": "production-r2-to-isolated-local-sqlite",
+  "checkedAt": "2026-09-27T10:53:53.877Z",
+  "format": "legacy",
+  "archiveObjectCount": 0,
+  "cutoverReady": false,
+  "sourceRelease": "2e9e999da7491f5cc73dc65e6fc35a39324eff3d",
+  "objectKey": "backups/turso-2026-09-27T10-50-27-218Z.json.gz.enc"
+}

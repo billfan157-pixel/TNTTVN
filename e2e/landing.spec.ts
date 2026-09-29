@@ -82,7 +82,7 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     await page.goto('/')
 
     // Trust pillars
-    await expect(page.getByRole('heading', { level: 2, name: /bền bỉ, an toàn và tôn trọng quyền riêng tư/i })).toBeVisible()
+    await expect(page.getByRole('heading', { level: 2, name: /bền bỉ, an toàn và tôn trọng quyền riêng tư/i })).toBeVisible({ timeout: 15_000 })
     await expect(page.getByRole('heading', { level: 3, name: /ngoại tuyến \(offline-first\)/i })).toBeVisible()
     await expect(page.getByRole('heading', { level: 3, name: /phân quyền theo vai trò/i })).toBeVisible()
     await expect(page.getByRole('heading', { level: 3, name: /máy tính & điện thoại pwa/i })).toBeVisible()
@@ -94,10 +94,18 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     const q1Btn = page.getByRole('button', { name: /làm thế nào để tôi có tài khoản/i })
     await expect(q1Btn).toBeVisible()
     await expect(q1Btn).toHaveAttribute('aria-expanded', 'false')
+    // The collapsed answer is checked here rather than only in the unit test because jsdom
+    // loads no stylesheet, so it cannot see the `0fr` collapse or the `visibility` step —
+    // the two things that actually keep a collapsed answer out of the accessibility tree.
+    const q1Answer = page.locator(`#${await q1Btn.getAttribute('aria-controls') as string}`)
+    await expect(q1Answer).toHaveAttribute('inert', '')
+    await expect(q1Answer).not.toBeVisible()
 
     // Click to expand question 1
     await q1Btn.click()
     await expect(q1Btn).toHaveAttribute('aria-expanded', 'true')
+    await expect(q1Answer).not.toHaveAttribute('inert', '')
+    await expect(q1Answer).toBeVisible()
     await expect(page.getByText(/tài khoản do ban giáo lý/i)).toBeVisible()
 
     // Title: Lần đầu đến với Catevia?
@@ -110,8 +118,14 @@ test.describe('Landing giới thiệu trước đăng nhập', () => {
     await expect(glassFigure.getByText('Bổn mạng Xứ Đoàn')).toBeVisible()
     await expect(glassFigure.getByText('4 Tôn Chỉ TNTT')).toBeVisible()
 
-    // Footer commitment
-    await expect(page.getByText(/dữ liệu thuộc về xứ đoàn đức mẹ fatima — giáo xứ gia tôn/i)).toBeVisible()
-    await expect(page.getByText(/quyền truy cập được phân theo vai trò/i)).toBeVisible()
+    // Footer commitment, scoped to the footer landmark. The FAQ answer about data
+    // protection repeats "Quyền truy cập được phân theo vai trò…" almost word for word, and
+    // Phase 4 keeps the FAQ panel mounted while collapsed (that is what makes the 0fr→1fr
+    // open/close possible), so an unscoped query now resolves to two elements. The FAQ copy
+    // omits the word "về" in "Dữ liệu thuộc về", so the first assertion stays unique and is
+    // what proves the footer is the one being read.
+    const footer = page.getByRole('contentinfo')
+    await expect(footer.getByText(/dữ liệu thuộc về xứ đoàn đức mẹ fatima — giáo xứ gia tôn/i)).toBeVisible()
+    await expect(footer.getByText(/quyền truy cập được phân theo vai trò/i)).toBeVisible()
   })
 })

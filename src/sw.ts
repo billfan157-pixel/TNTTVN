@@ -2,7 +2,7 @@
 
 import { precacheAndRoute } from 'workbox-precaching'
 import { registerRoute, NavigationRoute } from 'workbox-routing'
-import { CacheFirst, StaleWhileRevalidate, NetworkFirst } from 'workbox-strategies'
+import { StaleWhileRevalidate, NetworkFirst } from 'workbox-strategies'
 
 declare const self: ServiceWorkerGlobalScope
 declare const __WB_MANIFEST: Array<{ url: string; revision: string | null }>
@@ -51,16 +51,10 @@ registerRoute(
   )
 )
 
-registerRoute(
-  /^https:\/\/fonts\.googleapis\.com\/.*/i,
-  new CacheFirst({
-    cacheName: 'google-fonts-cache',
-    plugins: [
-      { cacheableResponse: { statuses: [0, 200] } },
-      { expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } },
-    ],
-  })
-)
+// Self-hosted web fonts are precached via vite.config.ts `includeAssets`
+// (public/fonts/*.woff2), so the landing page keeps its typography offline without
+// any third-party font origin. The previous CacheFirst route for
+// fonts.googleapis.com was removed with the CDN.
 
 // Cache static assets and images with StaleWhileRevalidate
 registerRoute(

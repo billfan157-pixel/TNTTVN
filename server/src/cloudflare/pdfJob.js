@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers'
 import puppeteer from '@cloudflare/puppeteer'
-import { generatePDFFromHTML, withPdfBrowserLauncher } from '../../../server/src/services/pdfService.ts'
+import { generatePDFFromHTML, withPdfBrowserLauncher } from '../services/pdfService.ts'
 
 // Browser rendering and HTML sanitization have a separate DO invocation budget.
 export class PdfJob extends DurableObject {

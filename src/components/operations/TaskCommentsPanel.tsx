@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { MessageSquare } from 'lucide-react'
 import { Button, TextArea, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
-import { operationsApi, type OperationTaskDetail } from '../../lib/api/operations'
+import type { OperationTaskDetail } from '../../lib/api/operations'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
+import { useOperationsStore } from '../../stores/operationsStore'
 
 export function TaskCommentsPanel({ detail, enabled, refresh }: { detail: OperationTaskDetail; enabled: boolean; refresh: () => Promise<unknown> }) {
   const [content, setContent] = useState('')
@@ -13,6 +14,8 @@ export function TaskCommentsPanel({ detail, enabled, refresh }: { detail: Operat
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const { stableKey, releaseKey } = useStableCommandKey()
+  // W1.2
+  const commentTask = useOperationsStore(s => s.commentTask)
   const active = useRef(true)
   const pending = useRef(false)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
@@ -54,9 +57,10 @@ export function TaskCommentsPanel({ detail, enabled, refresh }: { detail: Operat
         const payload = { content: content.trim(), ...(evidence ? { evidenceUrl: evidence } : {}) }
         const key = stableKey('task-comment', { id: detail.task.id, ...payload })
         void run(async () => {
-          const result = await operationsApi.commentTask(detail.task.id, payload, key)
+          // W1.2: through the store, so the response is parish-asserted and an
+          // OCC failure gets the store's refetch instead of dying here.
+          await commentTask(detail.task, payload.content, payload.evidenceUrl, key)
           releaseKey('task-comment')
-          return result
         })
       }
     }}>

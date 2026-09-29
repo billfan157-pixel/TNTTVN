@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Select, TextArea } from '../common/ui'
-import { operationsApi, type OperationTaskDetail } from '../../lib/api/operations'
+import type { OperationTaskDetail } from '../../lib/api/operations'
 import { getTenantScopeKey } from '../../lib/tenantScope'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationCandidateValue, parseOperationCandidateValue, useOperationCandidates } from '../../hooks/useOperationCandidates'
+import { useOperationsStore } from '../../stores/operationsStore'
 
-export function TaskHandoverForm({ detail, enabled, refresh, onWarnings }: {
+export function TaskHandoverForm({ detail, enabled, onWarnings }: {
   detail: OperationTaskDetail
   enabled: boolean
-  refresh: () => Promise<unknown>
   onWarnings?: (taskId: string, items: Array<{ id: string; startsAt: string; endsAt: string }>) => void
 }) {
   const [candidateValue, setCandidateValue] = useState('')
@@ -16,9 +16,19 @@ export function TaskHandoverForm({ detail, enabled, refresh, onWarnings }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const { stableKey, releaseKey } = useStableCommandKey()
+  // W1.2
+  const handoverTask = useOperationsStore(s => s.handoverTask)
+  const assignmentWarnings = useOperationsStore(s => s.assignmentWarnings)
   const active = useRef(true)
   const inFlight = useRef(false)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
+  // W1.2: the store now publishes the warning verdict, so this form only needs
+  // to keep its legacy callback contract for callers that still read it.
+  useEffect(() => {
+    if (assignmentWarnings?.taskId === detail.task.id && assignmentWarnings.items.length > 0) {
+      onWarnings?.(detail.task.id, assignmentWarnings.items)
+    }
+  }, [assignmentWarnings, detail.task.id, onWarnings])
   const owner = detail.assignees.find(item => item.assignmentRole === 'OWNER')
   const directory = useOperationCandidates({ taskId: detail.task.id }, Boolean(owner && enabled && detail.permissions['operations.task.reassign'] && !['DONE', 'CANCELLED'].includes(detail.task.status)))
   const candidates = directory.candidates.filter(candidate => candidate.eligibility !== 'INELIGIBLE' && candidate.personId !== owner?.personId && candidate.userId !== owner?.userId)
@@ -31,13 +41,13 @@ export function TaskHandoverForm({ detail, enabled, refresh, onWarnings }: {
     inFlight.current = true; setBusy(true); setError('')
     const current = () => active.current && scope === getTenantScopeKey()
     try {
-      const payload = { version: detail.task.version, assignmentId: owner.id, assignmentVersion: owner.version, ...target, reason: reason.trim() }
-      const result = await operationsApi.handoverTask(detail.task.id, payload, stableKey('task-handover', { id: detail.task.id, ...payload }))
+      const payload = { assignmentId: owner.id, assignmentVersion: owner.version, ...target, reason: reason.trim() }
+      // W1.2: through the store — parish-asserted response, store-owned OCC
+      // recovery, and the assignment-warning verdict published by the store.
+      await handoverTask(detail.task, payload, stableKey('task-handover', { id: detail.task.id, version: detail.task.version, ...payload }))
       releaseKey('task-handover')
       if (!current()) return
-      onWarnings?.(detail.task.id, result.conflictWarnings)
       setCandidateValue(''); setReason('')
-      await refresh()
     } catch (failure) { if (current()) setError(failure instanceof Error ? failure.message : 'Không bàn giao được. Hãy tải lại nhiệm vụ.') }
     finally { inFlight.current = false; if (current()) setBusy(false) }
   }}>

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { CalendarPlus } from 'lucide-react'
 import { Button, Select, TextInput } from '../common/ui'
 import type { OperationEventDetail, OperationsCreationOptions, OperationTask } from '../../lib/api/operations'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { useCanMutateOperations } from '../../hooks/useCanMutateOperations'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { useOperationsStore } from '../../stores/operationsStore'
@@ -10,11 +10,9 @@ import { canCreateEventTask, canUseFieldTasks, fieldLayerUnitIds, isTaskSchedule
 
 /** In-event task creation form with local draft state. */
 export function EventTaskForm({ detail, creationOptions }: { detail: OperationEventDetail; creationOptions?: OperationsCreationOptions | null }) {
-  const isOnline = useOnlineStatus()
-  const source = useOperationsStore(s => s.source)
   const createTask = useOperationsStore(s => s.createTask)
-  const selectEvent = useOperationsStore(s => s.selectEvent)
-  const canMutate = isOnline && source === 'server'
+  // W1.4: transport-only predicate; authority is ANDed in by the caller.
+  const canMutate = useCanMutateOperations()
   const isXuDoanEvent = (detail.event.eventScopeType ?? (detail.event.scopeUnitId ? 'UNIT' : 'XU_DOAN')) === 'XU_DOAN'
 
   const [draft, setDraft] = useState({ title: '', dueAt: '', scheduledStartAt: '', scheduledEndAt: '', phase: 'PREPARATION' as OperationTask['phase'], isRequired: false, workstreamId: '' })
@@ -85,7 +83,8 @@ export function EventTaskForm({ detail, creationOptions }: { detail: OperationEv
       releaseKey('create-task')
       setDraft({ title: '', dueAt: '', scheduledStartAt: '', scheduledEndAt: '', phase: 'PREPARATION', isRequired: false, workstreamId: '' })
       setDueHasTime(true)
-      await selectEvent(detail.event.id)
+      // W1.3: the store re-reads the event for `createTask` (a new required task
+      // is a readiness blocker), so this second fetch was a duplicate round trip.
     } catch (error: any) {
       setFormError(operationsErrorText(error?.code, error?.message || 'Không thể tạo nhiệm vụ'))
     } finally { setCreating(false) }

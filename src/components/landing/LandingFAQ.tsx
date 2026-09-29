@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronDown, HelpCircle } from 'lucide-react'
+import { ChevronDown, Church, HelpCircle, MessageSquare } from 'lucide-react'
 
 interface FAQItem {
   id: string
@@ -54,7 +54,13 @@ export function LandingFAQ() {
   }
 
   return (
-    <section data-landing-scene="faq" aria-labelledby="tieu-de-faq" className="landing-faq flex flex-col gap-8 scroll-mt-20 max-w-4xl mx-auto w-full" id="cau-hoi-thuong-gap">
+    <section
+      data-landing-scene="faq"
+      data-landing-reveal
+      aria-labelledby="tieu-de-faq"
+      className="landing-faq flex flex-col gap-8 scroll-mt-20 max-w-4xl mx-auto w-full"
+      id="cau-hoi-thuong-gap"
+    >
       <div className="landing-narrative text-center flex flex-col items-center gap-3">
         <span className="landing-eyebrow">
           <HelpCircle aria-hidden="true" className="w-4 h-4" />
@@ -77,8 +83,10 @@ export function LandingFAQ() {
           return (
             <article
               key={item.id}
-              className={`card transition-colors ${
-                isOpen ? 'border-parish-primary/40 shadow-sm' : ''
+              className={`card transition-colors duration-200 border rounded-2xl overflow-hidden ${
+                isOpen
+                  ? 'border-parish-primary/50 shadow-md bg-surface-card'
+                  : 'border-surface-border bg-surface-card hover:border-parish-primary/30'
               }`}
             >
               <button
@@ -87,35 +95,71 @@ export function LandingFAQ() {
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 onClick={() => toggleItem(item.id)}
-                className="w-full min-h-12 px-4 sm:px-5 py-3.5 text-left flex items-start sm:items-center justify-between gap-3 text-text-main hover:text-parish-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary rounded-xl"
+                className="w-full min-h-12 px-5 py-4 text-left flex items-center justify-between gap-4 text-text-main hover:text-parish-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary transition-colors"
               >
-                <span className="text-sm sm:text-base font-bold flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0">
-                  <span className="w-6 h-6 rounded-full bg-surface-app border border-surface-border text-text-muted text-xs font-semibold flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
-                    {index + 1}
+                <span className="text-sm sm:text-base font-bold flex items-center gap-3.5 min-w-0">
+                  <span
+                    className={`w-7 h-7 rounded-xl text-xs font-bold flex items-center justify-center shrink-0 transition-colors ${
+                      isOpen
+                        ? 'bg-parish-primary text-text-inverse'
+                        : 'bg-surface-app border border-surface-border text-text-muted'
+                    }`}
+                  >
+                    0{index + 1}
                   </span>
-                  <span>{item.question}</span>
+                  <span className="leading-snug">{item.question}</span>
                 </span>
                 <ChevronDown
                   aria-hidden="true"
-                  className={`w-4 h-4 text-text-muted shrink-0 mt-1 sm:mt-0 transition-transform duration-200 ${
+                  className={`w-4 h-4 text-text-muted shrink-0 transition-transform duration-300 ${
                     isOpen ? 'rotate-180 text-parish-primary' : ''
                   }`}
                 />
               </button>
 
-              {isOpen && (
-                <div
-                  id={panelId}
-                  role="region"
-                  aria-labelledby={buttonId}
-                  className="px-4 sm:px-5 pb-4 pt-2 text-sm text-text-secondary leading-relaxed border-t border-surface-border/60 animate-in fade-in duration-200"
-                >
-                  <p className="m-0">{item.answer}</p>
+              <div
+                id={panelId}
+                role="region"
+                aria-labelledby={buttonId}
+                className="landing-faq__panel"
+                data-open={isOpen ? 'true' : 'false'}
+                inert={!isOpen}
+              >
+                <div className="landing-faq__panel-inner">
+                  <p className="m-0 text-xs sm:text-sm text-text-secondary leading-relaxed p-5 pt-2 border-t border-surface-border/40">
+                    {item.answer}
+                  </p>
                 </div>
-              )}
+              </div>
             </article>
           )
         })}
+      </div>
+
+      {/* Pastoral Support Box */}
+      <div className="landing-faq__support mt-4 p-6 sm:p-7 rounded-2xl border border-surface-border bg-gradient-to-r from-parish-primary/5 via-surface-card to-parish-primary-light/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 shadow-xs">
+        <div className="flex items-start gap-4">
+          <div className="w-12 h-12 rounded-xl bg-parish-primary text-text-inverse flex items-center justify-center shrink-0 shadow-sm border border-parish-primary/20">
+            <Church className="w-6 h-6" aria-hidden="true" />
+          </div>
+          <div>
+            <p className="m-0 text-sm sm:text-base font-bold text-text-main">
+              Cần trợ giúp thêm về tài khoản hoặc lớp học?
+            </p>
+            <p className="m-0 mt-1 text-xs sm:text-sm text-text-secondary leading-relaxed max-w-xl">
+              Ban Giáo Lý và Ban Huynh Trưởng luôn sẵn sàng đồng hành cùng quý phụ huynh sau các Thánh Lễ Chúa Nhật tại Văn phòng Giáo lý Gia Tôn.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+          <a
+            href="#cong-dang-nhap"
+            className="btn btn-secondary min-h-11 text-xs font-bold px-5 w-full sm:w-auto justify-center rounded-xl shadow-xs hover:border-parish-primary transition-colors"
+          >
+            <MessageSquare className="w-4 h-4 text-parish-primary" aria-hidden="true" />
+            <span>Liên hệ Ban Giáo Lý</span>
+          </a>
+        </div>
       </div>
     </section>
   )

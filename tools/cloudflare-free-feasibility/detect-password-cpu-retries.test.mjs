@@ -40,6 +40,16 @@ test('stays silent on a stream with no retry events', () => {
   assert.deepEqual(result.reasons, {})
 })
 
+test('reads retry reasons from Wrangler log argument arrays without a top-level message', () => {
+  const text = JSON.stringify({ scriptName: 'catevia-api', logs: [{
+    message: [JSON.stringify({ type: RETRY_MARKER, reason: 'retryable-rpc', detail: 'a quoted "}"' })],
+  }] })
+  const result = detectPasswordCpuRetries({ text })
+  assert.equal(result.events, 1)
+  assert.deepEqual(result.reasons, { 'retryable-rpc': 1 })
+  assert.deepEqual(result.scripts, ['catevia-api'])
+})
+
 test('classifies an unparsable retry line instead of dropping it', () => {
   const summary = summariseRetries([{ message: `${RETRY_MARKER} without json`, scriptName: 'catevia-api' }])
   assert.equal(summary.events, 1)

@@ -43,6 +43,43 @@ describe('EventTemplatesPanel', () => {
     mocks.restoreEventTemplate.mockResolvedValue({ ...template, version: 3 })
   })
 
+  it('W0.3: an offline panel reports connectivity, never a permission verdict', () => {
+    render(<EventTemplatesPanel enabled={false} sourceEvent={null} onEventCreated={vi.fn()} />)
+    expect(screen.getByText('Tạm thời không kết nối.')).toBeInTheDocument()
+    // The old copy asserted the caller had no templates in scope.
+    expect(screen.queryByText('Chưa có mẫu trong phạm vi của bạn.')).not.toBeInTheDocument()
+    expect(mocks.getEventTemplates).not.toHaveBeenCalled()
+  })
+
+  it('W0.3: an in-flight catalog read is not rendered as an empty catalog', async () => {
+    let release!: (value: unknown) => void
+    mocks.getEventTemplates.mockReturnValueOnce(new Promise(done => { release = done }))
+    render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={vi.fn()} />)
+    // A fetch in flight must not flash the scope/empty copy.
+    expect(screen.queryByText('Chưa có mẫu trong phạm vi của bạn.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tạm thời không kết nối.')).not.toBeInTheDocument()
+    release({ success: true, data: [template], meta: { page: 1, limit: 100, total: 1, totalPages: 1 }, error: null })
+    await screen.findByRole('option', { name: 'Mẫu trại · v2' })
+  })
+
+  it('W0.3: an authorized empty catalog may still state the scope verdict', async () => {
+    mocks.getEventTemplates.mockResolvedValue({ success: true, data: [], meta: { page: 1, limit: 100, total: 0, totalPages: 0 }, error: null })
+    render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={vi.fn()} />)
+    expect(await screen.findByText('Chưa có mẫu trong phạm vi của bạn.')).toBeInTheDocument()
+  })
+
+  it('W0.3: instantiate stays disabled without event-create authority even when connected', async () => {
+    render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={vi.fn()} creationOptions={{ canCreateXuDoanEvent: false, units: [] } as any} />)
+    await screen.findByRole('option', { name: 'Mẫu trại · v2' })
+    fireEvent.change(screen.getByLabelText('Thời gian bắt đầu từ mẫu'), { target: { value: '2027-02-01T08:00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Xem trước' }))
+    await screen.findByLabelText('Bản xem trước mẫu sự kiện')
+    const createButton = screen.getByRole('button', { name: 'Tạo bản nháp từ mẫu' })
+    expect(createButton).toBeDisabled()
+    fireEvent.click(createButton)
+    expect(mocks.instantiateEventTemplate).not.toHaveBeenCalled()
+  })
+
   it('W3.7: only the pressed control shows busy while its command is in flight', async () => {
     render(<EventTemplatesPanel enabled sourceEvent={null} onEventCreated={vi.fn().mockResolvedValue(undefined)} />)
     await screen.findByRole('option', { name: 'Mẫu trại · v2' })

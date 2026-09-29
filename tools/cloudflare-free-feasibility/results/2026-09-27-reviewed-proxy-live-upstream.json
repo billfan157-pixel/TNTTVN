@@ -1,0 +1,35 @@
+{
+  "scope": "local-reviewed-proxy-against-live-render-read-only",
+  "productionProxyUpdated": false,
+  "testedRelease": "0292c52901abf2ff3ad32a887dbd1675e306df0c",
+  "checkedAt": "2026-09-27T17:00:10.842Z",
+  "observations": [
+    {
+      "path": "/health",
+      "status": 200,
+      "jsonReadable": true,
+      "releaseId": "90b2b61116394fa98889bd4bd9f07f4251286beb",
+      "database": "connected",
+      "contentEncoding": null,
+      "contentLength": null,
+      "ingress": "routing-middleware"
+    },
+    {
+      "path": "/api/auth/me",
+      "status": 401,
+      "jsonReadable": true,
+      "contentEncoding": null,
+      "contentLength": null,
+      "ingress": "routing-middleware"
+    }
+  ],
+  "ok": true,
+  "dnsResultOrder": "ipv4first",
+  "precedingAttempt": {
+    "authStatus": 502,
+    "checkedAt": "2026-09-27T16:59:50.282Z",
+    "healthStatus": 502,
+    "rootCauseEstablished": false,
+    "dnsResultOrder": "default"
+  }
+}

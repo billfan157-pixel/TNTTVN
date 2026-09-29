@@ -436,7 +436,10 @@ async function suppressNotification(item: NotificationQueueItem, reason: string)
 }
 
 function scheduleRetry(delayMs: number): void {
-  if (stopping) return
+  // A Worker invocation ends after the awaited cycle. nextAttemptAt is already
+  // durable; only the next alarm may recover it. A detached timer could run
+  // outside that invocation and bypass its bounded delivery budget.
+  if (stopping || isCloudflareWorkerRuntime()) return
   const timer = setTimeout(() => {
     retryTimers.delete(timer)
     if (stopping) return

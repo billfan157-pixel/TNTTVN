@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { WorkstreamPanel } from '../../components/operations/WorkstreamPanel'
 import { operationsApi, type OperationEventDetail } from '../../lib/api/operations'
+import { useOperationsDraftStore } from '../../stores/operationsDraftStore'
 vi.mock('../../lib/api/operations', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api/operations')>()
   return {
@@ -28,7 +29,7 @@ let scope = 'p:u'
 vi.mock('../../lib/tenantScope', () => ({ getTenantScopeKey: () => scope }))
 const group = { id: 'g', parishId: 'p', operationEventId: 'e', name: 'Phụng vụ', status: 'PLANNING', version: 4, isRequired: true }
 const event = { event: { id: 'e', parishId: 'p', status: 'PLANNING' }, workstreams: [group], permissions: { 'operations.workstream.create': true } } as unknown as OperationEventDetail
-beforeEach(() => { scope = 'p:u'; vi.resetAllMocks(); vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [], permissions: { 'operations.workstream.mark_ready': true } } as any) })
+beforeEach(() => { scope = 'p:u'; vi.resetAllMocks(); useOperationsDraftStore.getState().clear(); vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [], permissions: { 'operations.workstream.mark_ready': true } } as any) })
 // Opening a workstream detail settles `detail` and the in-flight `busy` flag in two
 // separate commits, so a control that is gated on `busy` can be observed disabled for
 // one paint. Clicking it is a silent no-op, so every detail command waits for the
@@ -166,6 +167,64 @@ it('P1-9: keeps destructive reason drafts scoped to their own command', async ()
   // A reason typed for member removal must not satisfy the blocked-report gate.
   fireEvent.change(screen.getByLabelText('Lý do báo Mảng bị chặn'), { target: { value: 'Thiếu người' } })
   expect(blockedButton).toBeEnabled()
+})
+
+it('W0.5: the READY and BLOCKED commands use independent idempotency slots', async () => {
+  vi.mocked(operationsApi.setWorkstreamReady)
+    .mockRejectedValueOnce(new Error('Network offline'))
+    .mockRejectedValueOnce(new Error('Network offline'))
+    .mockResolvedValue({ workstream: { ...group, version: 5 }, workstreamVersion: 5 } as any)
+  const refresh = vi.fn()
+  render(<WorkstreamPanel event={event} enabled refresh={refresh} />)
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+
+  // 1. READY fails, leaving its key pending in the READY slot.
+  await clickWhenEnabled(await screen.findByText('Mảng đã sẵn sàng'))
+  await screen.findByRole('alert')
+  await waitFor(() => expect(operationsApi.setWorkstreamReady).toHaveBeenCalledTimes(1))
+  const readyKey = vi.mocked(operationsApi.setWorkstreamReady).mock.calls[0][2]
+
+  // 2. A BLOCKED attempt with its own reason also fails. Under one shared slot
+  //    this overwrites the READY fingerprint and destroys its dedup. A failed
+  //    command discards the stale detail by design, so reopen the Mảng.
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  fireEvent.change(await screen.findByLabelText('Lý do báo Mảng bị chặn'), { target: { value: 'Thiếu người' } })
+  await clickWhenEnabled(screen.getByRole('button', { name: 'Báo Mảng bị chặn' }))
+  await waitFor(() => expect(operationsApi.setWorkstreamReady).toHaveBeenCalledTimes(2))
+  expect(vi.mocked(operationsApi.setWorkstreamReady).mock.calls[1][2]).not.toBe(readyKey)
+
+  // 3. Retrying the identical READY payload must reuse its original key so the
+  //    server dedups instead of double-acting.
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  await clickWhenEnabled(await screen.findByText('Mảng đã sẵn sàng'))
+  await waitFor(() => expect(operationsApi.setWorkstreamReady).toHaveBeenCalledTimes(3))
+  expect(vi.mocked(operationsApi.setWorkstreamReady).mock.calls[2][2]).toBe(readyKey)
+})
+
+it('W0.2: a mandatory blocked-report reason survives unmount and remount', async () => {
+  const { unmount } = render(<WorkstreamPanel event={event} enabled refresh={vi.fn()} />)
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  fireEvent.change(await screen.findByLabelText('Lý do báo Mảng bị chặn'), { target: { value: 'Chưa có người phụ trách âm thanh' } })
+  unmount()
+
+  render(<WorkstreamPanel event={event} enabled refresh={vi.fn()} />)
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  expect(await screen.findByLabelText('Lý do báo Mảng bị chặn')).toHaveValue('Chưa có người phụ trách âm thanh')
+  expect(screen.getByRole('button', { name: 'Báo Mảng bị chặn' })).toBeEnabled()
+})
+
+it('W0.2: a revoke reason survives unmount and remount', async () => {
+  const member = { id: 'member-1', parishId: 'p', workstreamId: 'g', personId: 'person-1', userId: null, operationRole: 'OBSERVER', startsAt: null, endsAt: null, version: 2 }
+  vi.mocked(operationsApi.getWorkstream).mockResolvedValue({ workstream: group, members: [member], permissions: { 'operations.workstream.manage': true } } as any)
+  const { unmount } = render(<WorkstreamPanel event={event} enabled refresh={vi.fn()} />)
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  fireEvent.change(await screen.findByLabelText('Lý do thu hồi vai trò của Thành viên Một'), { target: { value: 'Hết phân công tháng này' } })
+  unmount()
+
+  render(<WorkstreamPanel event={event} enabled refresh={vi.fn()} />)
+  fireEvent.click(screen.getByText('Phụng vụ · Bắt buộc'))
+  expect(await screen.findByLabelText('Lý do thu hồi vai trò của Thành viên Một')).toHaveValue('Hết phân công tháng này')
+  expect(screen.getByRole('button', { name: 'Thu hồi vai trò' })).toBeEnabled()
 })
 
 it('U-21: Trưởng Xứ đoàn bổ nhiệm Trưởng Mảng ngoài LIVE bằng OCC + lý do, currentLead null', async () => {

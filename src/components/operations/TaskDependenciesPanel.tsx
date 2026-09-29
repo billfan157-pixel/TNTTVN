@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link2, Plus, Trash2 } from 'lucide-react'
 import { Badge, Button, Select, TextInput } from '../common/ui'
 import type { OperationTaskDetail } from '../../lib/api/operations'
-import { operationsApi } from '../../lib/api/operations'
 import { operationsErrorText } from '../../lib/operationsErrors'
+import { getTenantScopeKey } from '../../lib/tenantScope'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { useOperationsStore } from '../../stores/operationsStore'
 import { isTerminalTask, statusLabel, statusTone } from './operationsViewHelpers'
@@ -18,11 +18,9 @@ import { isTerminalTask, statusLabel, statusTone } from './operationsViewHelpers
 export function TaskDependenciesPanel({
   detail,
   enabled = false,
-  refresh,
 }: {
   detail: OperationTaskDetail
   enabled?: boolean
-  refresh?: () => Promise<unknown>
 }) {
   const [showAdd, setShowAdd] = useState(false)
   const [selectedTaskId, setSelectedTaskId] = useState('')
@@ -30,10 +28,18 @@ export function TaskDependenciesPanel({
   const [removeReason, setRemoveReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // W0.4: dependency edges are Operations writes, so they need the same
+  // tenant-scope + re-entrancy guard as every sibling panel. Without it a
+  // session/tenant switch between dispatch and resolution could apply an edge
+  // to the wrong parish scope, and a double-click issued two edges.
+  const inFlight = useRef(false)
   const { stableKey, releaseKey } = useStableCommandKey()
 
   const selectedEvent = useOperationsStore(s => s.selectedEvent)
   const storeTasks = useOperationsStore(s => s.tasks)
+  // W1.2
+  const addTaskDependency = useOperationsStore(s => s.addTaskDependency)
+  const removeTaskDependency = useOperationsStore(s => s.removeTaskDependency)
 
   const canManage = Boolean(enabled && detail.permissions['operations.task.manage'] && !isTerminalTask(detail.task.status))
 
@@ -51,39 +57,47 @@ export function TaskDependenciesPanel({
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedTaskId || busy || !canManage) return
+    const scope = getTenantScopeKey()
+    if (!selectedTaskId || inFlight.current || !canManage || !scope) return
+    inFlight.current = true
     setBusy(true)
     setError('')
     const key = stableKey(`dep-add:${selectedTaskId}`, { taskId: detail.task.id, version: detail.task.version, dependsOnTaskId: selectedTaskId })
     try {
-      await operationsApi.addTaskDependency(detail.task.id, { version: detail.task.version, dependsOnTaskId: selectedTaskId }, key)
+      // W1.2: through the store — parish-asserted, OCC-recovered, refreshed via
+      // the store's own primitive.
+      await addTaskDependency(detail.task, selectedTaskId, key)
+      if (scope !== getTenantScopeKey()) return
       releaseKey(`dep-add:${selectedTaskId}`)
       setSelectedTaskId('')
       setShowAdd(false)
-      await refresh?.()
     } catch (err) {
-      setError(operationsErrorText((err as { code?: string })?.code, err instanceof Error ? err.message : 'Không thể thêm phụ thuộc.'))
+      if (scope === getTenantScopeKey()) setError(operationsErrorText((err as { code?: string })?.code, err instanceof Error ? err.message : 'Không thể thêm phụ thuộc.'))
     } finally {
-      setBusy(false)
+      inFlight.current = false
+      if (scope === getTenantScopeKey()) setBusy(false)
     }
   }
 
   const handleRemove = async (dependsOnTaskId: string) => {
     const reason = removeReason.trim()
-    if (!reason || busy || !canManage) return
+    const scope = getTenantScopeKey()
+    if (!reason || inFlight.current || !canManage || !scope) return
+    inFlight.current = true
     setBusy(true)
     setError('')
     const key = stableKey(`dep-remove:${dependsOnTaskId}`, { taskId: detail.task.id, version: detail.task.version, dependsOnTaskId, reason })
     try {
-      await operationsApi.removeTaskDependency(detail.task.id, dependsOnTaskId, { version: detail.task.version, reason }, key)
+      await removeTaskDependency(detail.task, dependsOnTaskId, reason, key)
+      if (scope !== getTenantScopeKey()) return
       releaseKey(`dep-remove:${dependsOnTaskId}`)
       setRemovingId(null)
       setRemoveReason('')
-      await refresh?.()
     } catch (err) {
-      setError(operationsErrorText((err as { code?: string })?.code, err instanceof Error ? err.message : 'Không thể gỡ phụ thuộc.'))
+      if (scope === getTenantScopeKey()) setError(operationsErrorText((err as { code?: string })?.code, err instanceof Error ? err.message : 'Không thể gỡ phụ thuộc.'))
     } finally {
-      setBusy(false)
+      inFlight.current = false
+      if (scope === getTenantScopeKey()) setBusy(false)
     }
   }
 

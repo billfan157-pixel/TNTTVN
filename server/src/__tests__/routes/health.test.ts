@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import healthRouter from '../../routes/health.js'
 import { metricsRegistry, normalizeMetricPath } from '../../middleware/metrics.js'
 
@@ -7,9 +7,30 @@ const authHeaders = { Authorization: `Bearer ${OPS}` }
 
 describe('Operational Readiness: Health & Readiness Endpoint Tests', () => {
   afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
     delete process.env.OPS_TOKEN
     delete process.env.APP_RELEASE_ID
     delete process.env.RENDER_GIT_COMMIT
+  })
+
+  it('reports the serving runtime ownership under ops auth for cutover checks', async () => {
+    process.env.OPS_TOKEN = OPS
+    process.env.APP_RELEASE_ID = 'a'.repeat(40)
+    for (const worker of [false, true]) {
+      vi.stubEnv('CATEVIA_RUNTIME', worker ? 'cloudflare-worker' : '')
+      vi.stubGlobal('WebSocketPair', worker ? function WebSocketPair() {} : undefined)
+      for (const owner of ['render', 'cloudflare']) {
+        vi.stubEnv('CATEVIA_MAINTENANCE_OWNER', owner)
+        const response = await healthRouter.request('/ready', { headers: authHeaders })
+        expect(await response.json()).toMatchObject({
+          releaseId: 'a'.repeat(40), maintenance: {
+            runtime: worker ? 'cloudflare-worker' : 'node', enabled: worker === (owner === 'cloudflare'),
+          },
+        })
+      }
+    }
+    expect((await healthRouter.request('/ready')).status).toBe(403)
   })
 
   it('1. GET /health returns status ok and database connected (Liveness + Basic Readiness Probe)', async () => {

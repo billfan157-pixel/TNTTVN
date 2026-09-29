@@ -1,5 +1,6 @@
 @import "tailwindcss" source(none);
 @import "./styles/design-system/00-tokens.css";
+@import "./styles/design-system/05-fonts.css";
 @import "./styles/design-system/10-foundations.css";
 @import "./styles/design-system/20-primitives.css";
 @import "./styles/design-system/25-landing.css";

@@ -1,0 +1,87 @@
+{
+  "recordedAt": "2026-09-28T17:25:00Z",
+  "scope": "production-cutover-attempt",
+  "outcome": "STOPPED_NOT_OPENED",
+  "productionState": {
+    "ingress": "Vercel -> Render",
+    "renderRelease": "19f4db9b801b30fdd082c8d594184cfbf791546d",
+    "renderMaintenance": {
+      "runtime": "node",
+      "enabled": true,
+      "note": "Scheduled writers were PAUSED from 2026-09-28T15:37Z by the cutover rehearsal step and were RESTORED by the project owner through the Render dashboard at 2026-09-28T17:37Z by setting CATEVIA_MAINTENANCE_OWNER=render. Verified afterwards: /ready reports maintenance.enabled=true and the render-mode boundary proof is ok."
+    },
+    "boundaryProofAfterRestoration": {
+      "mode": "render",
+      "expectedRelease": "19f4db9b801b30fdd082c8d594184cfbf791546d",
+      "ok": true,
+      "checkedAt": "2026-09-28T17:37:04Z",
+      "checks": [
+        "renderHealth 200, release matches, database connected",
+        "webHealth 200, release matches, x-render-origin-server: Render",
+        "webAuth 401 with renderOrigin Render",
+        "workerAuth 503 Backend cutover pending, Worker stays closed"
+      ]
+    },
+    "workerRelease": "a865a86f3336d998867f60904062e819274875bf",
+    "workerTraffic": "closed (public 503 Backend cutover pending)",
+    "recordedBackendTarget": "render"
+  },
+  "gatesPassed": {
+    "preCutoverBackupAndIsolatedRestore": {
+      "ok": true,
+      "objectKey": "backups/v2/set-2026-09-28T13-23-18-592Z-a7c16837e01f/manifest.json",
+      "rowCount": 5038,
+      "tableCount": 78,
+      "encryptedBytes": 270202,
+      "foreignKeyViolations": 0,
+      "quarantineBlocksStartup": true
+    },
+    "productionPreflight": {
+      "ok": true,
+      "checks": ["recovery-quarantine-clear", "schema-and-foreign-keys-ready", "single-parish-data-scope"],
+      "note": "no migration required for this release"
+    },
+    "workerSecretInventory": { "ok": true, "required": 11, "missing": [] },
+    "deploymentToolingTests": { "passed": 36, "failed": 0 },
+    "releaseCiOnBranch": { "sha": "a9340a66f3f9fe47b6f870f95df30c3a8cb6752a", "conclusion": "success" },
+    "workerBundleDryRun": "built"
+  },
+  "mainCi": {
+    "runId": 36446509060,
+    "sha": "19f4db9b801b30fdd082c8d594184cfbf791546d",
+    "secretScan": "success",
+    "lintTypecheckTestBuild": "success",
+    "playwrightFullSuite": "failure",
+    "attempt1": { "conclusion": "failure", "playwrightDurationMin": 32 },
+    "attempt2": { "conclusion": "failure", "playwrightDurationMin": 38, "verdict": "not flaky: the same spec families fail again" },
+    "failingSpecFamilies": [
+      "a11y route/viewport/theme matrix (chromium + webkit)",
+      "crud E2E Student Roster (chromium + webkit)",
+      "design-system-visual protected route matrix (chromium + webkit)",
+      "critical-data-journeys",
+      "operations--critical (webkit)"
+    ],
+    "diagnosisFromLogs": [
+      { "error": "expect(locator).toBeVisible() failed", "locator": "getByRole('button', { name: 'Import Excel' })", "where": "e2e crud Student Roster lines 42-43" },
+      { "error": "locator.pressSequentially: Test timeout of 240000ms exceeded", "locator": "getByPlaceholder('Tìm theo tên, mã thiếu nhi...')", "where": "e2e crud Student Roster lines 117-118, expect focus and value" },
+      { "error": "[serious] color-contrast: Elements must meet minimum contrast ratio", "where": "e2e a11y route/viewport/theme matrix, axe assertions at line 137" },
+      { "error": "locator.selectOption: Test timeout of 30000ms exceeded", "where": "e2e operations--critical webkit" }
+    ],
+    "interpretation": "E2E specs have drifted from the current student-roster and landing UI (missing Import Excel button, changed search placeholder) plus a real axe colour-contrast violation. The same spec families already failed on main 90b2b611 on 2026-09-25, so the baseline was red before the cutover work. No test, spec, workflow, or gate was modified during this attempt."
+  },
+  "blockers": [
+    { "id": "Vercel-400", "detail": "cutover-production.yml deploys Vercel with gitSource ref=main, so a branch-only release SHA was rejected with HTTP 400", "resolution": "release PR #32 merged, so the release SHA is now a main commit, 19f4db9b" },
+    { "id": "Main-CI-red", "detail": "cutover-production.yml requires a successful ci.yml run for release_sha; main 19f4db9b failed Playwright E2E twice and the failures are not flaky, so the open run is refused until that gate is green" }
+  ],
+  "prs": {
+    "chore_land_cutover_workflow": { "number": 33, "squashCommit": "cb6b0ea6f7773cdcf3bae4cad645f313078d3d2c", "note": "its copy of cutover-production.yml is byte-identical to the release branch copy" },
+    "release_merge": { "number": 32, "squashCommit": "19f4db9b801b30fdd082c8d594184cfbf791546d" }
+  },
+  "rehearsalRun": {
+    "id": 36444509788,
+    "mode": "rollback",
+    "passedSteps": ["checkout release", "require successful CI for the exact cutover release", "validate cutover credentials", "prepare the Render rollback release with writers disabled", "verify the destination release before moving ingress"],
+    "failedStep": "Point Vercel ingress at the recorded backend",
+    "error": "curl: (22) The requested URL returned error: 400"
+  }
+}

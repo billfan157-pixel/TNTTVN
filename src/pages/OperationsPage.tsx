@@ -40,6 +40,7 @@ import { useEventTransitionFlow } from '../hooks/useOperationsEventTransitionFlo
 import { operationsErrorText } from '../lib/operationsErrors'
 import { newIdempotencyKey } from '../lib/api/core'
 import { useOperationsStore } from '../stores/operationsStore'
+import { canMutateOperations } from '../hooks/useCanMutateOperations'
 import { useToastStore } from '../stores/toastStore'
 import { WorkstreamPanel } from '../components/operations/WorkstreamPanel'
 import { CreateMenuItems } from '../components/operations/CreateMenuItems'
@@ -319,8 +320,9 @@ export default function OperationsPage() {
     void selectEvent(null)
   }
 
-  const hasFreshServerState = source === 'server'
-  const canMutate = isOnline && hasFreshServerState
+  // W1.4: the page now uses the shared transport predicate, so a component can
+  // no longer drift into its own copy of "online + fresh snapshot".
+  const canMutate = canMutateOperations(source, isOnline)
   // W3.2: event transition/cancel/rewind/override flow (extracted unchanged).
   // The flow object goes to EventLifecycleHub; the footer and the dialog
   // overlays still read a few fields directly.
@@ -639,7 +641,6 @@ export default function OperationsPage() {
         await transitionTask(task, action, { idempotencyKey: key })
         releaseCommandKey(`task-transition:${task.id}`)
       }
-      if (selectedEvent) await selectEvent(selectedEvent.event.id)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể cập nhật trạng thái nhiệm vụ'), 'error')
     } finally { setBusyTask(null) }
@@ -658,7 +659,6 @@ export default function OperationsPage() {
       releaseCommandKey(`task-acknowledge:${task.id}`)
       setAckNoteAction(null)
       setAckNoteText('')
-      if (selectedEvent) await selectEvent(selectedEvent.event.id)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể cập nhật trạng thái nhiệm vụ'), 'error')
     } finally { setAckNoteSubmitting(false); setBusyTask(null) }
@@ -678,7 +678,6 @@ export default function OperationsPage() {
       useToastStore.getState().addToast(status === 'BLOCKED' ? 'Đã ghi nhận điểm nghẽn của nhiệm vụ.' : 'Đã hủy nhiệm vụ.', 'success')
       setTaskReasonAction(null)
       setTaskReasonText('')
-      if (selectedEvent) await selectEvent(selectedEvent.event.id)
     } catch (error: any) {
       useToastStore.getState().addToast(operationsErrorText(error?.code, error?.message || 'Không thể chuyển trạng thái nhiệm vụ'), 'error')
     } finally { setTaskReasonSubmitting(false) }
@@ -737,7 +736,6 @@ export default function OperationsPage() {
       if (result.acknowledgementReset) {
         useToastStore.getState().addToast('Đã lưu thay đổi quan trọng. Người đã nhận việc sẽ phải xác nhận lại.', 'info')
       }
-      if (selectedEvent) await selectEvent(selectedEvent.event.id)
     } catch (error: any) {
       setTaskEditFormError(operationsErrorText(error?.code, error?.message || 'Không thể cập nhật nhiệm vụ'))
     } finally { setSavingTask(false) }

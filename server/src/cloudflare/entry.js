@@ -1,5 +1,5 @@
 import { MAINTENANCE_INTERVALS_MS } from './maintenanceJob.js'
-import { gateWorkerRequest } from './trafficGate.js'
+import { gateWorkerRequest, isOperatorRequest } from './trafficGate.js'
 
 const PRODUCTION_DATABASE_URL = 'libsql://tnttvn-billfan157-pixel.aws-us-east-1.turso.io'
 
@@ -7,7 +7,7 @@ export { PasswordCpu } from './passwordCpu.js'
 export { BackupJob } from './backupJob.js'
 export { BackendShard } from './backendShard.js'
 export { MaintenanceJob } from './maintenanceJob.js'
-export { PdfJob } from '../../../tools/cloudflare-free-feasibility/src/pdfJob.js'
+export { PdfJob } from './pdfJob.js'
 
 function appShard(env) {
   return env.BACKEND_SHARD.get(env.BACKEND_SHARD.idFromName('catevia-production'),
@@ -31,7 +31,27 @@ export default {
     const gate = gateWorkerRequest(request, env)
     if (gate.response) return gate.response
     const path = new URL(request.url).pathname
-    if (env.CATEVIA_TRAFFIC_ENABLED !== 'yes' && path === '/__ops/precutover-backup') {
+    if (path.startsWith('/__ops/') && !isOperatorRequest(request, env)) {
+      return new Response('Operator authentication required', { status: 403 })
+    }
+    if (path === '/__ops/maintenance') {
+      if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+      const mode = new URL(request.url).searchParams.get('mode')
+      if (!['pause', 'resume', 'status'].includes(mode)) return new Response('Invalid maintenance operation', { status: 400 })
+      try {
+        const jobs = await Promise.all(Object.keys(MAINTENANCE_INTERVALS_MS).map(async kind => {
+          const job = env.MAINTENANCE_JOB.get(env.MAINTENANCE_JOB.idFromName(`catevia-production-${kind}`))
+          if (mode === 'pause') await job.pause()
+          if (mode === 'resume') await job.resume(kind)
+          return { ...await job.status(), kind }
+        }))
+        return Response.json({ jobs })
+      } catch (error) {
+        console.error(JSON.stringify({ type: 'MAINTENANCE_CONTROL_FAILED', errorClass: error?.name || 'UnknownError' }))
+        return new Response('Maintenance control incomplete', { status: 503 })
+      }
+    }
+    if (path === '/__ops/precutover-backup') {
       if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
       try {
         return Response.json(await backupJob(env).createBackup())
@@ -40,7 +60,7 @@ export default {
         return new Response('Backup probe failed', { status: 503 })
       }
     }
-    if (env.CATEVIA_TRAFFIC_ENABLED !== 'yes' && path === '/__ops/precutover-backup/verify') {
+    if (path === '/__ops/precutover-backup/verify') {
       if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
       try {
         const objectKey = request.headers.get('x-catevia-backup-key')

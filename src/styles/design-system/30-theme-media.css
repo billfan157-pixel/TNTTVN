@@ -70,6 +70,11 @@
   --color-parish-secondary-hover: #FDE68A;
   --color-parish-secondary-light: #4A3A0A;
 
+  /* The cream brand-gold is unreadable on dark surfaces; the dark-mode parish-gold
+     is the readable counterpart. Declared here with the other token overrides so
+     the brand scene surfaces need no separate `.dark` patch. */
+  --color-brand-gold: var(--color-parish-gold);
+
   --color-parish-success: #4ADE80;
   --color-parish-success-hover: #22C55E;
   --color-parish-success-bg: #14532D;

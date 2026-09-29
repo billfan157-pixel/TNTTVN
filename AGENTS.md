@@ -16,6 +16,7 @@ AGENTS.md
 ├─ skill router                         → .agents/skill-router.md
 ├─ protected invariants                 → .agents/protected-invariants.md
 ├─ context router                       → .agents/context-router.md
+├─ test quality                         → .agents/skills/catevia-test-audit/SKILL.md
 └─ repository-wide operating contract   → .agents/operating-contract.md
          │
          ├── current-truth      → .agents/skills/catevia-current-truth/SKILL.md
@@ -30,7 +31,8 @@ AGENTS.md
 | skill router | `.agents/skill-router.md` | To decide which skill to load, and how skills hand off to each other. |
 | protected invariants | `.agents/protected-invariants.md` | Whenever touching auth, tenancy, data integrity, sync, historical state, UI, or business behavior. |
 | context router | `.agents/context-router.md` | To find the smallest relevant docs/code slice for the task. |
-| repository-wide operating contract | `.agents/operating-contract.md` | The per-task contract: inspect → change minimally → verify → sync docs → report. Its phases are executed by the four skills above. |
+| test quality | `.agents/skills/catevia-test-audit/SKILL.md` | When adding/changing tests, reviewing test quality, or auditing/pruning a test surface. |
+| repository-wide operating contract | `.agents/operating-contract.md` | The per-task contract: inspect → change minimally → verify → sync docs → report. Its phases are executed by the four core skills above. |
 
 Do not preload every branch, skill, ADR, business rule, or
 project-history file. Retrieve only the context needed for the current task.

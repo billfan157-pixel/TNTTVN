@@ -89,3 +89,23 @@ it('discards late overview data after an account switch', async () => {
   await waitFor(() => expect(operationsApi.getStandaloneWorkstreams).toHaveBeenCalled())
   expect(screen.queryByRole('button', { name: 'Nhóm thường trực' })).not.toBeInTheDocument()
 })
+
+it('W0.3: an offline panel reports connectivity, never a permission verdict', () => {
+  render(<StandaloneWorkstreamsPanel enabled={false} />)
+  expect(screen.getByText('Tạm thời không kết nối.')).toBeInTheDocument()
+  // Both of these used to be shown whenever the panel was merely offline.
+  expect(screen.queryByText('Bạn chưa có quyền tạo nhóm tại đơn vị nào.')).not.toBeInTheDocument()
+  expect(screen.queryByText('Chưa có nhóm độc lập trong phạm vi của bạn.')).not.toBeInTheDocument()
+  expect(operationsApi.getAssignableUnits).not.toHaveBeenCalled()
+  expect(operationsApi.getStandaloneWorkstreams).not.toHaveBeenCalled()
+})
+
+it('W0.3: an in-flight overview read is not rendered as an empty list', async () => {
+  let resolve!: (value: any) => void
+  vi.mocked(operationsApi.getStandaloneWorkstreams).mockReturnValue(new Promise(done => { resolve = done }))
+  render(<StandaloneWorkstreamsPanel enabled />)
+  expect(screen.queryByText('Chưa có nhóm độc lập trong phạm vi của bạn.')).not.toBeInTheDocument()
+  expect(screen.queryByText('Tạm thời không kết nối.')).not.toBeInTheDocument()
+  resolve(page([group]))
+  await screen.findByRole('button', { name: 'Nhóm thường trực' })
+})

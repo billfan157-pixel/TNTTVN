@@ -56,13 +56,18 @@ test('blocks a Worker boundary that still routes to Render, lacks the marker, se
   }
 })
 
-test('keeps Render evidence non-gating after cutover', async () => {
+test('never contacts Render after cutover, even if its DNS or account no longer exists', async () => {
+  const requests = []
   const result = await verifyProductionBoundary(release,
-    async url => (url.includes('onrender.com') ? new Response('', { status: 503 }) : workerFetcher()(url)),
+    async url => {
+      requests.push(url)
+      if (url.includes('onrender.com')) throw new TypeError('Render no longer exists')
+      return workerFetcher()(url)
+    },
     { mode: 'worker' })
   assert.equal(result.ok, true)
-  assert.equal(result.checks.renderHealth.gating, false)
-  assert.equal(result.checks.renderHealth.status, 503)
+  assert.equal(requests.some(url => url.includes('onrender.com')), false)
+  assert.equal(result.checks.renderHealth, undefined)
 })
 
 test('rejects an unknown boundary mode instead of defaulting', async () => {

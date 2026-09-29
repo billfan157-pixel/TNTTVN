@@ -80,6 +80,12 @@ export default async function proxy(request: Request): Promise<Response> {
     // A client cannot forge either header: DROPPED_HEADERS strips the inbound value
     // and no backend emits them.
     const responseHeaders = new Headers(response.headers)
+    // fetch returns decoded bytes. Reusing the upstream compressed length and
+    // encoding truncates JSON or makes clients decompress it a second time.
+    // Let Vercel frame/compress the outgoing stream itself.
+    for (const name of ['content-encoding', 'content-length', 'transfer-encoding']) {
+      responseHeaders.delete(name)
+    }
     responseHeaders.set(INGRESS_HEADER, INGRESS_MARKER)
     responseHeaders.set(ORIGIN_HEADER, isWorkerTarget ? 'Cloudflare-Worker' : 'Render')
     if (isWorkerTarget) responseHeaders.set(BACKEND_HEADER, WORKER_BACKEND_MARKER)

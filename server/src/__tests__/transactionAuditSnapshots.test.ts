@@ -61,7 +61,15 @@ async function whileAnotherWriterCommits<T>(
     workerData: { url: dbConfig.url, sql, args },
   })
 
+  // The competing writer runs on its own thread, so a stuck lock must surface as a
+  // named failure. An unbounded wait here previously turned file-lock contention on
+  // a slow host into an opaque 30s test timeout that said nothing about the cause.
   const waitFor = (type: 'locked' | 'committed') => new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanupListeners()
+      reject(new Error(`Timed out waiting for the competing writer to reach "${type}"`))
+    }, 20_000)
+    timer.unref?.()
     const onMessage = (message: { type?: string; message?: string }) => {
       if (message.type === 'error') {
         cleanupListeners()
@@ -76,6 +84,7 @@ async function whileAnotherWriterCommits<T>(
       reject(error)
     }
     const cleanupListeners = () => {
+      clearTimeout(timer)
       worker.off('message', onMessage)
       worker.off('error', onError)
     }

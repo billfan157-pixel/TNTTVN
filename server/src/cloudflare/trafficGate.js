@@ -19,6 +19,11 @@ function matchesSecret(presented, expected) {
   return actualBytes.length === expectedBytes.length && timingSafeEqual(actualBytes, expectedBytes)
 }
 
+export function isOperatorRequest(request, env) {
+  return matchesSecret(request.headers.get('x-catevia-canary-token'), env.OPS_TOKEN)
+    || matchesSecret(request.headers.get('authorization')?.replace(/^Bearer /, ''), env.OPS_TOKEN)
+}
+
 function normalizeClientIp(value) {
   const candidate = value?.trim()
   return candidate && CLIENT_IP_PATTERN.test(candidate) ? candidate : null

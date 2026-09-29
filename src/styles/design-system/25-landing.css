@@ -31,15 +31,50 @@
   font-size: 0.75rem;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--landing-eyebrow-tracking);
   color: var(--color-parish-primary);
+  /* W18: the seam. Every section states its chapter with the same eyebrow, so giving all
+     of them one gold hairline ties the page into a single stitched run instead of six
+     unrelated headings. The line is a flex item on its own row (flex-basis: 100% inside
+     a wrapping inline-flex), and it derives from `currentColor` so the two eyebrows that
+     sit on navy stay gold while the four on paper stay parish blue — no per-section
+     override, and no colour that is not already the label's own. */
+  flex-wrap: wrap;
+}
+.landing-eyebrow::after {
+  content: '';
+  flex-basis: 100%;
+  height: 1px;
+  background: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+/* W17: the header used `truncate` at every width, so a 320px phone read
+   "XỨ ĐOÀN…". Below sm the parish name wraps onto a second line instead, which is honest
+   and still fits. Above sm there is room for the single line, so the ellipsis stays —
+   that is where it is a deliberate tidiness rather than a loss of information. */
+@media (max-width: 639px) {
+  .landing-header__name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  /* The diocese chain is dropped from the header on phones, not from the page. Measured
+     at 320px: the name column was only 74.8px wide because the "Đăng nhập" pill and the
+     hamburger take the rest, so the meta wrapped to 5 lines and pushed the header to
+     128.5px — taller than the hero's own kicker area. Nothing is lost to the reader:
+     the parish is named in the hero identity rail directly below ("XỨ ĐOÀN ĐỨC MẸ FATAMA ·
+     GIÁO XỨ GIA TƠN") and the full chain appears again in the Sunday moment section.
+     The login button stays — the mobile menu's "Cổng đăng nhập" only scrolls to the
+     access section, so that pill is the only direct route to the portal. */
+  .landing-header__meta { display: none; }
 }
 
 .landing-display {
   font-size: clamp(1.875rem, 3.5vw + 0.5rem, 3.25rem);
   font-weight: 900;
   line-height: 1.15;
-  letter-spacing: -0.03em;
+  letter-spacing: var(--landing-display-tracking);
   color: var(--color-text-main);
 }
 
@@ -47,7 +82,7 @@
   font-size: clamp(1.25rem, 2vw + 0.5rem, 1.875rem);
   font-weight: 800;
   line-height: 1.25;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--landing-display-tracking);
   color: var(--color-text-main);
 }
 
@@ -68,20 +103,75 @@
   padding-bottom: clamp(1.5rem, 3vw, 2.5rem);
 }
 
-/* Catevia public landing: one photographic opening, one parish story, three product views. */
+/* Catevia public landing: one photographic opening, one parish story, three product views.
+
+   The brand scene colours (--color-brand-deep / -navy / -gold), the canvas width,
+   the gutter and the type tracking all live in 00-tokens.css now. They used to be
+   redeclared here on `.landing-page`, which made this sheet a second token owner
+   and needed a separate `.dark` patch to stay in sync. */
 .landing-page {
-  --landing-navy: color-mix(in srgb, var(--color-parish-primary) 46%, black);
-  --landing-deep: color-mix(in srgb, var(--color-parish-primary) 28%, black);
-  --landing-gold: var(--color-parish-secondary-light);
   overflow: clip;
 }
-.dark .landing-page { --landing-gold: var(--color-parish-gold); }
-.landing-hero-stage .text-parish-secondary-light { color: var(--landing-gold); }
+/* Theme-stable cream, not --color-brand-gold: over the hero scrim the backdrop is a
+   photograph in both themes, and brand-gold drops to a dim #F0C36A in dark mode
+   (measured 4.08:1, under the 4.5:1 that 12px bold needs). See --landing-cream-on-media. */
+.landing-hero-stage .text-parish-secondary-light { color: var(--landing-cream-on-media); }
+
+/* One canvas, one gutter — shared by the header, every marketing section and the
+   footer, so section edges line up instead of alternating 1480px / 1280px. */
+.landing-shell {
+  width: min(100%, var(--landing-canvas));
+  margin-inline: auto;
+  padding-inline: var(--landing-gutter);
+}
+
+/* ─── Public header — same bar as the authenticated app ───
+   The surface itself is `.app-header` (50-app-shell.css), reused rather than copied:
+   a hand-rolled equivalent would drift, and moving the gradient into a token would
+   silently empty `designSystemTokens.test.ts`, which parses the hex stops straight
+   out of the `.app-header` rule body to check contrast against the brand placeholder
+   and focus-ring tokens.
+
+   Only the things that legitimately differ from the app shell live here: the inner
+   rail height (matched to `.app-header__inner`, which the landing does not reuse
+   because its fixed 24px padding would fight the marketing gutter), and the mobile
+   gradient parity below. */
+.landing-header__inner {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+/* The dropdown continues the same bar rather than repeating the sticky/z-index of
+   `.app-header` (which would make the panel itself stick to the viewport top). */
+.landing-header-menu {
+  background: linear-gradient(145deg, #14244F 0%, #1E3A8A 58%, #1D4ED8 100%);
+}
+.dark .landing-header-menu {
+  background: linear-gradient(145deg, #0C1730 0%, #152B5C 58%, #1A3B8A 100%);
+}
+
+/* The app shell swaps `.app-header` for `.mobile-top-bar` at the same 1024px
+   breakpoint; the public header follows the same rhythm. Doubled class raises
+   specificity so this wins regardless of import order (50-app-shell.css loads
+   after this file). */
+@media (max-width: 1023px) {
+  .app-header.landing-header {
+    background: linear-gradient(145deg, #14244F 0%, #1E3A8A 58%, #1D4ED8 100%);
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  }
+  .dark .app-header.landing-header {
+    background: linear-gradient(145deg, #0C1730 0%, #152B5C 58%, #1A3B8A 100%);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  }
+}
 
 /* The first image is the LCP surface. Video, when supplied, arrives above it. */
 .landing-hero-stage {
   min-height: max(40rem, calc(100svh - 4rem));
-  background: var(--landing-deep);
+  background: var(--color-brand-deep);
 }
 
 .landing-hero-photo,
@@ -98,13 +188,71 @@
 
 .landing-hero-video[data-ready='true'] { opacity: 1; }
 
+/* ─── The hero scrim: one uniform plate ───
+   A local pool behind the copy was tried and reverted. It is not a tuning problem, it is
+   a dead end: the brightest part of this photograph is its centre (the students' white
+   shirts) and the H1 sits in that same centre, so the only ways to darken behind the
+   words are to darken the whole frame (no edge, darker photo) or to darken a region (bright
+   photo, visible oval). Measured at 2560px, every ellipse — wider, softer, longer-tailed
+   — still showed its boundary, because a 132%-wide radial reaches the frame edge at only
+   ~38% of its own radius, which is far too early to have faded out. The same geometry
+   forbids a strictly vertical gradient too, since the top centre and the mid flanks are
+   at nearly equal distance from the middle. A third option, a solid panel behind the
+   copy, has crisp deliberate edges but hides the faces and is a much larger design
+   change than a scrim.
+
+   So: uniform, which is the only edge-free option. What was actually removed from the
+   original was the left-to-right wash, which darkened a flank that carries no text, and
+   `saturate(0.85)`. The vertical shaping here is gentle because the plate below already
+   does the work — its extra top/bottom stops only seat the kicker and hand the frame over
+   to the section below. Measured in e2e/hero-image-contrast.spec.ts. */
 .landing-hero-scrim {
   z-index: 1;
   opacity: var(--hero-scrim-opacity, 0.72);
-  background: linear-gradient(180deg, var(--landing-deep) 0%, transparent 32%, var(--landing-deep) 100%),
-    linear-gradient(90deg, var(--landing-deep), transparent 80%),
-    color-mix(in srgb, var(--landing-deep) 95%, transparent);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--color-brand-deep) 76%, transparent) 0%,
+      color-mix(in srgb, var(--color-brand-deep) 20%, transparent) 22%,
+      transparent 38%,
+      color-mix(in srgb, var(--color-brand-deep) 18%, transparent) 72%,
+      color-mix(in srgb, var(--color-brand-deep) 52%, transparent) 100%),
+    color-mix(in srgb, var(--color-brand-deep) 90%, transparent);
 }
+/* W19/W20 — the rail under the header, and the name of the current stop.
+   `scaleX` rather than `width` so the bar animates on the compositor instead of
+   re-laying out 60 times a second. The fill starts at scaleX(0) because the transform is
+   written imperatively on the first rAF pass; without this the bar would flash full width
+   before the first frame lands. */
+.landing-header__rail { position: absolute; inset: auto 0 -1px; height: 2px; overflow: hidden; background: color-mix(in srgb, white 16%, transparent); }
+.landing-header__rail-fill { display: block; height: 100%; transform: scaleX(0); transform-origin: left center; background: var(--landing-cream-on-media); will-change: transform; }
+/* ─── Header state: the bar is a full-bleed gradient over two different pages ───
+   The same bar sits over the hero photograph and, for the next ten screens, over paper.
+   An inset shadow paints above an element's background and below its content, so this
+   deepens the bar once the page moves without adding a wrapper, a z-index or a second
+   layer that would have to be kept out of the nav's way — and without touching the 77px
+   height that the 320px header fix pinned down. The transition is declared on both
+   states so the bar also fades back in when a reader returns to the top. */
+.app-header.landing-header { transition: box-shadow var(--motion-standard) var(--motion-ease-out); }
+.landing-page[data-scrolled='true'] .app-header.landing-header {
+  box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.55),
+    inset 0 0 0 999px color-mix(in srgb, var(--color-brand-deep) 45%, transparent);
+}
+/* The name of the current stop is `sr-only` on purpose, and that is the whole design
+   decision for W19/W20. Showing it as a third line of text would put back exactly what
+   issue #1 just cost: the header measured 128.5px tall at 320px until the diocese line was
+   dropped, and the bar already carries progress visually. The label exists so the position
+   is not communicated by a gradient alone — it is announced through an `aria-live` region.
+   A visible variant would be a third affordance saying the same thing as the rail. */
+/* An opaque-ish dark plate for text that must stay readable whatever the photograph is
+   doing behind it. Used by the identity rail chips and the scroll cue, both of which sit
+   over the brightest region of the frame. A `bg-white/10` tint there measured 1.11:1 for
+   12px text, and a Tailwind `bg-brand-deep/85` would not resolve at all —
+   `--color-brand-deep` is a color-mix alias, so no `bg-brand-deep` utility is emitted. */
+.landing-hero-plate {
+  background: color-mix(in srgb, var(--color-brand-deep) 88%, transparent);
+  backdrop-filter: blur(2px);
+}
+.landing-hero-plate--strong { background: color-mix(in srgb, var(--color-brand-deep) 94%, transparent); }
 
 .landing-hero-content {
   animation: none !important;
@@ -112,25 +260,63 @@
   transform: translate3d(0, var(--hero-copy-shift, 0px), 0);
 }
 
+/* Two deliberate lines instead of an emergent wrap. `max-width: 17ch` was narrower
+   than "Nền tảng quản lý Giáo lý" (24 characters), so the first line was forced to
+   break mid-heading and could split the proper noun "Thiếu Nhi". The line break is now
+   explicit from sm up and left to natural wrapping below it, where the whole title is
+   a single inline flow. `__keep` protects the multi-word names that must not split; it
+   changes no text content, so the accessible name is untouched. */
 .landing-hero-title {
-  max-width: 17ch;
   line-height: 1.04 !important;
-  letter-spacing: -0.055em;
-  text-shadow: 0 3px 28px var(--landing-deep);
+  letter-spacing: var(--landing-display-tracking);
+  text-shadow: 0 3px 28px var(--color-brand-deep);
+}
+.landing-hero-title__keep { white-space: nowrap; }
+@media (min-width: 640px) {
+  .landing-hero-title__line { display: block; }
+  .landing-hero-title__line--accent { color: var(--color-parish-secondary-light); }
 }
 
-.landing-hero-lead { text-shadow: 0 2px 18px var(--landing-deep); }
-.landing-hero-kicker { text-transform: uppercase; letter-spacing: 0.16em; }
-.landing-hero-kicker__line { width: 2rem; height: 1px; background: var(--landing-gold); }
+.landing-hero-lead { text-shadow: 0 2px 18px var(--color-brand-deep); }
+.landing-hero-kicker { text-transform: uppercase; letter-spacing: var(--landing-eyebrow-tracking); }
+.landing-hero-kicker__line { width: 2rem; height: 1px; background: var(--color-brand-gold); }
 .landing-hero-identity { border-top: 1px solid color-mix(in srgb, white 45%, transparent); padding-top: 0.85rem; text-shadow: 0 1px 12px black; }
 .landing-hero-identity > .grid > div { padding-inline: 0; background: transparent; border: 0; backdrop-filter: none; }
-.scene-hero-bottom-veil { position: absolute; inset: auto 0 0; pointer-events: none; height: clamp(5rem, 12vw, 10rem); background: linear-gradient(to bottom, transparent, var(--landing-deep)); }
+/* Hero entrance — finite, ordered 0.05s → 0.46s, never looping.
+   The five `hero-enter-*` classes are applied in LandingParishGlassCard.tsx and
+   were previously declared nowhere, so the hero rendered already-settled. They
+   animate opacity/transform on the children only; the scroll-driven parallax in
+   LandingPage.tsx targets .landing-hero-content and .landing-hero-photo (their
+   parent / sibling), so the two never write transform to the same element. */
+@keyframes heroEnter {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+.hero-enter-1,
+.hero-enter-2,
+.hero-enter-3,
+.hero-enter-4,
+.hero-enter-5 {
+  animation: heroEnter 500ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.hero-enter-1 { animation-delay: 0.05s; }
+.hero-enter-2 { animation-delay: 0.15s; }
+.hero-enter-3 { animation-delay: 0.26s; }
+.hero-enter-4 { animation-delay: 0.36s; }
+.hero-enter-5 { animation-delay: 0.46s; }
+
+/* A whisper. This was `clamp(5rem, 12vw, 10rem)` of pure brand-deep, then briefly
+   `clamp(12rem, 44vw, 26rem)` — a 416px slab that flattened the bottom third of the
+   photograph into a flat block while the scrim was already darkening the same ground.
+   The scrim's own bottom gradient now does that hand-off (see `.landing-hero-scrim`), so
+   this only has to soften the last few pixels into the section below. */
+.scene-hero-bottom-veil { position: absolute; inset: auto 0 0; pointer-events: none; height: clamp(4rem, 10vw, 7rem); background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--color-brand-deep) 78%, transparent)); }
 
 /* Parish chapters connect the real photograph to Catevia's three workspaces. */
 .landing-community {
   position: relative;
   color: white;
-  background: linear-gradient(180deg, var(--landing-deep), var(--landing-navy) 40%, var(--landing-deep));
+  background: linear-gradient(180deg, var(--color-brand-deep), var(--color-brand-navy) 40%, var(--color-brand-deep));
 }
 
 .landing-community::after {
@@ -146,7 +332,7 @@
   min-height: 70svh;
   max-width: 82rem;
   margin-inline: auto;
-  padding: clamp(5rem, 9vw, 9rem) clamp(1.25rem, 5vw, 5rem);
+  padding: clamp(5rem, 9vw, 9rem) var(--landing-gutter);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -155,111 +341,318 @@
   text-align: center;
 }
 
-.landing-community__intro .landing-eyebrow { color: var(--landing-gold); }
+.landing-community__intro .landing-eyebrow { color: var(--color-brand-gold); }
 .landing-community__intro h2 {
   margin: 0;
   max-width: 15ch;
   font-size: clamp(2.9rem, 7vw, 7.5rem);
   line-height: 1.03;
-  letter-spacing: -0.065em;
+  letter-spacing: var(--landing-display-tracking);
   font-weight: 900;
   text-wrap: balance;
 }
 
-.landing-community__intro h2 em { color: var(--landing-gold); font-family: var(--font-serif); font-weight: 700; font-style: normal; }
+.landing-community__intro h2 em { color: var(--color-brand-gold); font-family: var(--font-serif); font-weight: 700; font-style: normal; }
 .landing-community__intro > p { max-width: 43rem; margin: 0; font-size: clamp(1rem, 1.5vw, 1.3rem); line-height: 1.65; color: color-mix(in srgb, white 82%, transparent); }
-.landing-community__sequence { width: min(100%, 1480px); margin-inline: auto; padding: 0 clamp(1.25rem, 5vw, 5rem) 5rem; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); gap: clamp(2rem, 6vw, 7rem); }
-.landing-community__visual { position: sticky; top: 5.25rem; align-self: start; height: min(76svh, 760px); overflow: hidden; border-radius: 1.25rem; background: var(--landing-navy); box-shadow: 0 2rem 5rem color-mix(in srgb, black 27%, transparent); }
+.landing-community__sequence { width: min(100%, var(--landing-canvas)); margin-inline: auto; padding: 0 var(--landing-gutter) 5rem; display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr); gap: clamp(2rem, 6vw, 7rem); }
+/* The visual is 76svh tall, so pinning it at a fixed 5.25rem left its centre 64px
+   above the chapter copy's centre (measured: visual mid 426 vs chapter mid 490).
+   Solving for the offset that puts the visual's centre on the chapter's centre keeps
+   the two columns on one line at any viewport height; the + --header-clearance/2 term
+   is the same half-padding that 10-foundations.css applies via scroll-padding-top, so
+   `block: 'center'` lands the chapter there rather than at 50svh. The max() floor
+   keeps the visual clear of the 77px header on short viewports. */
+.landing-community__visual { position: sticky; top: max(5.25rem, calc(50svh - min(38svh, 380px) + var(--header-clearance) / 2)); align-self: start; height: min(76svh, 760px); overflow: hidden; border-radius: 1.25rem; background: var(--color-brand-navy); border: 1px solid color-mix(in srgb, var(--color-brand-gold) 20%, transparent); box-shadow: 0 2rem 5rem color-mix(in srgb, black 27%, transparent); }
 .landing-community__visual-panel { position: absolute; inset: 0; opacity: 0; transform: scale(1.045); transition: opacity 650ms ease, transform 900ms ease; overflow: hidden; }
 .landing-community__visual-panel--gather { opacity: 1; transform: scale(1); }
 .landing-community__visual-panel img { width: 100%; height: 100%; object-fit: cover; }
-.landing-community__visual-panel--gather img { object-position: 50% 42%; filter: saturate(0.85); }
-.landing-community__visual-panel--gather::after { content: ''; position: absolute; inset: 35% 0 0; background: linear-gradient(transparent, var(--landing-deep)); }
-.landing-community__visual-panel--gather > span { position: absolute; z-index: 1; inset: auto 1.5rem 1.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.13em; font-weight: 800; }
-.landing-community__visual-panel--learn { background: radial-gradient(circle at 58% 40%, color-mix(in srgb, var(--landing-gold) 18%, transparent), transparent 38%), var(--landing-navy); }
-.landing-community__visual-panel--family { background: radial-gradient(circle at 45% 44%, color-mix(in srgb, white 13%, transparent), transparent 43%), var(--landing-deep); }
-.landing-community__product { position: absolute; inset: 4.5rem 1.5rem auto; border: 1px solid var(--landing-gold); border-radius: 1rem; overflow: hidden; box-shadow: 0 2rem 4rem color-mix(in srgb, black 30%, transparent); }
-.landing-community__product--phone { max-width: 21rem; margin-inline: auto; border: 0.4rem solid var(--landing-deep); border-radius: 2rem; }
+/* The `object-position: 50% 42%` and `filter: saturate(0.85)` overrides that used to sit
+   here are gone. The panel is shorter than the photo is wide, so object-cover always
+   showed the full height of the frame and the 42% nudge could not crop anything out — it
+   only shifted the group sideways inside a vertical crop that was never happening. The
+   top banner is now removed from the asset (tools/generate-landing-media.mjs), and
+   desaturating the one photograph that actually shows the parish flattered nothing: it
+   is a documentary group shot, and the scarf reds and gold are the subject. */
+.landing-community__visual-panel--gather::after,
+.landing-community__visual-panel--learn:has(> img)::after,
+.landing-community__visual-panel--family:has(> img)::after { content: ''; position: absolute; inset: 35% 0 0; background: linear-gradient(transparent, var(--color-brand-deep)); pointer-events: none; }
+.landing-community__visual-panel > span { position: absolute; z-index: 1; inset: auto 1.5rem 1.5rem; text-align: right; font-size: 0.75rem; text-transform: uppercase; letter-spacing: var(--landing-eyebrow-tracking); font-weight: 800; color: color-mix(in srgb, white 90%, transparent); }
+.landing-community__visual-panel--learn { background: radial-gradient(circle at 58% 40%, color-mix(in srgb, var(--color-brand-gold) 18%, transparent), transparent 38%), var(--color-brand-navy); }
+.landing-community__visual-panel--family { background: radial-gradient(circle at 45% 44%, color-mix(in srgb, white 13%, transparent), transparent 43%), var(--color-brand-deep); }
+.landing-community__product { position: absolute; inset: 4.5rem 1.5rem auto; border: 1px solid var(--color-brand-gold); border-radius: 1rem; overflow: hidden; box-shadow: 0 2rem 4rem color-mix(in srgb, black 30%, transparent); }
+.landing-community__product--phone { max-width: 21rem; margin-inline: auto; border: 0.4rem solid var(--color-brand-deep); border-radius: 2rem; }
 .landing-community__symbol { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2rem; text-align: center; }
-.landing-community__symbol::before { content: ''; position: absolute; width: min(65%, 28rem); aspect-ratio: 1; border: 1px solid color-mix(in srgb, var(--landing-gold) 40%, transparent); border-radius: 50%; box-shadow: 0 0 0 3.5rem color-mix(in srgb, var(--landing-gold) 5%, transparent), 0 0 0 7rem color-mix(in srgb, var(--landing-gold) 3%, transparent); }
-.landing-community__symbol svg { position: relative; width: clamp(4rem, 9vw, 8rem); height: auto; stroke-width: 1; color: var(--landing-gold); }
+.landing-community__symbol::before { content: ''; position: absolute; width: min(65%, 28rem); aspect-ratio: 1; border: 1px solid color-mix(in srgb, var(--color-brand-gold) 40%, transparent); border-radius: 50%; box-shadow: 0 0 0 3.5rem color-mix(in srgb, var(--color-brand-gold) 5%, transparent), 0 0 0 7rem color-mix(in srgb, var(--color-brand-gold) 3%, transparent); }
+.landing-community__symbol svg { position: relative; width: clamp(4rem, 9vw, 8rem); height: auto; stroke-width: 1; color: var(--color-brand-gold); }
 .landing-community__symbol span { position: relative; font-family: var(--font-serif); font-size: clamp(1.5rem, 3vw, 3.5rem); color: white; }
-.landing-community__visual-mark { position: absolute; z-index: 3; top: 1.5rem; left: 1.5rem; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.13em; color: white; }
-.landing-community__visual-mark svg { width: 1rem; color: var(--landing-gold); }
+/* Moved from the top-left corner to the bottom-left. In the `gather` photograph the
+   top-left is occupied by a printed parish banner, so the mark was laid over competing
+   text and read as noise. The bottom-left is the dark step area, and the plate keeps the
+   label legible wherever the crop lands. */
+.landing-community__visual-mark { position: absolute; z-index: 3; bottom: 1.25rem; left: 1.25rem; display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.75rem; border-radius: 99px; color: var(--landing-cream-on-media); background: color-mix(in srgb, var(--color-brand-deep) 82%, transparent); backdrop-filter: blur(2px); font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: var(--landing-eyebrow-tracking); }
+.landing-community__visual-mark svg { width: 1rem; color: var(--color-brand-gold); }
 .landing-page[data-active-scene='community-learn'] .landing-community__visual-panel--gather,
 .landing-page[data-active-scene='community-family'] .landing-community__visual-panel--gather { opacity: 0; transform: scale(1.045); }
 .landing-page[data-active-scene='community-learn'] .landing-community__visual-panel--learn,
 .landing-page[data-active-scene='community-family'] .landing-community__visual-panel--family { opacity: 1; transform: scale(1); }
 .landing-community__chapters { position: relative; }
-.landing-community__chapters::before { content: ''; position: absolute; inset: 12% auto 12% 0; width: 1px; background: color-mix(in srgb, var(--landing-gold) 45%, transparent); }
-.landing-community__chapter { min-height: 82svh; display: flex; flex-direction: column; justify-content: center; padding: 4rem 0 4rem clamp(1.4rem, 3vw, 3rem); }
-.landing-community__chapter-number, .landing-community__chapter-eyebrow { color: var(--landing-gold); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; }
+.landing-community__chapters::before { content: ''; position: absolute; inset: 12% auto 12% 0; width: 1px; background: color-mix(in srgb, var(--color-brand-gold) 45%, transparent); }
+/* Same reasoning as .landing-product-story: 82svh left ~200px of dead space above
+   and below a ~330px chapter. */
+.landing-community__chapter { min-height: 30rem; display: flex; flex-direction: column; justify-content: center; padding: clamp(2.5rem, 5vw, 4.5rem) 0 clamp(2.5rem, 5vw, 4.5rem) clamp(1.4rem, 3vw, 3rem); }
+.landing-community__chapter-number, .landing-community__chapter-eyebrow { color: var(--color-brand-gold); font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: var(--landing-eyebrow-tracking); }
 .landing-community__chapter-number { margin-bottom: 3.5rem; }
-.landing-community__chapter h3 { max-width: 13ch; margin: 0 0 1.5rem; font-size: clamp(2.2rem, 3.6vw, 4.5rem); line-height: 1.08; letter-spacing: -0.05em; text-wrap: balance; }
+.landing-community__chapter h3 { max-width: 13ch; margin: 0 0 1.5rem; font-size: clamp(2.2rem, 3.6vw, 4.5rem); line-height: 1.08; letter-spacing: var(--landing-display-tracking); text-wrap: balance; }
 .landing-community__chapter p:last-child { max-width: 29rem; margin: 0; color: color-mix(in srgb, white 80%, transparent); line-height: 1.7; }
 .landing-community__mobile-visual { display: none; }
 .landing-page[data-motion-ready='true'] .landing-community__chapter > div:last-child { opacity: var(--scene-opacity, 1); transform: translate3d(0, var(--scene-shift, 0px), 0); }
 
+/* ─── Khoảnh khắc Đức Tin / Thánh đường Fatima ───
+   Điểm dừng thiêng liêng và trang trọng giữa chặng cộng đoàn và chặng sản phẩm.
+   Mang kiến trúc vòm thánh đường (sacred architectural sanctuary), viền chỉ vàng
+   (ecclesiastical inner hairline) và ánh sáng vòm thánh đường tôn nghiêm. */
+.landing-faith-section {
+  position: relative;
+  width: 100%;
+  padding-top: clamp(2.5rem, 5vw, 4.5rem);
+  padding-bottom: clamp(2.5rem, 5vw, 4.5rem);
+  background: var(--color-surface-app);
+}
+
+.landing-faith-card {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 58rem;
+  margin-inline: auto;
+  border-radius: clamp(1.25rem, 2.5vw, 2rem);
+  background: linear-gradient(165deg, var(--color-brand-deep) 0%, var(--color-brand-navy) 52%, var(--color-brand-deep) 100%);
+  border: 1px solid color-mix(in srgb, var(--color-brand-gold) 35%, transparent);
+  box-shadow:
+    0 24px 48px -12px color-mix(in srgb, black 38%, transparent),
+    0 0 0 1px color-mix(in srgb, white 7%, transparent);
+  color: var(--color-text-inverse);
+  padding: clamp(1.75rem, 4vw, 3.5rem) clamp(1.25rem, 3.5vw, 3rem);
+}
+
+/* Khung viền chỉ vàng nội vi (Ecclesiastical Inner Hairline Filigree) */
+.landing-faith-card::before {
+  content: '';
+  position: absolute;
+  inset: clamp(0.375rem, 1vw, 0.75rem);
+  border-radius: calc(clamp(1.25rem, 2.5vw, 2rem) - clamp(0.375rem, 1vw, 0.75rem));
+  border: 1px solid color-mix(in srgb, var(--color-brand-gold) 20%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Ánh hào quang thánh đường (Cathedral Dome & Sacred Halo) */
+.landing-faith-card__glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 65% 50% at 50% 16%, color-mix(in srgb, var(--color-brand-gold) 18%, transparent) 0%, transparent 68%),
+    radial-gradient(circle at 50% 90%, color-mix(in srgb, var(--color-parish-primary) 35%, transparent) 0%, transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.gold-shimmer-text {
+  color: var(--color-brand-gold);
+  letter-spacing: 0.12em;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--color-brand-gold) 40%, transparent);
+}
+
 /* A consistent product stage with three deliberately different screen shapes. */
 .landing-cinematic { position: relative; isolation: isolate; color: var(--color-text-main); background: var(--color-surface-app); }
-.landing-cinematic[data-active-story='organization'] { color: white; }
-@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
-  .landing-cinematic[data-active-story='organization'] .landing-product-intro .landing-eyebrow,
-  .landing-cinematic[data-active-story='organization'] .landing-product-intro h2 span { color: var(--landing-gold); }
-  .landing-cinematic[data-active-story='organization'] .landing-product-intro > p { color: white; }
+
+/* The organisation chapter is a bounded navy card, not a viewport-wide backdrop.
+   A full-section background flip (what this used to be) repainted the entire
+   2200px-tall section whenever the scroll crossed the focus line, so scrolling up
+   and down strobed the page. A continuous colour ramp is not an option either:
+   dark ink needs a light surface and white ink needs a dark one, so every ramp
+   passes through a state that fails WCAG contrast on one side or the other. A
+   bounded card keeps white-on-navy readable at all times and only moves the colour
+   where the eye already is. It also matches what the sequential/mobile layout
+   already did, so the two stops now agree. */
+.landing-product-story--organization {
+  border-radius: 1.25rem;
+  background: var(--color-brand-navy);
+  color: white;
+  padding-inline: clamp(1.25rem, 3vw, 2.5rem);
 }
-.landing-product-background { position: absolute; inset: 0; z-index: -1; opacity: 0; pointer-events: none; }
-.landing-product-background--organization { background: var(--landing-navy); }
-.landing-product-background--parent { background: color-mix(in srgb, var(--landing-gold) 10%, var(--color-surface-app)); }
-.landing-cinematic[data-active-story='organization'] .landing-product-background--organization,
-.landing-cinematic[data-active-story='parent'] .landing-product-background--parent { opacity: 1; }
-.landing-cinematic__inner { position: relative; width: min(100%, 1480px); margin-inline: auto; padding-inline: clamp(1.25rem, 5vw, 5rem); }
+.landing-product-story--organization .landing-product-story__number,
+.landing-product-story--organization .landing-product-story__eyebrow,
+.landing-product-story--organization .landing-product-story li svg { color: var(--color-brand-gold); }
+.landing-product-story--organization .landing-product-story__icon { color: var(--color-brand-gold); border-color: var(--color-brand-gold); }
+.landing-product-story--organization h3,
+.landing-product-story--organization .landing-product-story__description { color: white; }
+.landing-cinematic__inner { position: relative; width: min(100%, var(--landing-canvas)); margin-inline: auto; padding-inline: var(--landing-gutter); }
 .landing-product-intro { min-height: 54svh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem; text-align: center; padding: 6rem 0 4rem; }
-.landing-product-intro h2 { max-width: 16ch; margin: 0; font-size: clamp(2.8rem, 5.8vw, 6rem); line-height: 1.04; letter-spacing: -0.055em; font-weight: 900; text-wrap: balance; }
+.landing-product-intro h2 { max-width: 16ch; margin: 0; font-size: clamp(2.8rem, 5.8vw, 6rem); line-height: 1.04; letter-spacing: var(--landing-display-tracking); font-weight: 900; text-wrap: balance; }
 .landing-product-intro h2 span { color: var(--color-parish-primary); }
 .landing-product-intro > p { max-width: 36rem; margin: 0; color: var(--color-text-secondary); font-size: clamp(1rem, 1.4vw, 1.2rem); line-height: 1.6; }
 .landing-cinematic .scrolly-stage { display: flex; flex-direction: column; gap: clamp(2rem, 5vw, 5rem); }
 .landing-story-sequence { display: block; }
-.landing-product-story { min-height: 83svh; scroll-margin-top: 5.5rem; display: flex; flex-direction: column; justify-content: center; padding: 4rem 0; }
-.landing-product-story__number, .landing-product-story__eyebrow, .landing-cinematic__preview-heading { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.15em; }
+/* Chapters are sized by their content plus a rhythm floor, not by the viewport.
+   `min-height: 83svh` produced a ~400px void above and below a ~330px copy block at
+   1440x900, which read as a broken layout rather than as breathing room. The floor is
+   in rem so it is resolution-independent and still gives the pinned preview enough
+   travel to read as a scrolly.
+
+   No scroll-margin-top: nothing anchors to an individual story (the nav targets
+   #san-pham), but the 5.5rem margin still applied to the element's alignment box, so
+   `scrollIntoView({ block: 'center' })` centred the *margin box* rather than the story
+   and skewed every chapter ~88px off-centre. */
+.landing-product-story { min-height: 34rem; display: flex; flex-direction: column; justify-content: center; padding: clamp(3rem, 6vw, 5.5rem) 0; }
+/* The pinned column needs somewhere to pin *to*. A sticky element taller than
+   (grid area bottom - sticky offset) does not scroll away at the end of the stage; it
+   gets pushed up out of the top of its own containing block and slides under the fixed
+   header — measured at y=9.5 on the product stage and y=46.3 on the community stage,
+   both against a 77px header. The tail must live on the *rail* (inside the row) rather
+   than on the grid container, because padding on the container sits below the row and
+   never widens the grid area the pinned element is constrained by. */
+@media (min-width: 1024px) {
+  .landing-story-rail { padding-bottom: min(8rem, 14svh); }
+  .landing-community__chapters { padding-bottom: min(8rem, 14svh); }
+}
+.landing-product-story__number, .landing-product-story__eyebrow, .landing-cinematic__preview-heading { font-size: 0.75rem; font-weight: 800; text-transform: uppercase; letter-spacing: var(--landing-eyebrow-tracking); }
 .landing-product-story__number { display: block; margin-bottom: 2rem; color: var(--color-parish-primary); }
 .landing-product-story__icon { width: 3rem; height: 3rem; display: grid; place-items: center; margin-bottom: 1.25rem; border-radius: 50%; color: var(--color-parish-primary); border: 1px solid color-mix(in srgb, var(--color-parish-primary) 32%, transparent); }
 .landing-product-story__icon svg { width: 1.35rem; }
 .landing-product-story__eyebrow { margin: 0 0 0.75rem; color: var(--color-parish-primary); }
-.landing-product-story h3 { max-width: 13ch; margin: 0 0 1.5rem; font-size: clamp(2.15rem, 3.8vw, 4.5rem); line-height: 1.08; font-weight: 850; letter-spacing: -0.048em; text-wrap: balance; }
+.landing-product-story h3 { max-width: 13ch; margin: 0 0 1.5rem; font-size: clamp(2.15rem, 3.8vw, 4.5rem); line-height: 1.08; font-weight: 850; letter-spacing: var(--landing-display-tracking); text-wrap: balance; }
 .landing-product-story__description { max-width: 33rem; margin: 0 0 1.5rem; font-size: clamp(1rem, 1.35vw, 1.2rem); line-height: 1.65; }
 .landing-product-story ul { display: flex; flex-direction: column; gap: 0.6rem; max-width: 33rem; padding: 0; margin: 0; list-style: none; }
 .landing-product-story li { display: flex; align-items: flex-start; gap: 0.6rem; font-size: 0.88rem; line-height: 1.5; opacity: 0.8; }
 .landing-product-story li svg { width: 1rem; height: 1rem; flex: none; margin-top: 0.2rem; color: var(--color-parish-primary); }
-.landing-cinematic[data-active-story='organization'] .landing-product-story__number,
-.landing-cinematic[data-active-story='organization'] .landing-product-story__eyebrow,
-.landing-cinematic[data-active-story='organization'] .landing-product-story li svg { color: var(--landing-gold); }
-.landing-cinematic[data-active-story='organization'] .landing-product-story__icon { color: var(--landing-gold); border-color: color-mix(in srgb, var(--landing-gold) 60%, transparent); }
 .landing-page[data-motion-ready='true'] .landing-product-story__copy { opacity: var(--scene-opacity, 1); transform: translate3d(0, var(--scene-shift, 0px), 0); }
+
+/* The organisation chapter is an illuminated, bounded navy card.
+   A bounded card keeps white-on-navy readable at all times with WCAG AAA contrast,
+   gently highlighting the central governance workspace with rich depth and breathing room. */
+.landing-product-story--organization {
+  position: relative;
+  isolation: isolate;
+  border-radius: 1.5rem;
+  background:
+    radial-gradient(ellipse 85% 55% at 15% 0%, color-mix(in srgb, var(--color-brand-gold) 14%, transparent), transparent 75%),
+    linear-gradient(175deg, color-mix(in srgb, var(--color-brand-navy) 92%, black) 0%, var(--color-brand-navy) 45%, var(--color-brand-deep) 100%);
+  color: white;
+  border: 1px solid color-mix(in srgb, var(--color-brand-gold) 24%, transparent);
+  box-shadow:
+    0 1.75rem 3.5rem -0.75rem color-mix(in srgb, black 32%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-brand-gold) 10%, transparent);
+  padding: clamp(2.75rem, 5vw, 4rem) clamp(2.25rem, 4vw, 3.25rem);
+  overflow: hidden;
+}
+.landing-product-story--organization .landing-product-story__number {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-brand-gold) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-brand-gold) 28%, transparent);
+  color: var(--color-brand-gold);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  margin-bottom: 1.5rem;
+  width: max-content;
+}
+.landing-product-story--organization .landing-product-story__icon {
+  width: 3.25rem;
+  height: 3.25rem;
+  display: grid;
+  place-items: center;
+  margin-bottom: 1.25rem;
+  border-radius: 50%;
+  color: var(--color-brand-gold);
+  background: color-mix(in srgb, var(--color-brand-gold) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-brand-gold) 35%, transparent);
+  box-shadow: 0 0 1.25rem color-mix(in srgb, var(--color-brand-gold) 14%, transparent);
+}
+.landing-product-story--organization .landing-product-story__eyebrow {
+  margin: 0 0 0.85rem;
+  color: var(--color-brand-gold);
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: var(--landing-eyebrow-tracking);
+}
+.landing-product-story--organization h3 {
+  max-width: 18ch;
+  margin: 0 0 1.5rem;
+  font-size: clamp(2.1rem, 3.4vw, 3.8rem);
+  line-height: 1.12;
+  font-weight: 850;
+  letter-spacing: var(--landing-display-tracking);
+  color: white;
+  text-wrap: balance;
+}
+.landing-product-story--organization .landing-product-story__description {
+  max-width: 32rem;
+  margin: 0 0 1.75rem;
+  font-size: clamp(1rem, 1.25vw, 1.15rem);
+  line-height: 1.65;
+  color: color-mix(in srgb, white 90%, transparent);
+}
+.landing-product-story--organization ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 32rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.landing-product-story--organization li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: color-mix(in srgb, white 92%, transparent);
+  opacity: 1;
+}
+.landing-product-story--organization li svg {
+  color: var(--color-brand-gold);
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  margin-top: 0.15rem;
+}
 .landing-cinematic__preview { top: 5.5rem; padding: 1.5rem 0 2rem; }
 .landing-cinematic__preview-heading { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; color: var(--color-parish-primary); }
-.landing-cinematic[data-active-story='organization'] .landing-cinematic__preview-heading { color: var(--landing-gold); }
+/* No gold override here any more. The preview column sits outside the navy chapter
+   card, so the cream brand-gold landed on the light surface at 1.04:1 — invisible.
+   Gold stays where it belongs: on navy, inside .landing-product-story--organization. */
 .landing-cinematic__progress { display: flex; gap: 0.5rem; margin-top: 1.2rem; }
 .landing-cinematic__progress span { flex: 1; height: 2px; background: color-mix(in srgb, var(--color-parish-primary) 25%, transparent); transition: background-color 300ms ease; }
-.landing-cinematic__progress span.is-current { background: var(--landing-gold); }
+.landing-cinematic__progress span.is-current { background: var(--color-brand-gold); }
 .landing-preview-device { max-width: 100%; }
 .landing-preview-shell { position: relative; border: 1px solid var(--color-surface-border); border-radius: 1rem; background: var(--color-surface-card); overflow: hidden; box-shadow: 0 1.8rem 4rem color-mix(in srgb, black 20%, transparent); }
 .landing-preview-device[data-workspace='organization'] { transform: translateY(-0.4rem); }
-.landing-preview-device[data-workspace='organization'] .landing-preview-shell { border-radius: 0.55rem; border-color: color-mix(in srgb, var(--landing-gold) 55%, transparent); box-shadow: 1rem 1rem 0 color-mix(in srgb, var(--landing-gold) 12%, transparent), 0 2rem 4rem color-mix(in srgb, black 25%, transparent); }
+.landing-preview-device[data-workspace='organization'] .landing-preview-shell { border-radius: 0.55rem; border-color: color-mix(in srgb, var(--color-brand-gold) 55%, transparent); box-shadow: 1rem 1rem 0 color-mix(in srgb, var(--color-brand-gold) 12%, transparent), 0 2rem 4rem color-mix(in srgb, black 25%, transparent); }
 .landing-preview-device[data-workspace='parent'] { max-width: 24rem; margin-inline: auto; }
-.landing-preview-device[data-workspace='parent'] .landing-preview-shell { border-radius: 2.25rem; border: 0.45rem solid var(--landing-deep); box-shadow: 0 1.8rem 4rem color-mix(in srgb, var(--landing-deep) 25%, transparent); }
-.landing-preview-device[data-workspace='parent'] .landing-preview-shell::before { content: ''; position: absolute; z-index: 5; top: 0; left: 50%; width: 29%; height: 0.6rem; border-radius: 0 0 1rem 1rem; background: var(--landing-deep); transform: translateX(-50%); }
+.landing-preview-device[data-workspace='parent'] .landing-preview-shell { border-radius: 2.25rem; border: 0.45rem solid var(--color-brand-deep); box-shadow: 0 1.8rem 4rem color-mix(in srgb, var(--color-brand-deep) 25%, transparent); }
+.landing-preview-device[data-workspace='parent'] .landing-preview-shell::before { content: ''; position: absolute; z-index: 5; top: 0; left: 50%; width: 29%; height: 0.6rem; border-radius: 0 0 1rem 1rem; background: var(--color-brand-deep); transform: translateX(-50%); }
 .landing-product-story__mobile-visual { display: none; }
 
-.landing-workspace-tabs { display: flex; gap: 0.3rem; margin: 0 0 1rem; padding: 0.3rem; border: 1px solid var(--color-surface-border); border-radius: 99px; width: max-content; max-width: 100%; background: var(--color-surface-card); }
-.landing-workspace-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; min-height: 44px; padding: 0.5rem 1rem; border: 0; border-radius: 99px; color: var(--color-text-secondary); background: transparent; font-weight: 750; font-size: 0.8rem; cursor: pointer; }
-.landing-workspace-tabs button[aria-selected='true'] { color: var(--color-text-inverse); background: var(--color-parish-primary); }
+.landing-workspace-tabs { display: flex; gap: 0.35rem; margin: 0 0 1rem; padding: 0.35rem; border: 1px solid var(--color-surface-border); border-radius: 99px; width: max-content; max-width: 100%; background: var(--color-surface-card); box-shadow: 0 2px 6px color-mix(in srgb, black 3%, transparent); }
+.landing-workspace-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; min-height: 44px; padding: 0.5rem 1.15rem; border: 0; border-radius: 99px; color: var(--color-text-secondary); background: transparent; font-weight: 750; font-size: 0.8rem; cursor: pointer; transition: background-color 200ms ease, color 200ms ease, box-shadow 200ms ease; }
+.landing-workspace-tabs button:hover:not([aria-selected='true']) { color: var(--color-text-main); background: var(--color-surface-hover); }
+.landing-workspace-tabs button[aria-selected='true'] { color: var(--color-text-inverse); background: var(--color-parish-primary); box-shadow: 0 2px 8px color-mix(in srgb, var(--color-parish-primary) 30%, transparent); }
 .landing-workspace-tabs button svg { width: 1rem; height: 1rem; }
 .landing-workspace-tabs button:focus-visible, .landing-preview-panel:focus-visible { outline: 2px solid var(--color-parish-primary); outline-offset: 3px; }
 .landing-preview-topbar { display: flex; align-items: center; gap: 0.75rem; padding: 0.8rem 1.25rem; border-bottom: 1px solid var(--color-surface-border); background: var(--color-surface-app); color: var(--color-text-secondary); font-size: 0.68rem; font-weight: 700; }
 .landing-preview-topbar > span:last-child { margin-left: auto; }
-.landing-preview-topbar__dots { display: inline-flex; gap: 0.25rem; }
-.landing-preview-topbar__dots i { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--color-surface-border); }
+.landing-preview-topbar__dots { display: inline-flex; gap: 0.35rem; align-items: center; }
+.landing-preview-topbar__dots i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--color-surface-border); }
+.landing-preview-topbar__dots i:nth-child(1) { background: color-mix(in srgb, var(--color-parish-danger) 75%, transparent); }
+.landing-preview-topbar__dots i:nth-child(2) { background: color-mix(in srgb, var(--color-parish-warning) 75%, transparent); }
+.landing-preview-topbar__dots i:nth-child(3) { background: color-mix(in srgb, var(--color-parish-success) 75%, transparent); }
 .landing-preview-panel { min-height: 25rem; }
 .landing-preview-panel .landing-demo { animation: landingPreviewEnter 450ms ease both; }
 @keyframes landingPreviewEnter {
@@ -269,14 +662,14 @@
 .landing-demo { padding: clamp(1rem, 2vw, 1.75rem); color: var(--color-text-main); background: var(--color-surface-card); }
 .landing-demo__identity { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.3rem; }
 .landing-demo__identity > div { min-width: 0; }
-.landing-demo__identity > div > span, .landing-demo__notice > span { display: block; margin-bottom: 0.5rem; color: var(--color-parish-primary); font-size: 0.68rem; font-weight: 850; text-transform: uppercase; letter-spacing: 0.12em; }
+.landing-demo__identity > div > span, .landing-demo__notice > span { display: block; margin-bottom: 0.5rem; color: var(--color-parish-primary); font-size: 0.68rem; font-weight: 850; text-transform: uppercase; letter-spacing: var(--landing-eyebrow-tracking); }
 .landing-demo__identity h4 { margin: 0; font-size: clamp(0.95rem, 1.3vw, 1.2rem); line-height: 1.3; }
 .landing-demo__identity p { margin: 0.25rem 0 0; color: var(--color-text-secondary); font-size: 0.73rem; }
 .landing-demo__identity > svg { width: 2rem; height: 2rem; color: var(--color-parish-primary); flex: none; }
 .landing-demo__metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; padding: 1.1rem 0 1.5rem; }
 .landing-demo__metrics > div { padding-left: 1rem; border-left: 2px solid var(--color-parish-primary); }
 .landing-demo__metrics span { display: block; font-size: 0.73rem; color: var(--color-text-secondary); }
-.landing-demo__metrics strong { display: block; margin-top: 0.5rem; font-size: clamp(1.8rem, 3vw, 3rem); line-height: 1; letter-spacing: -0.05em; color: var(--color-parish-primary); }
+.landing-demo__metrics strong { display: block; margin-top: 0.5rem; font-size: clamp(1.8rem, 3vw, 3rem); line-height: 1; letter-spacing: var(--landing-display-tracking); color: var(--color-parish-primary); }
 .landing-demo__metrics small { font-size: 0.8rem; font-weight: 650; letter-spacing: 0; }
 .landing-demo__metrics i { display: block; height: 2px; width: 80%; margin-top: 0.7rem; background: var(--color-parish-secondary); }
 .landing-demo__roster { border-top: 1px solid var(--color-surface-border); }
@@ -290,7 +683,7 @@
 .landing-demo__student > strong { text-align: right; font-variant-numeric: tabular-nums; }
 .landing-demo__calendar { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr); align-items: center; gap: 1.5rem; background: var(--color-parish-primary-light); border-radius: 0.7rem; padding: 1.15rem; }
 .landing-demo__calendar > div:first-child { display: flex; flex-direction: column; }
-.landing-demo__calendar > div:first-child > span { font-size: 0.65rem; color: var(--color-parish-primary); font-weight: 800; letter-spacing: 0.15em; }
+.landing-demo__calendar > div:first-child > span { font-size: 0.65rem; color: var(--color-parish-primary); font-weight: 800; letter-spacing: var(--landing-eyebrow-tracking); }
 .landing-demo__calendar strong { font-family: var(--font-serif); font-size: clamp(3rem, 6vw, 5rem); line-height: 1; color: var(--color-parish-primary); }
 .landing-demo__calendar small { font-size: 0.63rem; color: var(--color-text-secondary); }
 .landing-demo__calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.35rem; text-align: center; }
@@ -311,7 +704,7 @@
 .landing-demo__parent-result { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.1rem; }
 .landing-demo__parent-result > div { display: flex; flex-direction: column; padding: 0.8rem; border-radius: 0.7rem; background: var(--color-surface-app); }
 .landing-demo__parent-result span { font-size: 0.65rem; color: var(--color-text-secondary); }
-.landing-demo__parent-result strong { margin: 0.6rem 0 0.25rem; color: var(--color-parish-primary); font-size: 2rem; line-height: 1; letter-spacing: -0.05em; }
+.landing-demo__parent-result strong { margin: 0.6rem 0 0.25rem; color: var(--color-parish-primary); font-size: 2rem; line-height: 1; letter-spacing: var(--landing-display-tracking); }
 .landing-demo__parent-result small { font-size: 0.75rem; }
 .landing-demo__parent-result p { font-size: 0.6rem; margin: 0; color: var(--color-text-secondary); }
 .landing-demo__notice { padding: 0.9rem 0; border-top: 1px solid var(--color-surface-border); }
@@ -322,68 +715,394 @@
 .landing-demo__request strong { color: var(--color-parish-primary); }
 .landing-demo__footnote { display: flex; align-items: center; gap: 0.35rem; margin: 1rem 0 0; color: var(--color-text-secondary); font-size: 0.64rem; }
 .landing-demo__footnote svg { width: 0.8rem; height: 0.8rem; flex: none; }
-.landing-video-control { position: absolute; z-index: 30; top: 1rem; right: 1rem; min-width: 44px; min-height: 44px; display: grid; place-items: center; border: 1px solid white; border-radius: 50%; color: white; background: var(--landing-deep); cursor: pointer; }
+.landing-video-control { position: absolute; z-index: 30; top: 1rem; right: 1rem; min-width: 44px; min-height: 44px; display: grid; place-items: center; border: 1px solid white; border-radius: 50%; color: white; background: var(--color-brand-deep); cursor: pointer; }
 .landing-video-control svg { width: 1rem; }
-.landing-video-control:focus-visible { outline: 3px solid var(--landing-gold); outline-offset: 3px; }
+.landing-video-control:focus-visible { outline: 3px solid var(--color-brand-gold); outline-offset: 3px; }
 
 /* Facts and the five branch colours resolve the product story into a clear entrance. */
 .landing-afterglow { background: var(--color-surface-app); }
-.landing-afterglow__inner { width: min(100%, 1480px); margin-inline: auto; padding: 0 clamp(1.25rem, 5vw, 5rem) 2rem; }
-.landing-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--color-surface-border); border-bottom: 1px solid var(--color-surface-border); padding: 1.5rem 0; }
-.landing-facts__item { display: flex; align-items: center; gap: 1rem; padding: 0 1.4rem; border-right: 1px solid var(--color-surface-border); }
-.landing-facts__item:last-child { border-right: 0; }
-.landing-facts__item > span { font-family: var(--font-serif); font-size: clamp(2rem, 3.4vw, 4rem); line-height: 1; color: var(--color-parish-primary); }
+.landing-afterglow__inner { width: min(100%, var(--landing-canvas)); margin-inline: auto; padding: 0 var(--landing-gutter) 2rem; }
+/* ─── One-shot section reveal (the four tail sections) ───
+   Armed by LandingPage.tsx via [data-landing-reveal-armed], and only for sections that
+   start below the fold, so the hidden state can never be applied to something the
+   visitor is already looking at. If the script never runs the attribute is absent and
+   the content renders plainly; reduced-motion is excluded in JS as well as here.
+
+   The transition is declared only on the REVEALED state on purpose: hiding is
+   instantaneous and revealing is animated. Declaring it on both directions made the
+   sections render at full opacity for one frame and then fade out as they armed,
+   which is a flicker for content that was never even on screen. */
+.landing-page[data-landing-reveal-armed='true'] [data-landing-reveal]:not([data-landing-revealed]) {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+}
+[data-landing-reveal][data-landing-revealed] {
+  transition: opacity var(--motion-slow) var(--motion-ease-out),
+    transform var(--motion-slow) var(--motion-ease-out);
+}
+
+/* ─── Depth stack: one continuous space instead of a stack of rooms ───
+   Every act used to simply exist; the eye met a hard top edge, a flat run of paper,
+   then another hard top edge. This gives each act a small scroll-linked offset in
+   depth — it lifts toward the reader as it arrives and settles back as it leaves — so
+   the space between sections reads as distance rather than as a gap.
+
+   Why this one is scroll-linked where the reveal above is state-driven: `--scene-depth`
+   is a pure function of scroll position (LandingPage.tsx). A value derived from
+   position reverses with the scroll for free. There is no state to re-arm, so
+   scrolling back up cannot re-trigger, half-fire, or flicker — the exact failure mode
+   the one-shot reveal is built to avoid, and the reason this one can stay continuous.
+
+   It composes with the reveal instead of competing with it: the reveal animates
+   `transform` and `opacity`, this animates `translate` and `scale`. Those are
+   independent properties applied to the same box, so a section can be mid-reveal and
+   mid-depth at the same moment, which is also why a hovered card keeps its own
+   transform while the section around it is still moving. */
+[data-landing-scene] {
+  --scene-lift: 1.5rem;
+  --scene-shrink: 0.012;
+  translate: 0 calc((1 - var(--scene-depth, 1)) * var(--scene-lift));
+  scale: calc(1 - (1 - var(--scene-depth, 1)) * var(--scene-shrink));
+}
+/* The hero is the one scene with its own scroll-driven parallax on the photograph and
+   the copy. Two motions claiming the same depth on the same frame read as a slip. */
+[data-landing-scene='hero'] { translate: none; scale: none; }
+/* The branch band is the only scene whose colour reaches the full width of its section,
+   so a 1.2% width change would show at both of its ends. It keeps the lift, drops the
+   scale — the ribbon settles without the band appearing to breathe. */
+.landing-branches { --scene-shrink: 0; }
+/* Measured, not assumed: the access card's buttons sit exactly on the 44px floor, and a
+   scene at scale 0.9913 rendered one of them at 43.61px — the depth stack was quietly
+   eating the touch target. The FAQ's "Liên hệ Ban Giáo Lý" link lost 0.1px the same way
+   at 320px. Scaling a box scales everything inside it, so the rule is: an act is always
+   lifted into depth, but only scaled when it holds no control sized to the minimum. The
+   48px FAQ question rows and the 58.9px demo chips would have survived, but the floor is
+   a floor — an act either clears it at every width or does not scale. */
+.landing-access,
+.landing-faq { --scene-shrink: 0; }
+/* These six chapters already drift their own copy (`--scene-shift`, 28px). A second and
+   larger offset on the same words reads as two takes of one entrance. */
+[data-landing-scene^='community-'],
+[data-landing-scene='academic'],
+[data-landing-scene='organization'],
+[data-landing-scene='parent'] { --scene-lift: 0.5rem; --scene-shrink: 0.005; }
+
+/* ─── The stitch ───
+   Four acts separated by nothing but `clamp(4rem, 8vw, 8rem)` of paper read as four
+   pages stacked on one scroll. These hairlines give that whitespace a job: each one
+   wears the five branch colours in the order the scarf above already wears them, so
+   the thread the reader has just watched the Xứ Đoàn tie continues past it and strings
+   the rest of the page into a single run. */
+.landing-final-sequence { --landing-act-gap: clamp(4rem, 8vw, 8rem); gap: var(--landing-act-gap); }
+.landing-stitch {
+  position: relative;
+  height: 1px;
+  overflow: hidden;
+  /* A flex item between two acts adds a gap on each of its own sides, so inserting one
+     naively would double every boundary it crosses. Reclaiming half on each side returns
+     the thread to the middle of the gap it came from instead of making the page taller. */
+  margin-block: calc(var(--landing-act-gap) / -2);
+  background: linear-gradient(90deg,
+    var(--color-branch-chiencon) 0%,
+    var(--color-branch-aunhi) 25%,
+    var(--color-branch-thieunhi) 50%,
+    var(--color-branch-nghiasi) 75%,
+    var(--color-branch-hiepsi) 100%);
+  opacity: 0.5;
+  transform-origin: left center;
+}
+/* The travelling highlight is a `translate3d`, not a background-position keyframe, so the
+   draw stays on the compositor. A 1px line is cheap to repaint either way — this is about
+   the read, not the frame budget. */
+.landing-stitch::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 24%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, white 85%, transparent), transparent);
+  transform: translate3d(-120%, 0, 0);
+}
+.landing-page[data-landing-reveal-armed='true'] .landing-stitch:not([data-landing-revealed]) {
+  transform: scaleX(0);
+}
+.landing-stitch[data-landing-revealed] {
+  transform: scaleX(1);
+  transition: transform 620ms cubic-bezier(0.16, 1, 0.3, 1) 120ms;
+}
+.landing-stitch[data-landing-revealed]::after {
+  transform: translate3d(420%, 0, 0);
+  transition: transform 900ms var(--motion-ease-out) 200ms;
+}
+
+/* ─── The crescendo ───
+   The access card is the page's only call to action and the only dark surface in the
+   tail, so it is the one act that should not arrive at the same speed as the reference
+   sections around it. Slower, travelling further, unfolding its two columns a beat apart
+   — the same grammar as the Sunday moment, held back so the two peaks do not match. */
+.landing-page[data-landing-reveal-armed='true'] [data-landing-reveal='crest']:not([data-landing-revealed]) {
+  opacity: 0;
+  transform: translate3d(0, 20px, 0);
+}
+[data-landing-reveal='crest'][data-landing-revealed] { transition-duration: 560ms; }
+[data-landing-reveal='crest'][data-landing-revealed]
+  :is(.landing-access__door, .landing-access__verify, .landing-access__onboarding) {
+  --landing-reveal-stagger: 90ms;
+}
+
+/* ─── Chapter choreography (staggered reveal children) ───
+   The section-level fade above is the test contract; what it lacked was internal
+   rhythm — five branch stations, four trust pillars and six FAQ rows used to arrive
+   as one flat block, which read as "a section appeared" rather than "the page laid
+   itself down". Children rise on the individual `translate` property instead of
+   `transform` so hover transitions declared on the same elements (`.landing-facts__item`
+   lifts on transform) keep their own duration, and every state is gated behind
+   [data-landing-reveal-armed], which reduced motion and a failed script never set.
+   Delay indices come from nth-child, keeping the DOM free of motion-only attributes. */
+.landing-page {
+  --landing-reveal-duration: 420ms;
+  --landing-reveal-stagger: 70ms;
+}
+.landing-page[data-landing-reveal-armed='true'] [data-landing-reveal]:not([data-landing-revealed])
+  :is(.landing-branches__item, .landing-trust__card, .landing-access__door,
+      .landing-access__verify, .landing-access__onboarding,
+      .landing-faq [role='region'] > article, .landing-facts__item) {
+  opacity: 0;
+  translate: 0 16px;
+}
+[data-landing-reveal][data-landing-revealed]
+  :is(.landing-branches__item, .landing-trust__card, .landing-access__door,
+      .landing-access__verify, .landing-access__onboarding,
+      .landing-faq [role='region'] > article, .landing-facts__item) {
+  --reveal-delay: calc(var(--reveal-i, 0) * var(--landing-reveal-stagger));
+  transition: opacity var(--landing-reveal-duration) var(--motion-ease-out),
+              translate var(--landing-reveal-duration) var(--motion-ease-out);
+  transition-delay: var(--reveal-delay);
+}
+/* Keep each child's own hover/open transitions alive next to the reveal transition:
+   reveal properties ride the stagger delay, interaction properties stay instant.
+   Without these, the single `transition` above would clobber the facts lift, the FAQ
+   open/close colours and the door/verify hover shadows. */
+[data-landing-reveal][data-landing-revealed] .landing-facts__item {
+  transition: opacity var(--landing-reveal-duration) var(--motion-ease-out),
+              translate var(--landing-reveal-duration) var(--motion-ease-out),
+              transform var(--motion-standard) var(--motion-ease-out),
+              box-shadow var(--motion-standard) var(--motion-ease-out),
+              border-color var(--motion-standard) var(--motion-ease-out);
+  transition-delay: var(--reveal-delay), var(--reveal-delay), 0ms, 0ms, 0ms;
+}
+[data-landing-reveal][data-landing-revealed] .landing-faq [role='region'] > article {
+  transition: opacity var(--landing-reveal-duration) var(--motion-ease-out),
+              translate var(--landing-reveal-duration) var(--motion-ease-out),
+              border-color var(--motion-standard) var(--motion-ease-out),
+              background-color var(--motion-standard) var(--motion-ease-out),
+              box-shadow var(--motion-standard) var(--motion-ease-out);
+  transition-delay: var(--reveal-delay), var(--reveal-delay), 0ms, 0ms, 0ms;
+}
+[data-landing-reveal][data-landing-revealed] :is(.landing-trust__card, .landing-access__door, .landing-access__verify) {
+  transition: opacity var(--landing-reveal-duration) var(--motion-ease-out),
+              translate var(--landing-reveal-duration) var(--motion-ease-out),
+              border-color var(--motion-standard) var(--motion-ease-out),
+              box-shadow var(--motion-standard) var(--motion-ease-out);
+  transition-delay: var(--reveal-delay), var(--reveal-delay), 0ms, 0ms;
+}
+/* Per-container cascade indices. Column-local on access (the two doors and the two
+   right-rail blocks rise in parallel columns), reading-order elsewhere. */
+[data-landing-revealed] :is(.landing-branches__list, .landing-trust__grid,
+  .landing-access__doors, .landing-faq [role='region'], .landing-facts) > :nth-child(2) { --reveal-i: 1; }
+[data-landing-revealed] :is(.landing-branches__list, .landing-trust__grid,
+  .landing-access__doors, .landing-faq [role='region'], .landing-facts) > :nth-child(3) { --reveal-i: 2; }
+[data-landing-revealed] :is(.landing-branches__list, .landing-trust__grid,
+  .landing-access__doors, .landing-faq [role='region'], .landing-facts) > :nth-child(4) { --reveal-i: 3; }
+[data-landing-revealed] .landing-branches__list > :nth-child(5) { --reveal-i: 4; }
+[data-landing-revealed] .landing-faq [role='region'] > :nth-child(5) { --reveal-i: 4; }
+[data-landing-revealed] .landing-faq [role='region'] > :nth-child(6) { --reveal-i: 5; }
+
+/* The gold seam draws itself under the eyebrow once the chapter it labels has landed —
+   plan §5.3 idea 2 given its motion. Only inside revealed sections: the navy chapters
+   earlier on the page have their own scene choreography and keep a static seam, so no
+   seam ever re-draws on a reverse scroll. */
+.landing-eyebrow::after { transform-origin: left center; }
+.landing-page[data-landing-reveal-armed='true'] [data-landing-reveal]:not([data-landing-revealed])
+  .landing-eyebrow::after {
+  transform: scaleX(0);
+}
+[data-landing-reveal][data-landing-revealed] .landing-eyebrow::after {
+  transition: transform 560ms var(--motion-ease-out) 180ms;
+}
+
+/* The emotional pause gets the slowest entrance on the page — plan Phase 3: "reveal
+   rất chậm, 1-shot, không lặp". Longer travel and duration than the default reveal,
+   and the card's own layers (halo, seal, label, rule, quote) settle in sequence.
+   Children move with `translate` only: the halo carries a base `opacity-70`, and an
+   opacity transition would land it at 1 and burn brighter than designed. */
+.landing-page[data-landing-reveal-armed='true'] [data-landing-reveal='slow']:not([data-landing-revealed]) {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+}
+[data-landing-reveal='slow'][data-landing-revealed] {
+  transition-duration: 760ms;
+}
+[data-landing-reveal='slow'][data-landing-revealed] .landing-faith-card > * {
+  transition: translate 700ms var(--motion-ease-out);
+  transition-delay: calc(var(--reveal-i, 0) * 110ms);
+}
+.landing-page[data-landing-reveal-armed='true'] [data-landing-reveal='slow']:not([data-landing-revealed]) .landing-faith-card > * {
+  translate: 0 14px;
+}
+[data-landing-revealed] .landing-faith-card > :nth-child(2) { --reveal-i: 1; }
+[data-landing-revealed] .landing-faith-card > :nth-child(3) { --reveal-i: 2; }
+[data-landing-revealed] .landing-faith-card > :nth-child(4) { --reveal-i: 3; }
+[data-landing-revealed] .landing-faith-card > :nth-child(5) { --reveal-i: 4; }
+
+.landing-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: clamp(0.875rem, 1.5vw, 1.25rem);
+  padding: clamp(1rem, 2vw, 2.5rem) 0;
+}
+.landing-facts__item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: clamp(1.25rem, 2vw, 1.75rem);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-surface-border);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
+  overflow: hidden;
+  transition: transform var(--motion-standard) var(--motion-ease-out),
+              box-shadow var(--motion-standard) var(--motion-ease-out),
+              border-color var(--motion-standard) var(--motion-ease-out);
+}
+.landing-facts__item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px -8px rgba(15, 23, 42, 0.08), 0 4px 6px -2px rgba(15, 23, 42, 0.03);
+  border-color: color-mix(in srgb, var(--color-parish-primary) 30%, var(--color-surface-border));
+}
+.landing-facts__number {
+  font-family: var(--font-serif);
+  font-size: clamp(2.25rem, 3.5vw, 3.5rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
 .landing-facts__item p { margin: 0; font-size: 0.82rem; font-weight: 800; }
 .landing-facts__item small { display: block; margin-top: 0.3rem; color: var(--color-text-secondary); font-size: 0.72rem; line-height: 1.45; }
-.landing-final-sequence { gap: clamp(4rem, 8vw, 8rem); }
+/* One source of truth for the act gap: the flex `gap` below and the stitch's reclaiming
+   negative margin are two halves of the same number, and they must not drift apart. */
+.landing-final-sequence { gap: var(--landing-act-gap); }
 .landing-branches { padding: clamp(3rem, 6vw, 6rem) 0; }
 .landing-branches .landing-narrative { max-width: 47rem; margin-inline: auto; }
 .landing-branches__track { position: relative; }
 .landing-branches__list { gap: 0; border-bottom: 1px solid var(--color-surface-border); }
-.landing-branches__chapter { min-height: 15rem; padding: 1.5rem 1rem; border-left: 1px solid var(--color-surface-border); background: transparent; transition: background-color 250ms ease, transform 250ms ease; }
-.landing-branches__chapter:hover { background: color-mix(in srgb, var(--color-parish-primary) 4%, var(--color-surface-app)); transform: translateY(-4px); }
+/* The five stations are one continuous scarf, not five white cards. `gap: 0` means the
+   colour bands touch, each cell washes its own branch token from a saturated edge down
+   to bare paper, and the vertical hairlines are gone so the band reads as one cloth
+   segmented into five layers. Horizontal on desktop, vertical below `sm`, which is the
+   same five bands stacked — matching the "ribbon along the journey" reading rather than
+   a card grid. Gradient + border only: no SVG filter, no image, no extra paint layer.
+   The band colour itself still arrives via the `border-t-branch-*` utility, so the wash
+   and the band resolve the same token. */
+.landing-branches__chapter {
+  min-height: 15rem;
+  padding: 1.5rem 1rem;
+  border-top-width: 0.375rem;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--chapter-color) 15%, var(--color-surface-card)) 0%,
+    color-mix(in srgb, var(--chapter-color) 6%, var(--color-surface-card)) 46%,
+    /* Dissolve into the page's paper tone, not --color-surface-card: the card token is
+       pure white, so ending there left a white slab floating on the off-white section
+       and the band stopped short of the surface it sits on. */
+    var(--color-surface-app) 100%);
+  transition: transform 250ms ease;
+}
+/* Lift only. The old hover swapped `background` for a flat tint, which on a gradient
+   reads as a flicker rather than a hover, and these chapters are not interactive. */
+.landing-branches__chapter:hover { transform: translateY(-4px); }
 .landing-branches__chapter h3 { font-family: var(--font-serif); font-size: clamp(1.15rem, 1.6vw, 1.55rem); }
+/* The five branch stations form one continuous band, not five floating cards — spacing
+   stays 0 and the branch colours themselves do the separating. LandingTrustStrip used
+   to ship `card card-interactive hover:-translate-y-1 hover:shadow-card-hover` in JSX
+   which this sheet cancelled with `transform: none; box-shadow: none`, so the declared
+   affordance never rendered. The markup no longer claims it; the hover is a background
+   tint, matching .landing-branches__chapter, and lifts nothing. */
 .landing-trust { padding-bottom: 2rem; }
-.landing-trust > .grid { border-top: 1px solid var(--color-surface-border); border-bottom: 1px solid var(--color-surface-border); gap: 0; }
-.landing-trust > .grid article { border: 0; border-right: 1px solid var(--color-surface-border); border-radius: 0; box-shadow: none; background: transparent; padding: 1.5rem; transform: none; }
-.landing-trust > .grid article:last-child { border-right: 0; }
-.landing-trust > .grid article:hover { transform: none; box-shadow: none; }
+.landing-trust__grid { position: relative; }
+.landing-trust__card {
+  position: relative;
+  background: var(--color-surface-card);
+  border: 1px solid var(--color-surface-border);
+  box-shadow: 0 1px 3px color-mix(in srgb, black 4%, transparent);
+  transition: transform 250ms ease, border-color 250ms ease, box-shadow 250ms ease;
+}
+.landing-trust__card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--color-parish-primary) 38%, var(--color-surface-border));
+  box-shadow: 0 12px 24px -8px color-mix(in srgb, var(--color-parish-primary) 12%, transparent);
+}
 
-.landing-access { padding: clamp(2rem, 5vw, 5rem); border-radius: 1.75rem; color: white; background: var(--landing-navy); }
-.landing-access__intro { display: flex; flex-direction: column; align-items: center; gap: 1rem; max-width: 47rem; margin: 0 auto 3rem; text-align: center; }
-.landing-access__intro .landing-eyebrow { color: var(--landing-gold); }
-.landing-access__intro h2 { max-width: 15ch; margin: 0; font-size: clamp(2.65rem, 5.4vw, 5.6rem); line-height: 1.06; letter-spacing: -0.055em; text-wrap: balance; }
-.landing-access__intro p { max-width: 39rem; margin: 0; color: color-mix(in srgb, white 80%, transparent); line-height: 1.6; }
-.landing-access__doors { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-.landing-access__door { display: flex; flex-direction: column; align-items: flex-start; padding: clamp(1.4rem, 3vw, 3rem); border-radius: 1.25rem; background: var(--color-surface-card); color: var(--color-text-main); }
-.landing-access__icon { display: grid; place-items: center; width: 3rem; height: 3rem; border-radius: 50%; background: var(--color-parish-primary-light); color: var(--color-parish-primary); }
-.landing-access__icon svg { width: 1.45rem; }
-.landing-access__eyebrow { margin: 2.3rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.13em; color: var(--color-parish-primary); font-size: 0.72rem; font-weight: 850; }
-.landing-access__door h3 { margin: 0 0 0.8rem; font-size: clamp(1.8rem, 2.8vw, 3rem); line-height: 1.1; letter-spacing: -0.04em; }
-.landing-access__door > p:not(.landing-access__eyebrow) { max-width: 30rem; margin: 0; color: var(--color-text-secondary); line-height: 1.6; }
-.landing-access__door ul { display: flex; flex-direction: column; gap: 0.35rem; padding: 0 0 0 1rem; margin: 1.5rem 0 2rem; color: var(--color-text-secondary); font-size: 0.85rem; }
-.landing-access__door button { margin-top: auto; display: inline-flex; align-items: center; justify-content: center; gap: 0.65rem; width: 100%; }
-.landing-access__door button svg { width: 1rem; }
-.landing-access__verify { display: flex; align-items: center; justify-content: space-between; gap: 2rem; padding: 2rem 0; border-bottom: 1px solid color-mix(in srgb, white 25%, transparent); }
-.landing-access__verify span { display: block; color: var(--landing-gold); font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.13em; }
-.landing-access__verify h3 { margin: 0.5rem 0; font-size: 1.2rem; }
-.landing-access__verify p { margin: 0; color: color-mix(in srgb, white 78%, transparent); font-size: 0.85rem; }
-.landing-access__verify button { display: inline-flex; align-items: center; gap: 0.5rem; flex: none; }
-.landing-access__verify button svg { width: 1rem; }
-.landing-access__onboarding { padding-top: 2.5rem; }
-.landing-access__onboarding h2 { margin: 0 0 0.4rem; font-size: 1.4rem; }
-.landing-access__onboarding > div > p { margin: 0; color: color-mix(in srgb, white 78%, transparent); }
-.landing-access__onboarding ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; list-style: none; padding: 0; margin: 2rem 0 1rem; }
-.landing-access__onboarding li { display: flex; flex-direction: column; padding-top: 1rem; border-top: 1px solid color-mix(in srgb, white 25%, transparent); }
-.landing-access__onboarding li span { color: var(--landing-gold); font-family: var(--font-serif); font-size: 1.8rem; }
-.landing-access__onboarding li strong { font-size: 0.9rem; }
-.landing-access__onboarding li p { margin: 0.3rem 0 0; color: color-mix(in srgb, white 74%, transparent); font-size: 0.78rem; }
-.landing-access__privacy { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0 0; color: color-mix(in srgb, white 70%, transparent); font-size: 0.75rem; }
-.landing-access__privacy svg { width: 1rem; flex: none; }
+.landing-access {
+  padding: clamp(1.5rem, 3.5vw, 2.5rem);
+  border-radius: 1.75rem;
+  color: white;
+  background:
+    radial-gradient(ellipse 90% 60% at 50% 0%, color-mix(in srgb, var(--color-brand-gold) 14%, transparent), transparent 75%),
+    linear-gradient(175deg, color-mix(in srgb, var(--color-brand-navy) 95%, black) 0%, var(--color-brand-navy) 40%, var(--color-brand-deep) 100%);
+  border: 1px solid color-mix(in srgb, var(--color-brand-gold) 25%, transparent);
+  box-shadow: 0 1.5rem 3rem -0.75rem color-mix(in srgb, black 35%, transparent);
+}
+.landing-access__intro { margin-bottom: 1.5rem; }
+.landing-access__intro .landing-eyebrow { color: var(--color-brand-gold); }
+.landing-access__door {
+  background: var(--color-surface-card);
+  color: var(--color-text-main);
+  border: 1px solid var(--color-surface-border);
+  transition: transform 250ms ease, box-shadow 250ms ease, border-color 250ms ease;
+}
+.landing-access__door:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--color-parish-primary) 35%, var(--color-surface-border));
+  box-shadow: 0 12px 28px -6px color-mix(in srgb, black 25%, transparent);
+}
+.landing-access__door button { margin-top: auto; }
+.landing-access__verify {
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+.landing-access__verify:hover {
+  background-color: color-mix(in srgb, white 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-brand-gold) 30%, transparent);
+}
+.landing-access__onboarding li {
+  transition: background-color 200ms ease;
+}
+.landing-access__onboarding li:hover {
+  background-color: color-mix(in srgb, white 9%, transparent);
+}
+.landing-access__privacy svg { width: 0.95rem; flex: none; }
 .landing-faq { padding-bottom: 1rem; }
 .landing-faq .landing-narrative { gap: 0.5rem; }
-.landing-faq [aria-label='Danh sách câu hỏi thường gặp'] { gap: 0; border-top: 1px solid var(--color-surface-border); }
-.landing-faq [aria-label='Danh sách câu hỏi thường gặp'] article { border: 0; border-bottom: 1px solid var(--color-surface-border); border-radius: 0; box-shadow: none; }
+.landing-faq [aria-label='Danh sách câu hỏi thường gặp'] { gap: 0.75rem; border-top: 0; }
+.landing-faq [aria-label='Danh sách câu hỏi thường gặp'] article {
+  border: 1px solid var(--color-surface-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface-card);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+.landing-faq [aria-label='Danh sách câu hỏi thường gặp'] article:hover {
+  border-color: color-mix(in srgb, var(--color-parish-primary) 35%, var(--color-surface-border));
+}
+/* 0fr → 1fr animates to the content's own height with no JS measurement and no magic
+   max-height. The `visibility` step is delayed on the way out so the answer stays visible
+   while it collapses, and lands immediately on the way in. */
+.landing-faq__panel { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 220ms ease; }
+.landing-faq__panel[data-open='true'] { grid-template-rows: 1fr; }
+.landing-faq__panel-inner { overflow: hidden; visibility: hidden; transition: visibility 0s linear 220ms; }
+.landing-faq__panel[data-open='true'] .landing-faq__panel-inner { visibility: visible; transition-delay: 0s; }
+.landing-faq__panel-inner > p { padding: 0.5rem 1.25rem 1.25rem; font-size: 0.875rem; line-height: 1.65; color: var(--color-text-secondary); border-top: 1px solid color-mix(in srgb, var(--color-surface-border) 60%, transparent); }
 
 @media (min-width: 1024px) {
   .landing-cinematic .scrolly-stage { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); align-items: start; }
@@ -392,10 +1111,11 @@
 
 @media (min-width: 1024px) and (max-height: 800px) {
   .landing-product-story { min-height: 52rem; }
-  .landing-cinematic__preview { padding-block: 0.5rem 1.5rem; }
-  .landing-cinematic__preview-heading { margin-bottom: 0.6rem; }
+  .landing-cinematic__preview { top: 5.15rem; padding-block: 0.25rem 1.25rem; }
+  .landing-cinematic__preview-heading { margin-bottom: 0.45rem; }
+  .landing-workspace-tabs { margin-bottom: 0.65rem; }
   .landing-preview-panel { min-height: 0; }
-  .landing-preview-topbar { padding-block: 0.6rem; }
+  .landing-preview-topbar { padding-block: 0.55rem; }
   .landing-preview-panel .landing-demo { padding: 1rem 1.25rem; }
   .landing-preview-panel .landing-demo__identity { margin-bottom: 0.75rem; }
   .landing-preview-panel .landing-demo__metrics { padding: 0.5rem 0 0.8rem; }
@@ -411,44 +1131,39 @@
   .landing-preview-panel .landing-demo__parent-result strong { font-size: 1.7rem; margin-top: 0.3rem; }
   .landing-preview-panel .landing-demo__notice { padding-block: 0.6rem; }
   .landing-preview-panel .landing-demo__request { padding: 0.6rem; }
+  .landing-preview-panel .landing-demo__omr-badge { display: none; }
   .landing-preview-panel .landing-demo__footnote { margin-top: 0.7rem; }
 }
 
-@media (max-width: 1023px), (prefers-reduced-motion: reduce) {
+/* Sequential layout is a WIDTH decision only.
+   `prefers-reduced-motion: reduce` must NOT land here: reduced motion means
+   "same composition, no animation", not "a different, narrower design". The
+   motion kill list at the end of this file handles the animation half. */
+@media (max-width: 1023px) {
   .landing-community__intro { min-height: 58svh; }
   .landing-community__sequence { display: block; padding-bottom: 3rem; }
   .landing-community__visual { display: none; }
   .landing-community__chapters::before { inset: 0 auto 0 0; }
   .landing-community__chapter { min-height: 0; padding: 2rem 0 3rem 1.5rem; }
   .landing-community__chapter-number { margin-bottom: 1.2rem; }
-  .landing-community__mobile-visual { display: grid; place-items: center; height: min(54vw, 20rem); margin-bottom: 1.5rem; border-radius: 1rem; overflow: hidden; background: var(--landing-navy); }
+  .landing-community__mobile-visual { display: grid; place-items: center; height: min(54vw, 20rem); margin-bottom: 1.5rem; border-radius: 1rem; overflow: hidden; background: var(--color-brand-navy); }
   .landing-community__mobile-visual img { width: 100%; height: 100%; object-fit: cover; }
   .landing-community__mobile-visual:has(.landing-demo) { display: block; height: auto; }
-  .landing-community__mobile-visual svg { width: 5rem; height: 5rem; color: var(--landing-gold); stroke-width: 1; }
-  .landing-community__mobile-visual--family { background: color-mix(in srgb, var(--landing-gold) 12%, var(--landing-deep)); }
+  .landing-community__mobile-visual svg { width: 5rem; height: 5rem; color: var(--color-brand-gold); stroke-width: 1; }
+  .landing-community__mobile-visual--family { background: color-mix(in srgb, var(--color-brand-gold) 12%, var(--color-brand-deep)); }
   .landing-product-intro { min-height: 42svh; padding: 4rem 0 2rem; }
   .landing-cinematic__preview { display: none; }
   .landing-cinematic .scrolly-stage { display: block; }
-  .landing-cinematic[data-active-story] { color: var(--color-text-main); }
-  .landing-product-background { display: none; }
   .landing-product-story { min-height: 0; padding: 2.5rem 0; border-bottom: 1px solid var(--color-surface-border); }
   .landing-product-story__number { margin-bottom: 1rem; }
   .landing-product-story h3 { max-width: 20ch; }
   .landing-product-story__mobile-visual { display: block; margin-top: 1.6rem; border: 1px solid var(--color-surface-border); border-radius: 1rem; color: var(--color-text-main); background: var(--color-surface-card); box-shadow: 0 1.2rem 2.5rem color-mix(in srgb, black 10%, transparent); overflow: hidden; }
-  .landing-product-story--organization { border-radius: 1.25rem; background: var(--landing-navy); color: white; padding-inline: clamp(1rem, 3vw, 2rem); }
-  .landing-cinematic[data-active-story] .landing-product-story:not(.landing-product-story--organization) .landing-product-story__eyebrow,
-  .landing-cinematic[data-active-story] .landing-product-story:not(.landing-product-story--organization) .landing-product-story__number,
-  .landing-cinematic[data-active-story] .landing-product-story:not(.landing-product-story--organization) .landing-product-story li svg { color: var(--color-parish-primary); }
-  .landing-product-story--organization .landing-product-story__eyebrow,
-  .landing-product-story--organization .landing-product-story__number,
-  .landing-product-story--organization li svg { color: var(--landing-gold); }
-  .landing-cinematic[data-active-story] .landing-product-story:not(.landing-product-story--organization) .landing-product-story__icon { color: var(--color-parish-primary); border-color: var(--color-surface-border); }
-  .landing-cinematic[data-active-story] .landing-product-story--organization .landing-product-story__icon { color: var(--landing-gold); border-color: var(--landing-gold); }
-  .landing-product-story--parent .landing-product-story__mobile-visual { max-width: 23rem; border: 0.4rem solid var(--landing-deep); border-radius: 2.1rem; }
-  .landing-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .landing-facts__item { padding: 1rem; border-bottom: 1px solid var(--color-surface-border); }
-  .landing-facts__item:nth-child(2) { border-right: 0; }
-  .landing-facts__item:nth-child(n+3) { border-bottom: 0; }
+  .landing-product-story--organization { padding: clamp(2rem, 4vw, 2.75rem) clamp(1.25rem, 4vw, 2rem); border-bottom: 0; margin-block: 1.5rem; }
+  .landing-product-story--parent .landing-product-story__mobile-visual { max-width: 23rem; border: 0.4rem solid var(--color-brand-deep); border-radius: 2.1rem; }
+  .landing-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+
+
+
   .landing-trust > .grid article:nth-child(2) { border-right: 0; }
   .landing-trust > .grid article:nth-child(-n+2) { border-bottom: 1px solid var(--color-surface-border); }
 }
@@ -456,15 +1171,15 @@
 @media (max-width: 639px) {
   .landing-hero-stage { min-height: max(42rem, calc(100svh - 4rem)); }
   .landing-hero-content { gap: 1rem; }
-  .landing-hero-title { font-size: clamp(2.45rem, 11vw, 3.6rem) !important; }
+  .landing-hero-title { font-size: clamp(2.1rem, 10.5vw, 3.15rem) !important; }
   .landing-community__intro { min-height: 0; padding-block: 5rem 4rem; }
   .landing-community__intro h2 { font-size: clamp(2.8rem, 10vw, 4.5rem); }
   .landing-community__chapter h3 { font-size: clamp(2rem, 8vw, 3rem); }
   .landing-product-intro h2 { font-size: clamp(2.65rem, 9vw, 4rem); }
   .landing-product-story h3 { font-size: clamp(2rem, 8vw, 3.2rem); }
-  .landing-facts { padding: 0.5rem 0; }
-  .landing-facts__item { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
-  .landing-facts__item > span { font-size: 2.5rem; }
+  .landing-facts { grid-template-columns: 1fr; gap: 0.75rem; padding: 0.5rem 0; }
+
+
   .landing-branches__list { grid-template-columns: 1fr; }
   .landing-branches__chapter { min-height: 0; }
   .landing-trust > .grid article { border-right: 0; border-bottom: 1px solid var(--color-surface-border); }
@@ -482,10 +1197,49 @@
   .landing-hero-photo, .landing-hero-video, .landing-hero-content,
   .landing-community__visual-panel, .landing-cinematic, .landing-preview-device,
   .landing-preview-shell, .landing-cinematic__progress span,
-  .landing-branches__chapter, .landing-demo { animation: none !important; transition: none !important; transform: none !important; }
+  .landing-branches__chapter, .landing-demo, .animate-in, [data-landing-reveal], .landing-facts__item {
+    animation: none !important;
+    transition: none !important;
+  }
+  /* Chapter choreography children (staggered reveal) and the slow faith-moment layers:
+     the arming effect never runs under reduced motion so these states are never applied,
+     but the kill-list keeps the guarantee in CSS alone. */
+  .landing-branches__item, .landing-trust__card, .landing-access__door,
+  .landing-access__verify, .landing-access__onboarding,
+  .landing-faq [role='region'] > article, .landing-faith-card > * {
+    animation: none !important;
+    transition: none !important;
+  }
+  .landing-eyebrow::after {
+    transform: none !important;
+    transition: none !important;
+  }
+  /* The depth stack and the stitch. LandingPage.tsx already stops writing --scene-depth
+     under reduced motion, so `--scene-depth` stays at its fallback of 1 and the scene is
+     mathematically at rest; these two rules make that guarantee in CSS alone, the same
+     way the rest of this block does. */
+  [data-landing-scene] {
+    translate: none !important;
+    scale: none !important;
+  }
+  .landing-stitch,
+  .landing-stitch::after {
+    transform: none !important;
+    transition: none !important;
+  }
+  /* The scroll-driven parallax writes --hero-photo-scale / --hero-copy-shift.
+     LandingPage.tsx already skips them under reduced motion; these two keep the
+     guarantee in CSS without the blanket `transform: none` that would also erase
+     legitimate static offsets such as the organization device's translateY. */
+  .landing-hero-photo, .landing-hero-content { transform: none !important; }
   .landing-hero-video, .landing-video-control { display: none; }
   .landing-page .landing-community__chapter > div:last-child,
   .landing-page .landing-product-story__copy { opacity: 1 !important; transform: none !important; }
   .landing-community__visual-panel { opacity: 0; }
   .landing-community__visual-panel--gather { opacity: 1; }
+  /* The FAQ answer is still revealed instantly rather than animated, and the collapsed
+     panel must still be hidden — the transition only ever animated height, so removing it
+     costs nothing but the motion. */
+  .landing-faq__panel, .landing-faq__panel-inner { transition: none !important; }
+  .landing-header__rail-fill { will-change: auto; }
 }

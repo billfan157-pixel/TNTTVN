@@ -96,6 +96,22 @@ interface OperationsState {
   addChecklistItem: (task: OperationTask, label: string, isRequired: boolean, idempotencyKey?: string) => Promise<void>
   toggleChecklistItem: (task: OperationTask, item: OperationChecklistItem, idempotencyKey?: string) => Promise<void>
   markReminderRead: (reminder: OperationReminder, idempotencyKey?: string) => Promise<void>
+  /**
+   * W1.2 — task-dialog commands. These six used to call `operationsApi` straight
+   * from their panel, which skipped the store's parish assertion and its OCC
+   * recovery: a stale-version failure surfaced as a dead-end error with no
+   * refetch, and nothing verified the response belonged to this parish.
+   *
+   * They all end in `refreshTaskViews`, the store's existing correct primitive
+   * for "re-read the overview, the owning event and this task", so readiness
+   * recomputed by the server (W1.1) arrives with the same round trip.
+   */
+  commentTask: (task: OperationTask, content: string, evidenceUrl?: string, idempotencyKey?: string) => Promise<void>
+  handoverTask: (task: OperationTask, body: { assignmentId: string; assignmentVersion: number; reason: string } & OperationAssignmentTarget, idempotencyKey?: string) => Promise<void>
+  restoreTask: (task: OperationTask, reason: string, idempotencyKey?: string) => Promise<void>
+  removeTaskAssignment: (task: OperationTask, assignment: OperationAssignment, reason: string, idempotencyKey?: string) => Promise<void>
+  addTaskDependency: (task: OperationTask, dependsOnTaskId: string, idempotencyKey?: string) => Promise<void>
+  removeTaskDependency: (task: OperationTask, dependsOnTaskId: string, reason: string, idempotencyKey?: string) => Promise<void>
   cancelReminder: (reminder: OperationReminder, idempotencyKey?: string) => Promise<void>
   creationOptions: OperationsCreationOptions | null
   fetchCreationOptions: () => Promise<void>
@@ -226,6 +242,41 @@ function handleConflictSync(get: () => any, error: unknown) {
       }
       useOperationsStore.setState({ error: conflictMessage })
     })()
+  }
+}
+
+/**
+ * W1.1 (F14) — `detail.readiness` and `detail.closure` are SERVER-computed
+ * projections (ADR-110: required readiness is computed on read, from
+ * workstream status/leads, task status/required/due, accepted OWNER assignees,
+ * dependency edges and required checklist items). The client cannot re-derive
+ * them from a local patch, so a command that changes any of those inputs must
+ * ask the server to recompute.
+ *
+ * This lives in the store, not at each call site, precisely because the call
+ * sites are what forgot: ticking a required checklist item patched `task.version`
+ * and left the progress bar, the blocker list and the READY/LIVE gate frozen on
+ * stale numbers.
+ *
+ * The command has already been acknowledged by the server at this point, so a
+ * failed recompute must NOT be reported as a failed write — it is swallowed and
+ * the read surfaces through the normal detail error path.
+ */
+async function recomputeSelectedEventDetail(): Promise<void> {
+  const scopeAtCall = getTenantScope()
+  const stateBefore = useOperationsStore.getState()
+  const eventId = stateBefore.selectedEvent?.event.id
+  const selectedTaskId = stateBefore.selectedTask?.task.id ?? null
+  if (!scopeAtCall?.parishId || !scopeAtCall.userId || !eventId) return
+  try {
+    await useOperationsStore.getState().selectEvent(eventId)
+    // selectEvent is a selection switch: it clears selectedTask, which would
+    // unmount the checklist dialog in the middle of the user's interaction
+    // with the task they just mutated. Restore that selection so the
+    // readiness recompute refreshes around the user instead of under them.
+    if (selectedTaskId) await useOperationsStore.getState().selectTask(selectedTaskId)
+  } catch {
+    // Acknowledged write stands; the stale read is visible and re-fetchable.
   }
 }
 
@@ -547,6 +598,8 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
       if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc tạo task.')
       if (created.parishId !== requestScope.parishId || created.operationEventId !== input.eventId) throw new Error('Không thể xác nhận task trong giáo xứ hiện tại')
       set(state => ({ selectedEvent: state.selectedEvent?.event.id === input.eventId ? { ...state.selectedEvent, tasks: [...state.selectedEvent.tasks, created] } : state.selectedEvent }))
+      // W1.1: a new required task adds TASK_OWNER_MISSING / TASK_NOT_DONE.
+      await recomputeSelectedEventDetail()
       return created
     } catch (error) {
       // Surface failures in the shared error banner instead of a silent
@@ -612,6 +665,8 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
           : state.selectedTask,
         tasks: state.tasks.map(item => item.id === task.id ? { ...item, ...result.task, myAssignments: item.myAssignments?.map(reopen) } : item),
       }))
+      // W1.1: dueAt / isRequired / phase all feed readiness and closure.
+      await recomputeSelectedEventDetail()
       return result
     } catch (error) {
       if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể cập nhật task') }); handleConflictSync(get, error) }
@@ -635,6 +690,8 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
           assignees: [...state.selectedTask.assignees.filter(item => item.id !== result.assignment.id), result.assignment],
         },
       }) : {})
+      // W1.1: an OWNER assignment is exactly what clears TASK_OWNER_MISSING.
+      await recomputeSelectedEventDetail()
     } catch (error) {
       if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể phân công task') }); handleConflictSync(get, error) }
       throw error
@@ -681,6 +738,8 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
           assignees: [...state.selectedEvent.assignees.filter(assignment => assignment.id !== result.assignment.id), result.assignment],
         } : state.selectedEvent,
       }))
+      // W1.1: the accepted OWNER row lands here, so readiness must be recomputed.
+      await recomputeSelectedEventDetail()
       await useOperationsStore.getState().fetch().catch(() => undefined)
     } catch (error) {
       if (sameScope(requestScope)) set({ error: formatStoreError(error, 'Không thể nhận nhiệm vụ') })
@@ -722,6 +781,8 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
         selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? updated : item) } : state.selectedEvent,
         selectedTask: state.selectedTask?.task.id === task.id ? { ...state.selectedTask, task: updated } : state.selectedTask,
       }))
+      // W1.1: task status drives TASK_NOT_DONE, TASK_NOT_READY and closure.
+      await recomputeSelectedEventDetail()
       await persistCurrentServerSnapshot()
       return updated
     } catch (error) {
@@ -752,6 +813,9 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
           assignees: state.selectedTask.assignees.map(value => value.id === updated.id ? { ...value, acknowledgementStatus: updated.acknowledgementStatus, version: updated.version } : value),
         } : state.selectedTask,
       }))
+      // W1.1: readiness counts ACCEPTED owners only, so an acknowledgement
+      // changes it.
+      await recomputeSelectedEventDetail()
       await persistCurrentServerSnapshot()
     } catch (error) {
       if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thể cập nhật trạng thái nhận việc') }); handleConflictSync(get, error) }
@@ -810,6 +874,8 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
         selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item) } : state.selectedEvent,
         tasks: state.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item),
       }))
+      // W1.1: a new required checklist item is a CHECKLIST_NOT_DONE blocker.
+      await recomputeSelectedEventDetail()
     } catch (error) {
       if (sameScope(requestScope)) {
         set({ error: formatStoreError(error, 'Không thể thêm mục checklist') })
@@ -834,6 +900,9 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
         selectedEvent: state.selectedEvent ? { ...state.selectedEvent, tasks: state.selectedEvent.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item) } : state.selectedEvent,
         tasks: state.tasks.map(item => item.id === task.id ? { ...item, version: result.taskVersion } : item),
       }))
+      // W1.1 (F14): ticking a required checklist item is the case that used to
+      // leave the progress bar and blocker list frozen on stale numbers.
+      await recomputeSelectedEventDetail()
     } catch (error) {
       if (sameScope(requestScope)) {
         set({ error: formatStoreError(error, 'Không thể cập nhật checklist') })
@@ -871,6 +940,98 @@ export const useOperationsStore = create<OperationsState>((set, get) => ({
         set({ error: formatStoreError(error, 'Không thể đánh dấu nhắc việc đã đọc') })
         handleConflictSync(get, error)
       }
+      throw error
+    }
+  },
+
+  // W1.2 — task-dialog writers. These six used to call `operationsApi` straight
+  // from their panel, skipping the store's parish assertion and its OCC
+  // recovery: a stale-version failure was a dead-end error with no refetch, and
+  // nothing verified the response belonged to this parish. Each ends in
+  // `refreshTaskViews`, the store's existing correct primitive, so the server's
+  // readiness recomputation (W1.1) rides the same round trip.
+  commentTask: async (task, content, evidenceUrl, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const comment = await api.commentTask(task.id, evidenceUrl ? { content, evidenceUrl } : { content }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc ghi bình luận.')
+      if (comment.parishId !== requestScope.parishId || comment.taskId !== task.id) throw new Error('Máy chủ trả bình luận sai phạm vi nhiệm vụ')
+      set({ error: null })
+      await get().refreshTaskViews(task.id)
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không ghi được bình luận') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
+  handoverTask: async (task, body, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const result = await api.handoverTask(task.id, { version: task.version, ...body }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc bàn giao.')
+      if (result.assignment.parishId !== requestScope.parishId || result.assignment.taskId !== task.id) throw new Error('Máy chủ trả phân công sai phạm vi nhiệm vụ')
+      set({ error: null, assignmentWarnings: { taskId: task.id, items: result.conflictWarnings.map(({ id, startsAt, endsAt }) => ({ id, startsAt, endsAt })) } })
+      await get().refreshTaskViews(task.id)
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không bàn giao được nhiệm vụ') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
+  restoreTask: async (task, reason, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const restored = await api.restoreTask(task.id, { version: task.version, reason }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc khôi phục nhiệm vụ.')
+      if (restored.parishId !== requestScope.parishId || restored.id !== task.id) throw new Error('Máy chủ trả nhiệm vụ sai phạm vi')
+      set({ error: null })
+      await get().refreshTaskViews(task.id)
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không khôi phục được nhiệm vụ') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
+  removeTaskAssignment: async (task, assignment, reason, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const result = await api.removeTaskAssignment(task.id, assignment.id, { version: task.version, assignmentVersion: assignment.version, reason }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc thu hồi phân công.')
+      if (result.assignment.parishId !== requestScope.parishId || result.assignment.taskId !== task.id) throw new Error('Máy chủ trả phân công sai phạm vi nhiệm vụ')
+      set({ error: null })
+      await get().refreshTaskViews(task.id)
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thu hồi được phân công') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
+  addTaskDependency: async (task, dependsOnTaskId, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const result = await api.addTaskDependency(task.id, { version: task.version, dependsOnTaskId }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc thêm phụ thuộc.')
+      if (result.parishId !== requestScope.parishId || result.taskId !== task.id || result.dependsOnTaskId !== dependsOnTaskId) {
+        throw new Error('Máy chủ trả phụ thuộc không khớp yêu cầu')
+      }
+      set({ error: null })
+      await get().refreshTaskViews(task.id)
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không thêm được phụ thuộc') }); handleConflictSync(get, error) }
+      throw error
+    }
+  },
+
+  removeTaskDependency: async (task, dependsOnTaskId, reason, idempotencyKey) => {
+    const requestScope = scope()
+    try {
+      const result = await api.removeTaskDependency(task.id, dependsOnTaskId, { version: task.version, reason }, idempotencyKey)
+      if (!sameScope(requestScope)) throw new Error('Phiên người dùng đã thay đổi trong lúc gỡ phụ thuộc.')
+      if (result.taskVersion !== task.version + 1) throw new Error('Máy chủ trả phiên bản phụ thuộc không khớp yêu cầu')
+      set({ error: null })
+      await get().refreshTaskViews(task.id)
+    } catch (error) {
+      if (sameScope(requestScope)) { set({ error: formatStoreError(error, 'Không gỡ được phụ thuộc') }); handleConflictSync(get, error) }
       throw error
     }
   },

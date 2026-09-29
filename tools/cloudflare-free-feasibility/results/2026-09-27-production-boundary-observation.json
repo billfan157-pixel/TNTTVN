@@ -1,0 +1,41 @@
+{
+  "checkedAt": "2026-09-27T16:01:28.088Z",
+  "productionCutoverCompleted": false,
+  "checks": {
+    "render": {
+      "errorClass": "TimeoutError"
+    },
+    "vercel": {
+      "status": 200,
+      "releaseId": null,
+      "database": null,
+      "renderOrigin": "Render",
+      "backend": null,
+      "jsonReadable": false
+    },
+    "workerCanary": {
+      "status": 200,
+      "releaseId": "2e9e999da7491f5cc73dc65e6fc35a39324eff3d",
+      "database": "connected",
+      "renderOrigin": null,
+      "backend": null,
+      "jsonReadable": true
+    },
+    "workerPublic": {
+      "status": 503,
+      "releaseId": null,
+      "database": null,
+      "renderOrigin": null,
+      "backend": null,
+      "jsonReadable": false
+    },
+    "stagingPublic": {
+      "status": 404,
+      "releaseId": null,
+      "database": null,
+      "renderOrigin": null,
+      "backend": null,
+      "jsonReadable": false
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 > Parent: root `AGENTS.md`
 > Scope: which skill to load, when, and how skills hand off to each other.
-> The four skills below are the execution phases of the operating contract
+> The four core skills below are the execution phases of the operating contract
 > (`operating-contract.md`):
 
 ```text
@@ -12,6 +12,8 @@ operating contract
 ├── verification       (§3.3)
 └── quantitative-targets (§3.4, conditional)
 ```
+
+Test-quality tasks also load `catevia-test-audit` (§3.7).
 
 Skills are loaded by task need, not merely by D-level.
 
@@ -259,3 +261,20 @@ Do not silently:
 - upgrade UNKNOWN → fact
 - drop a planned claim
 - replace a failed claim with a different easier claim
+
+## 3.7 catevia-test-audit
+
+Path:
+
+```text
+.agents/skills/catevia-test-audit/SKILL.md
+```
+
+Use when adding or changing tests, reviewing test quality, or auditing/pruning
+a test surface. Apply its value checks to the affected tests and its evidence
+ledger before consolidation or deletion.
+
+This supplementary skill works with Current Truth for investigations, Change
+Impact for material remediation, and Verification for completion claims.
+Focused audits remain read-only during discovery; subsystem-wide sweeps require
+an explicit user request and a defined scope.

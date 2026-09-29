@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { UsersRound } from 'lucide-react'
-import { EmptyState } from '../common/StateFeedback'
+import { UsersRound, WifiOff } from 'lucide-react'
+import { EmptyState, SkeletonCardGrid } from '../common/StateFeedback'
 import { Button, Select, TextInput } from '../common/ui'
 import {
   operationsApi,
@@ -34,6 +34,10 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
   const [taskTarget, setTaskTarget] = useState('')
   const [taskRole, setTaskRole] = useState<'OWNER' | 'CONTRIBUTOR'>('OWNER')
   const [assignmentWarnings, setAssignmentWarnings] = useState<Array<{ id: string; startsAt: string; endsAt: string }>>([])
+  // W0.3: an empty group list reads very differently before a server answer
+  // arrives, while offline, and after an authorized read found nothing. Only
+  // the last of those is a statement about the caller's permissions.
+  const [overviewLoaded, setOverviewLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   // W2.5: inline group editor (name + description) gated on manage capability.
@@ -46,6 +50,16 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
   const { stableKey, releaseKey } = useStableCommandKey()
   const scopeKey = getTenantScopeKey()
   const invalidateRequests = useCallback(() => { generation.current++ }, [])
+  // W0.3: an empty group list means three different things. Only one of them is
+  // an authorization statement, and only after a successful server read.
+  const overviewState: 'transport-blocked' | 'loading' | 'ready'
+    = !enabled ? 'transport-blocked'
+      : overviewLoaded ? 'ready'
+        : 'loading'
+  // A unit option only exists because the server resolved it for this caller, so
+  // it is the authority signal available here (there is no group-level map
+  // before a group is selected).
+  const canCreateAnyGroup = units.length > 0
 
   const candidateDirectory = useOperationCandidates(
     detail ? { workstreamId: detail.workstream.id } : null,
@@ -71,14 +85,21 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
       }
       setUnits(unitPage.data)
       setGroups(groupPage.data)
+      setOverviewLoaded(true)
       setUnitId(current => current || unitPage.data[0]?.id || '')
     } catch (failure) {
-      if (token === generation.current && scope === getTenantScopeKey()) setMessage(failure instanceof Error ? failure.message : 'Không tải được nhóm độc lập.')
+      if (token === generation.current && scope === getTenantScopeKey()) {
+        setOverviewLoaded(false)
+        setMessage(failure instanceof Error ? failure.message : 'Không tải được nhóm độc lập.')
+      }
     }
   }, [enabled])
 
   useEffect(() => {
     invalidateRequests()
+    // W0.3: a scope change invalidates the previous authorized read, so the
+    // panel must not keep claiming an empty list belongs to the new session.
+    setOverviewLoaded(false)
     void loadOverview()
     return invalidateRequests
   }, [invalidateRequests, loadOverview, scopeKey])
@@ -108,9 +129,13 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
   // W3.7: busy serializes commands; busyControl names the in-flight button so
   // the spinner sits on the control the user actually pressed.
   const [busyControl, setBusyControl] = useState<string | null>(null)
-  const run = async <T,>(action: () => Promise<T>, reloadSelected = false, onSuccess?: (value: T) => void | Promise<void>, control?: string) => {
+  // W0.3: `enabled` is a TRANSPORT predicate (online + fresh server snapshot), not
+  // an authority map. `authority` carries the caller's own capability verdict so
+  // a command needs both, and so a connectivity block can never be reported as
+  // "you have no permission here".
+  const run = async <T,>(action: () => Promise<T>, reloadSelected = false, onSuccess?: (value: T) => void | Promise<void>, control?: string, authority = true) => {
     const scope = getTenantScopeKey()
-    if (!enabled || !scope || inFlight.current) return
+    if (!enabled || !authority || !scope || inFlight.current) return
     inFlight.current = true; setBusy(true); setBusyControl(control ?? null); setMessage('')
     const token = generation.current
     const current = () => token === generation.current && scope === getTenantScopeKey()
@@ -136,7 +161,7 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
       <h2 className="m-0 text-sm font-extrabold text-text-main">Nhóm công việc độc lập</h2>
       <p className="mb-0 mt-1 text-xs text-text-muted">Nhóm thường trực không thuộc một sự kiện; quyền giao việc vẫn theo đúng Ban/Ngành phụ trách.</p>
     </div>
-    {units.length > 0 && <form className="grid gap-2 sm:grid-cols-[1fr_2fr_auto] sm:items-end" onSubmit={event => {
+    {canCreateAnyGroup && <form className="grid gap-2 sm:grid-cols-[1fr_2fr_auto] sm:items-end" onSubmit={event => {
       event.preventDefault()
       if (!unitId || !groupName.trim()) return
       void run(
@@ -154,15 +179,23 @@ export function StandaloneWorkstreamsPanel({ enabled }: { enabled: boolean }) {
           await loadGroup(created.id)
         },
         'create-group',
+        canCreateAnyGroup,
       )
     }}>
       <Select aria-label="Đơn vị phụ trách nhóm độc lập" value={unitId} disabled={busy} onChange={event => setUnitId(event.target.value)}>{units.map(unit => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</Select>
       <TextInput aria-label="Tên nhóm độc lập" value={groupName} maxLength={200} required disabled={busy} placeholder="Ví dụ: Ban truyền thông thường trực" onChange={event => setGroupName(event.target.value)} />
       <Button type="submit" size="sm" loading={busyControl === 'create-group'} disabled={busy || !unitId || !groupName.trim()}>Tạo nhóm</Button>
     </form>}
-    {groups.length === 0
-      ? <EmptyState icon={UsersRound} title="Chưa có nhóm độc lập trong phạm vi của bạn." description={units.length > 0 ? 'Tạo nhóm cho đúng đơn vị phụ trách để bắt đầu phân công.' : 'Bạn chưa có quyền tạo nhóm tại đơn vị nào.'} className="py-5" />
-      : <div className="flex flex-wrap gap-2">{groups.map(group => <Button key={group.id} variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => void run(() => loadGroup(group.id))}>{group.name}</Button>)}</div>}
+    {overviewState === 'transport-blocked'
+      // W0.3: the previous copy here said "Bạn chưa có quyền tạo nhóm tại đơn
+      // vị nào" whenever the panel was merely offline or still loading.
+      ? <EmptyState icon={WifiOff} title="Tạm thời không kết nối." description="Danh sách nhóm độc lập cần tải từ máy chủ. Kết nối lại để xem và tạo nhóm." className="py-5" />
+      : overviewState === 'loading'
+        // W0.3/F11: an in-flight read is not an empty list.
+        ? <SkeletonCardGrid count={2} className="py-2" />
+        : groups.length === 0
+          ? <EmptyState icon={UsersRound} title="Chưa có nhóm độc lập trong phạm vi của bạn." description={units.length > 0 ? 'Tạo nhóm cho đúng đơn vị phụ trách để bắt đầu phân công.' : 'Bạn chưa có quyền tạo nhóm tại đơn vị nào.'} className="py-5" />
+          : <div className="flex flex-wrap gap-2">{groups.map(group => <Button key={group.id} variant="secondary" size="sm" disabled={!enabled || busy} onClick={() => void run(() => loadGroup(group.id))}>{group.name}</Button>)}</div>}
 
     {detail && <div className="space-y-3 rounded-lg border border-surface-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">

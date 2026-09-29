@@ -125,7 +125,15 @@ export default defineConfig({
         // CSP-SRCDOC-PREVIEW: CSS cho iframe preview tài liệu in — precache để
         // lần mở preview đầu tiên khi offline vẫn có style (runtime SWR chỉ có
         // sau lần fetch đầu; response precache cùng origin nên qua style-src).
-        'print-exam-single.css', 'print-exam-batch.css', 'print-answer-sheet.css', 'print-qr-sheet.css', 'print-receipt.css'],
+        'print-exam-single.css', 'print-exam-batch.css', 'print-answer-sheet.css', 'print-qr-sheet.css', 'print-receipt.css',
+        // Self-hosted web fonts (src/styles/design-system/05-fonts.css). The default
+        // injectManifest glob does not include .woff2, so without these the landing
+        // page would lose its typography offline — which is exactly the promise the
+        // page makes under "Ngoại tuyến (Offline-First)". Declared via includeAssets
+        // rather than globPatterns so the default asset coverage is left untouched.
+        'fonts/inter-latin.woff2', 'fonts/inter-vietnamese.woff2',
+        'fonts/playfair-latin.woff2', 'fonts/playfair-vietnamese.woff2',
+        'fonts/playfair-italic-latin.woff2', 'fonts/playfair-italic-vietnamese.woff2'],
       manifest: {
         name: 'Catevia — Quản Lý Giáo Xứ & TNTT',
         short_name: 'Catevia',

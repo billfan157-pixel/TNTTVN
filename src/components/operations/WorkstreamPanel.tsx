@@ -20,6 +20,7 @@ import {
 } from '../../lib/api/operations'
 import { getTenantScopeKey } from '../../lib/tenantScope'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
+import { useOperationsDraft, useOperationsDraftMap, useOperationsDraftStore } from '../../stores/operationsDraftStore'
 import { operationCandidateValue, parseOperationCandidateValue, useOperationCandidates } from '../../hooks/useOperationCandidates'
 import { statusTone, taskPhaseLabel } from './operationsViewHelpers'
 
@@ -84,9 +85,15 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
   // One reason draft per destructive command: a reason typed for "remove
   // member" must never silently satisfy the mandatory reason of "lead
   // handover" or "report blocked" (P1-9).
-  const [removeReasons, setRemoveReasons] = useState<Record<string, string>>({})
-  const [leadReplaceReason, setLeadReplaceReason] = useState('')
-  const [blockedReason, setBlockedReason] = useState('')
+  // W0.2: these three are server-mandatory reasons inside a TabPanel, so a tab
+  // switch used to destroy them silently. They now live in the surviving-draft
+  // registry, keyed by workstream id, and are cleared on a successful command.
+  const workstreamId = detail?.workstream.id ?? null
+  const removeReasons = useOperationsDraftMap(workstreamId, 'member-remove:')
+  const setDraft = useOperationsDraftStore(s => s.set)
+  const clearDraft = useOperationsDraftStore(s => s.clearField)
+  const [leadReplaceReason, setLeadReplaceReason, resetLeadReplaceReason] = useOperationsDraft(workstreamId, 'lead-replace')
+  const [blockedReason, setBlockedReason, resetBlockedReason] = useOperationsDraft(workstreamId, 'blocked')
   // W2.5: inline rename/description editor for one group (PUT /workstreams/:id).
   const [editingGroup, setEditingGroup] = useState(false)
   const [editName, setEditName] = useState('')
@@ -104,8 +111,11 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
   useEffect(() => {
     setShowHandoverForm(false)
     setShowDeleteConfirm(false)
-    setLeadReplaceReason('')
     setCandidateValue('')
+    // W0.2: the lead-handover reason is deliberately NOT reset here. It now
+    // lives in the surviving-draft registry keyed by workstream id, so
+    // switching Mảng shows that Mảng's own pending reason instead of silently
+    // discarding work the user already typed.
   }, [detail?.workstream.id])
   const writable = enabled && ['DRAFT', 'PLANNING', 'PREPARING', 'READY'].includes(event.event.status)
   const isXuDoanEvent = (event.event.eventScopeType ?? (event.event.scopeUnitId ? 'UNIT' : 'XU_DOAN')) === 'XU_DOAN'
@@ -756,7 +766,7 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
                           const result = await operationsApi.replaceWorkstreamLead(detail.workstream.id, payload, key)
                           releaseKey('workstream-lead-replace')
                           setShowHandoverForm(false)
-                          setLeadReplaceReason('')
+                          resetLeadReplaceReason()
                           setCandidateValue('')
                           return result
                         }, canManageLead)
@@ -840,7 +850,7 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
                             disabled={busy}
                             placeholder={`Lý do thu hồi vai trò...`}
                             className="flex-1"
-                            onChange={e => setRemoveReasons(value => ({ ...value, [member.id]: e.target.value }))}
+                            onChange={e => { if (workstreamId) setDraft(workstreamId, `member-remove:${member.id}`, e.target.value) }}
                           />
                           <Button
                             variant="danger"
@@ -853,6 +863,7 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
                               return void mutate(async () => {
                                 const result = await operationsApi.removeWorkstreamMember(detail.workstream.id, member.id, payload, key)
                                 releaseKey(`workstream-member-remove:${member.id}`)
+                                if (workstreamId) clearDraft(workstreamId, `member-remove:${member.id}`)
                                 return result
                               })
                             }}
@@ -963,10 +974,15 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
                       className="w-full sm:w-auto px-5 whitespace-nowrap min-h-10"
                       onClick={() => {
                         const payload = { version: detail.workstream.version, status: 'READY' as const }
-                        const key = stableKey('workstream-ready', { workstreamId: detail.workstream.id, ...payload })
+                        // W0.5: distinct slot from the BLOCKED command. A shared
+                        // slot let a blocked-reason payload overwrite the READY
+                        // fingerprint, so a retried READY got a fresh key (lost
+                        // dedup) and releaseKey cleared the other command's
+                        // pending key.
+                        const key = stableKey('workstream-mark-ready', { workstreamId: detail.workstream.id, ...payload })
                         return void mutate(async () => {
                           const result = await operationsApi.setWorkstreamReady(detail.workstream.id, payload, key)
-                          releaseKey('workstream-ready')
+                          releaseKey('workstream-mark-ready')
                           return result
                         })
                       }}
@@ -999,11 +1015,12 @@ export function WorkstreamPanel({ event, enabled, refresh, fieldUnits = [] }: Pr
                       className="w-full sm:w-auto px-5 whitespace-nowrap min-h-10 text-parish-danger hover:border-parish-danger"
                       onClick={() => {
                         const payload = { version: detail.workstream.version, status: 'BLOCKED' as const, reason: blockedReason.trim() }
-                        const key = stableKey('workstream-ready', { workstreamId: detail.workstream.id, ...payload })
+                        // W0.5: own slot, see the READY command above.
+                        const key = stableKey('workstream-mark-blocked', { workstreamId: detail.workstream.id, ...payload })
                         return void mutate(async () => {
                           const result = await operationsApi.setWorkstreamReady(detail.workstream.id, payload, key)
-                          releaseKey('workstream-ready')
-                          setBlockedReason('')
+                          releaseKey('workstream-mark-blocked')
+                          resetBlockedReason()
                           return result
                         })
                       }}

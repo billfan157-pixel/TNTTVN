@@ -13,7 +13,7 @@ import {
 import { Badge, Button, Select, Surface, TextArea, TextInput } from '../common/ui'
 import type { OperationEvent } from '../../lib/api/operations'
 import { OPERATIONS_POSITION_LABELS_VI } from '../../lib/api/operations'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { useCanMutateOperations } from '../../hooks/useCanMutateOperations'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { useOperationsStore } from '../../stores/operationsStore'
@@ -55,8 +55,6 @@ export function CreateEventForm({
   /** `sheet` = body only inside ModalShell. */
   variant?: 'card' | 'sheet'
 }) {
-  const isOnline = useOnlineStatus()
-  const source = useOperationsStore(s => s.source)
   const permissions = useOperationsStore(s => s.permissions)
   const creationOptions = useOperationsStore(s => s.creationOptions)
   const parishTimezone = useOperationsStore(s => s.parishTimezone)
@@ -65,7 +63,8 @@ export function CreateEventForm({
   const timezoneMismatch = Boolean(parishTimezone && browserTimezone && parishTimezone !== browserTimezone)
   const createEvent = useOperationsStore(s => s.createEvent)
   const selectEvent = useOperationsStore(s => s.selectEvent)
-  const canMutate = isOnline && source === 'server'
+  // W1.4: transport-only predicate; authority is ANDed in by the caller.
+  const canMutate = useCanMutateOperations()
   const canCreateXuDoan = Boolean(creationOptions?.canCreateXuDoanEvent)
   const unitCreationOptions = creationOptions?.units ?? []
   const canCreateAnyUnitEvent = unitCreationOptions.some(unit => unit.canCreateEvent)

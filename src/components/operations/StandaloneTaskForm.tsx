@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button, Select, Surface, TextArea, TextInput } from '../common/ui'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { useCanMutateOperations } from '../../hooks/useCanMutateOperations'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { useOperationsStore } from '../../stores/operationsStore'
@@ -9,12 +9,11 @@ import { toIso } from './operationsViewHelpers'
 
 /** Standalone task form with local draft state (typing never re-renders the page). */
 export function StandaloneTaskForm({ initialScopeUnitId, onClose, variant = 'card' }: { initialScopeUnitId: string; onClose: () => void; variant?: 'card' | 'sheet' }) {
-  const isOnline = useOnlineStatus()
-  const source = useOperationsStore(s => s.source)
   const creationOptions = useOperationsStore(s => s.creationOptions)
   const createStandaloneTask = useOperationsStore(s => s.createStandaloneTask)
   const fetch = useOperationsStore(s => s.fetch)
-  const canMutate = isOnline && source === 'server'
+  // W1.4: transport-only predicate; authority is ANDed in by the caller.
+  const canMutate = useCanMutateOperations()
   const unitCreationOptions = creationOptions?.units ?? []
 
   // W2.11: the server create schema always supported these; the form only

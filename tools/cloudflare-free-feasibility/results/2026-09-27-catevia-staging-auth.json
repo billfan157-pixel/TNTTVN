@@ -1,0 +1,10 @@
+{
+  "capturedAt": "2026-09-27T11:09:40.029Z",
+  "userType": "synthetic-disposable-only",
+  "observations": [],
+  "passed": false,
+  "status": "BLOCKED",
+  "reason": "Disposable Turso token rejected with HTTP 401 before inserting a synthetic account",
+  "workerVersion": "1aaceaa7-e6d5-43c3-b25e-d88541d16c58",
+  "publicStagingDisabledAfterProbe": true
+}

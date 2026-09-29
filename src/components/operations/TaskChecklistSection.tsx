@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ListChecks } from 'lucide-react'
 import { Badge, Button, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { useCanMutateOperations } from '../../hooks/useCanMutateOperations'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { useOperationsStore } from '../../stores/operationsStore'
 import { TaskRestorePanel } from './TaskRestorePanel'
@@ -18,15 +18,14 @@ import { isTerminalTask, taskPhaseLabel } from './operationsViewHelpers'
  * event modal and standalone; typing here never re-renders the page lists.
  */
 export function TaskChecklistSection() {
-  const isOnline = useOnlineStatus()
-  const source = useOperationsStore(s => s.source)
   const selectedTask = useOperationsStore(s => s.selectedTask)
   const assignmentWarnings = useOperationsStore(s => s.assignmentWarnings)
   const selectTask = useOperationsStore(s => s.selectTask)
   const refreshTaskViews = useOperationsStore(s => s.refreshTaskViews)
   const addChecklistItem = useOperationsStore(s => s.addChecklistItem)
   const toggleChecklistItem = useOperationsStore(s => s.toggleChecklistItem)
-  const canMutate = isOnline && source === 'server'
+  // W1.4: transport-only predicate; authority is ANDed in by the caller.
+  const canMutate = useCanMutateOperations()
 
   const [draft, setDraft] = useState({ label: '', isRequired: false })
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null)
@@ -64,12 +63,20 @@ export function TaskChecklistSection() {
 
   return (
     <div className="mt-5 rounded-xl border border-surface-border p-3" aria-label="Chi tiết checklist">
-      <TaskRestorePanel key={`restore-${selectedTask.task.id}-${selectedTask.task.version}`} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
-      <TaskAssigneesPanel key={`assignees-${selectedTask.task.id}-${selectedTask.task.version}`} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
+      {/* W0.1: these keys must NOT include task.version. Every checklist toggle
+          and assignment bumps version server-side, so a version-keyed panel was
+          remounted by an unrelated click and silently discarded the mandatory
+          revoke/restore reason the user had already typed. Key on identity only. */}
+      <TaskRestorePanel key={`restore-${selectedTask.task.id}`} detail={selectedTask} enabled={canMutate} />
+      <TaskAssigneesPanel key={`assignees-${selectedTask.task.id}`} detail={selectedTask} enabled={canMutate} />
       <TaskCommentsPanel key={selectedTask.task.id} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
       {/* W2.3: read-only dispatch round history in the task dialog. */}
       <TaskDispatchPanel key={`dispatches-${selectedTask.task.id}`} detail={selectedTask} enabled />
-      <TaskHandoverForm key={`handover-${selectedTask.task.id}`} detail={selectedTask} enabled={canMutate} onWarnings={(taskId, items) => useOperationsStore.setState({ assignmentWarnings: { taskId, items } })} refresh={() => refresh(selectedTask.task.id)} />
+      {/* W1.2: the store publishes the handover verdict itself; the form's
+          optional onWarnings callback must NOT be wired to another store write
+          here — a setState round-trip through a fresh object re-triggers the
+          form's warning effect forever. */}
+      <TaskHandoverForm key={`handover-${selectedTask.task.id}`} detail={selectedTask} enabled={canMutate} />
       {assignmentWarnings?.taskId === selectedTask.task.id && assignmentWarnings.items.length > 0 && (
         <p role="status" className="text-sm text-text-main">
           Đã lưu phân công, nhưng người được giao có lịch bận tại hạn nhiệm vụ. Cần xác nhận lại khả năng nhận việc.
@@ -84,7 +91,7 @@ export function TaskChecklistSection() {
       </div>
       {selectedTask.task.description && <p className="whitespace-pre-wrap text-sm text-text-main">{selectedTask.task.description}</p>}
       {/* Wave A: Task dependencies with add/remove capability */}
-      <TaskDependenciesPanel key={`deps-${selectedTask.task.id}-${selectedTask.task.version}`} detail={selectedTask} enabled={canMutate} refresh={() => refresh(selectedTask.task.id)} />
+      <TaskDependenciesPanel key={`deps-${selectedTask.task.id}`} detail={selectedTask} enabled={canMutate} />
       <div className="mt-3 divide-y divide-surface-border rounded-lg border border-surface-border">
         {selectedTask.checklist.length === 0 && <EmptyState icon={ListChecks} title="Chưa có mục checklist." description="Thêm mục cần kiểm tra ở biểu mẫu bên dưới." className="py-5" />}
         {selectedTask.checklist.map(item => {

@@ -6,11 +6,18 @@ import { operationsApi, type OperationEventDetail } from '../../lib/api/operatio
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
+import { useOperationsDraft } from '../../stores/operationsDraftStore'
 import { operationCandidateValue, parseOperationCandidateValue, useOperationCandidates } from '../../hooks/useOperationCandidates'
 
 export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: OperationEventDetail; enabled: boolean; refresh: () => Promise<unknown> | unknown }) {
-  const [lessonsLearned, setLessonsLearned] = useState(detail.retrospective?.lessonsLearned ?? '')
-  const [improvementNotes, setImprovementNotes] = useState(detail.retrospective?.improvementNotes ?? '')
+  // W0.2: this panel lives in a TabPanel, so a tab switch unmounted it and the
+  // re-seed effect below overwrote a half-typed retrospective. The in-progress
+  // text now lives in the surviving-draft registry and simply takes precedence
+  // over the saved value; clearing the draft on success falls back to the server.
+  const [lessonsDraft, setLessonsDraft, resetLessonsDraft] = useOperationsDraft(detail.event.id, 'retrospective.lessons')
+  const [improvementsDraft, setImprovementsDraft, resetImprovementsDraft] = useOperationsDraft(detail.event.id, 'retrospective.improvements')
+  const lessonsLearned = lessonsDraft || detail.retrospective?.lessonsLearned || ''
+  const improvementNotes = improvementsDraft || detail.retrospective?.improvementNotes || ''
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueAt, setDueAt] = useState('')
@@ -33,11 +40,6 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
   const canCreateFollowUp = Boolean(detail.event.status === 'COMPLETED' && detail.permissions['operations.task.assign'])
   const directory = useOperationCandidates({ eventId: detail.event.id }, enabled && canCreateFollowUp)
   const actionableCandidates = directory.candidates.filter(candidate => candidate.eligibility === 'ACTIONABLE')
-
-  useEffect(() => {
-    setLessonsLearned(detail.retrospective?.lessonsLearned ?? '')
-    setImprovementNotes(detail.retrospective?.improvementNotes ?? '')
-  }, [detail.event.id, detail.retrospective?.version, detail.retrospective?.lessonsLearned, detail.retrospective?.improvementNotes])
 
   useEffect(() => {
     alive.current = true
@@ -79,15 +81,17 @@ export function EventRetrospectivePanel({ detail, enabled, refresh }: { detail: 
         await operationsApi.saveEventRetrospective(detail.event.id, payload, stableKey('event-retrospective', { id: detail.event.id, ...payload }))
         releaseKey('event-retrospective')
         if (!current()) return
+        // W0.2: the saved server value now owns the field, so drop the draft.
+        resetLessonsDraft(); resetImprovementsDraft()
         setMessage('Đã lưu hậu kiểm.')
         await refresh()
       })
     }}>
       <label className="block text-sm font-semibold text-text-main">Bài học rút ra
-        <TextArea aria-label="Bài học rút ra" className="mt-1 min-h-24 w-full" value={lessonsLearned} required maxLength={5000} disabled={busy} placeholder="Điều gì đã hiệu quả hoặc cần ghi nhớ?" onChange={event => setLessonsLearned(event.target.value)} />
+        <TextArea aria-label="Bài học rút ra" className="mt-1 min-h-24 w-full" value={lessonsLearned} required maxLength={5000} disabled={busy} placeholder="Điều gì đã hiệu quả hoặc cần ghi nhớ?" onChange={event => setLessonsDraft(event.target.value)} />
       </label>
       <label className="block text-sm font-semibold text-text-main">Điểm cần cải thiện
-        <TextArea aria-label="Điểm cần cải thiện" className="mt-1 min-h-24 w-full" value={improvementNotes} maxLength={5000} disabled={busy} placeholder="Chỉ ghi nhận; phần cần theo dõi hãy tạo task bên dưới." onChange={event => setImprovementNotes(event.target.value)} />
+        <TextArea aria-label="Điểm cần cải thiện" className="mt-1 min-h-24 w-full" value={improvementNotes} maxLength={5000} disabled={busy} placeholder="Chỉ ghi nhận; phần cần theo dõi hãy tạo task bên dưới." onChange={event => setImprovementsDraft(event.target.value)} />
       </label>
       <Button type="submit" size="sm" disabled={busy || !lessonsLearned.trim()}>Lưu hậu kiểm</Button>
     </form> : detail.retrospective ? <div className="space-y-2 text-sm text-text-main">

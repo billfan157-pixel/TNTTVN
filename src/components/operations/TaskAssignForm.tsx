@@ -3,7 +3,7 @@ import { Users } from 'lucide-react'
 import { Badge, Button, Select, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
 import type { OperationEventDetail, OperationsCreationOptions } from '../../lib/api/operations'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { useCanMutateOperations } from '../../hooks/useCanMutateOperations'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { useOperationsStore } from '../../stores/operationsStore'
@@ -12,12 +12,10 @@ import { canUseFieldTasks, fieldLayerUnitIds, isClosedEvent, isTerminalTask, toI
 
 /** In-event assignment form with local draft state. */
 export function TaskAssignForm({ detail, creationOptions }: { detail: OperationEventDetail; creationOptions?: OperationsCreationOptions | null }) {
-  const isOnline = useOnlineStatus()
-  const source = useOperationsStore(s => s.source)
   const assignTask = useOperationsStore(s => s.assignTask)
   const dispatchTask = useOperationsStore(s => s.dispatchTask)
-  const selectEvent = useOperationsStore(s => s.selectEvent)
-  const canMutate = isOnline && source === 'server'
+  // W1.4: transport-only predicate; authority is ANDed in by the caller.
+  const canMutate = useCanMutateOperations()
   const closed = isClosedEvent(detail.event.status)
   const isXuDoanEvent = (detail.event.eventScopeType ?? (detail.event.scopeUnitId ? 'UNIT' : 'XU_DOAN')) === 'XU_DOAN'
 
@@ -84,7 +82,8 @@ export function TaskAssignForm({ detail, creationOptions }: { detail: OperationE
       else await assignTask(task, target, draft.role, key)
       releaseKey('assign-task')
       setDraft({ taskId: '', target: '', reserveTarget: '', acknowledgeBy: '', role: 'CONTRIBUTOR' })
-      await selectEvent(detail.event.id)
+      // W1.3: the store re-reads the event for `assignTask` (an OWNER assignment
+      // is what clears TASK_OWNER_MISSING), so this was a duplicate round trip.
     } catch (error: any) {
       setFormError(operationsErrorText(error?.code, error?.message || 'Không thể phân công nhiệm vụ'))
     } finally { setBusy(false) }

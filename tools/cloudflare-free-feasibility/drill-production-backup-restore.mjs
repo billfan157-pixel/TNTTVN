@@ -2,10 +2,12 @@
 // temporary SQLite database. This tool never opens a production Turso client.
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, rmdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { createClient } from '@libsql/client'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
 const PRODUCTION_BUCKET = 'catevia-production-blobs'
 const LEGACY_OBJECT_KEY_PATTERN = /^backups\/turso-[A-Za-z0-9-]+\.json\.gz\.enc$/
@@ -45,20 +47,12 @@ function removeIsolatedTarget(targetDir, targetPath) {
     if (!resolve(path).startsWith(`${resolve(targetDir)}${sep}`)) throw new Error('Unsafe restore cleanup path')
     if (existsSync(path)) rmSync(path)
   }
-  rmSync(targetDir)
+  rmdirSync(targetDir)
 }
 
 export async function drillProductionBackupRestore(env = process.env) {
   const input = validateRestoreInputs(env)
-  process.env.DEPLOYMENT_PARISH_ID = 'gia-ton'
-   const [{ decryptLogicalSnapshot, readAndVerifyRemoteBackupSet, restoreLogicalSnapshot }, { prepareEmptyRestoreTarget },
-     { assertDatabaseReady }, { assertNotRecoveryQuarantined }] = await Promise.all([
-
-    import('../../server/src/services/remoteBackup.ts'),
-    import('../../server/src/db/restorePreparation.ts'),
-    import('../../server/src/db/schemaHealth.ts'),
-    import('../../server/src/db/recoveryQuarantine.ts'),
-  ])
+  const { decryptLogicalSnapshot, readAndVerifyRemoteBackupSet } = await import('../../server/src/services/remoteBackup.ts')
    let snapshot
    let archiveObjectCount = 0
    if (input.format === 'v2') {
@@ -101,8 +95,41 @@ export async function drillProductionBackupRestore(env = process.env) {
     throw new Error('Isolated restore target escaped the temporary directory')
   }
   const targetPath = join(targetDir, `${randomUUID()}.sqlite`)
-  const target = createClient({ url: `file:${targetPath.replace(/\\/g, '/')}`,
-    encryptionKey: randomBytes(32).toString('hex') })
+  try {
+    // libSQL transaction handles can outlive client.close() on Windows. The
+    // process boundary releases all native handles before the parent cleans up.
+    // Plaintext and the throwaway key travel only over stdin, never argv or disk.
+    const childEnv = Object.fromEntries(['PATH', 'SystemRoot', 'TEMP', 'TMP'].flatMap(name =>
+      process.env[name] ? [[name, process.env[name]]] : []))
+    const child = spawnSync(process.execPath, ['--import', 'tsx', fileURLToPath(import.meta.url), '--restore-local', targetPath], {
+      env: { ...childEnv, DEPLOYMENT_PARISH_ID: 'gia-ton' },
+      input: JSON.stringify({ snapshot, encryptionKey: randomBytes(32).toString('hex') }),
+      encoding: 'utf8', windowsHide: true, maxBuffer: 1024 * 1024, timeout: 120_000,
+    })
+    if (child.error || child.status !== 0) throw new Error('Isolated restore child failed; production was not modified')
+    const result = JSON.parse(child.stdout)
+    if (!result.verified || result.rowCount !== input.rowCount) throw new Error('Isolated restore result mismatch')
+    return { ...result, scope: 'production-r2-to-isolated-local-sqlite',
+      checkedAt: new Date().toISOString(), format: input.format, archiveObjectCount, cutoverReady: false }
+  } finally {
+    removeIsolatedTarget(targetDir, targetPath)
+  }
+}
+
+async function restoreLocalChild(targetPath) {
+  const parent = resolve(targetPath, '..')
+  if (!parent.startsWith(`${resolve(tmpdir())}${sep}catevia-restore-drill-`)
+    || !/^[a-f0-9-]+\.sqlite$/.test(targetPath.split(/[\\/]/).at(-1)) || existsSync(targetPath)) {
+    throw new Error('Fresh isolated restore target required')
+  }
+  const { snapshot, encryptionKey } = JSON.parse(readFileSync(0, 'utf8'))
+  if (!/^[a-f0-9]{64}$/.test(encryptionKey)) throw new Error('Isolated encryption key required')
+  const [{ restoreLogicalSnapshot }, { prepareEmptyRestoreTarget }, { assertDatabaseReady },
+    { assertNotRecoveryQuarantined }] = await Promise.all([
+    import('../../server/src/services/remoteBackup.ts'), import('../../server/src/db/restorePreparation.ts'),
+    import('../../server/src/db/schemaHealth.ts'), import('../../server/src/db/recoveryQuarantine.ts'),
+  ])
+  const target = createClient({ url: `file:${targetPath.replace(/\\/g, '/')}`, encryptionKey })
   const startedAt = Date.now()
   try {
     await prepareEmptyRestoreTarget(target)
@@ -110,37 +137,28 @@ export async function drillProductionBackupRestore(env = process.env) {
       throw new Error('Isolated restore target is not encrypted')
     }
     const restored = await restoreLogicalSnapshot(target, snapshot, {
-      parishId: 'gia-ton',
-      targetFingerprint: createHash('sha256').update(`isolated-production-drill-${targetPath}`).digest('hex'),
+      parishId: 'gia-ton', targetFingerprint: createHash('sha256').update(`isolated-production-drill-${targetPath}`).digest('hex'),
     })
     await assertDatabaseReady(target)
     let quarantineBlocksStartup = false
     try { await assertNotRecoveryQuarantined(target) } catch (error) {
       quarantineBlocksStartup = String(error?.message).includes('RECOVERY_QUARANTINED')
     }
-    if (restored.restoredRows !== input.rowCount || restored.foreignKeyViolations !== 0
+    if (restored.restoredRows !== snapshot.rowCount || restored.foreignKeyViolations !== 0
       || Object.keys(restored.tableCounts).length !== snapshot.tables.length
-      || !restored.quarantined || !quarantineBlocksStartup) {
-      throw new Error('Isolated restore integrity or quarantine failed')
-    }
-     return { verified: true, scope: 'production-r2-to-isolated-local-sqlite',
-       checkedAt: new Date().toISOString(), format: input.format,
-       rowCount: restored.restoredRows, archiveObjectCount,
-       tableCount: Object.keys(restored.tableCounts).length,
-
-      foreignKeyViolations: restored.foreignKeyViolations,
-      quarantineBlocksStartup, localDurationMs: Date.now() - startedAt,
-      cutoverReady: false }
+      || !restored.quarantined || !quarantineBlocksStartup) throw new Error('Isolated restore integrity or quarantine failed')
+    return { verified: true, rowCount: restored.restoredRows, tableCount: Object.keys(restored.tableCounts).length,
+      foreignKeyViolations: restored.foreignKeyViolations, quarantineBlocksStartup, localDurationMs: Date.now() - startedAt }
   } finally {
-    try { await target.close() } finally {
-      removeIsolatedTarget(targetDir, targetPath)
-    }
+    target.close()
   }
 }
 
-if (process.argv[1]?.endsWith('drill-production-backup-restore.mjs')) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    process.stdout.write(`${JSON.stringify(await drillProductionBackupRestore())}\n`)
+    const result = process.argv[2] === '--restore-local'
+      ? await restoreLocalChild(process.argv[3]) : await drillProductionBackupRestore()
+    process.stdout.write(`${JSON.stringify(result)}\n`)
   } catch (error) {
     process.stderr.write(`${JSON.stringify({ verified: false, errorClass: error?.name || 'UnknownError' })}\n`)
     process.exitCode = 1

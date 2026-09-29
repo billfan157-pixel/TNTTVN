@@ -1,17 +1,24 @@
 import { useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { Button, TextArea } from '../common/ui'
-import { operationsApi, type OperationTaskDetail } from '../../lib/api/operations'
+import type { OperationTaskDetail } from '../../lib/api/operations'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
+import { useOperationsStore } from '../../stores/operationsStore'
 
-export function TaskRestorePanel({ detail, enabled, refresh }: { detail: OperationTaskDetail; enabled: boolean; refresh: () => Promise<unknown> | unknown }) {
+// W1.2: the store's `restoreTask` already re-reads through `refreshTaskViews`,
+// so this panel takes no `refresh` prop — a second refresh path here was a
+// duplicate round trip with its own failure mode.
+export function TaskRestorePanel({ detail, enabled }: { detail: OperationTaskDetail; enabled: boolean }) {
   const [reason, setReason] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const inFlight = useRef(false)
   const { stableKey, releaseKey } = useStableCommandKey()
+  // W1.2: through the store, so the response is parish-asserted and an OCC
+  // failure gets the store's refetch rather than a dead-end error.
+  const restoreTask = useOperationsStore(s => s.restoreTask)
   if (detail.task.status !== 'CANCELLED' || !detail.permissions['operations.task.manage']) return null
 
   return <section className="mb-4 space-y-3 rounded-xl border border-parish-warning/30 bg-parish-warning-bg/30 p-3" aria-label="Khôi phục nhiệm vụ đã hủy">
@@ -33,12 +40,11 @@ export function TaskRestorePanel({ detail, enabled, refresh }: { detail: Operati
       // payload reuses the key so the server dedups instead of double-acting.
       const payload = { version: detail.task.version, reason: reason.trim() }
       const key = stableKey('task-restore', { id: detail.task.id, ...payload })
-      void operationsApi.restoreTask(detail.task.id, payload, key)
-        .then(async () => {
+      void restoreTask(detail.task, reason.trim(), key)
+        .then(() => {
           if (scope !== getTenantScopeKey()) return
           releaseKey('task-restore')
           setReason(''); setMessage('Đã khôi phục nhiệm vụ về trạng thái Chưa làm.')
-          await refresh()
         })
         .catch(error => { if (scope === getTenantScopeKey()) setMessage(operationsErrorText((error as { code?: string })?.code, error instanceof Error ? error.message : 'Không khôi phục được nhiệm vụ.')) })
         .finally(() => {

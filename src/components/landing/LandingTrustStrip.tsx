@@ -36,7 +36,7 @@ const PILLARS: TrustPillar[] = [
 
 export function LandingTrustStrip() {
   return (
-    <section data-landing-scene="trust" aria-labelledby="tieu-de-tin-cay" className="landing-trust flex flex-col gap-6">
+    <section data-landing-scene="trust" data-landing-reveal aria-labelledby="tieu-de-tin-cay" className="landing-trust flex flex-col gap-8">
       <div className="landing-narrative text-center flex flex-col items-center gap-3">
         <span className="landing-eyebrow">
           <ShieldCheck className="w-4 h-4" aria-hidden="true" />
@@ -50,22 +50,37 @@ export function LandingTrustStrip() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {PILLARS.map(pillar => (
+      <div className="landing-trust__grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+        {PILLARS.map((pillar, idx) => (
           <article
             key={pillar.title}
-            className="card card-interactive p-4 sm:p-5 lg:p-6 flex flex-col gap-3 border border-surface-border bg-surface-card transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:shadow-card-hover"
+            className="landing-trust__card flex flex-col justify-between p-5 sm:p-6 rounded-2xl bg-surface-card border border-surface-border hover:border-parish-primary/40 hover:shadow-lg transition-transform duration-250 group"
           >
-            <div className="w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center shrink-0">
-              <pillar.icon className="w-5 h-5" aria-hidden="true" />
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-parish-primary-light text-parish-primary flex items-center justify-center shrink-0 border border-parish-primary/15 shadow-xs transition-transform duration-300 group-hover:scale-105">
+                  <pillar.icon className="w-5 h-5" aria-hidden="true" />
+                </div>
+                <span aria-hidden="true" className="text-xs font-serif font-bold text-text-muted px-2 py-0.5 rounded-full bg-surface-app border border-surface-border/60 tracking-wider">
+                  0{idx + 1}
+                </span>
+              </div>
+              <div>
+                <h3 className="m-0 text-base font-bold text-text-main group-hover:text-parish-primary transition-colors tracking-tight">
+                  {pillar.title}
+                </h3>
+                <p className="m-0 mt-2 text-xs sm:text-sm text-text-secondary leading-relaxed">
+                  {pillar.description}
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="m-0 text-sm font-bold text-text-main">
-                {pillar.title}
-              </h3>
-              <p className="m-0 mt-1.5 text-xs text-text-secondary leading-relaxed">
-                {pillar.description}
-              </p>
+
+            <div className="mt-5 pt-3 border-t border-surface-border/60 flex items-center justify-between text-xs font-semibold text-text-muted group-hover:text-parish-primary transition-colors">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-parish-success" aria-hidden="true" />
+                <span>Tiêu chuẩn Catevia</span>
+              </span>
+              <span className="text-xs uppercase font-bold text-text-muted tracking-wider">Xứ Đoàn</span>
             </div>
           </article>
         ))}

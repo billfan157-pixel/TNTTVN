@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CalendarPlus, CopyCheck, LayoutTemplate } from 'lucide-react'
-import { EmptyState } from '../common/StateFeedback'
+import { EmptyState, SkeletonCardGrid } from '../common/StateFeedback'
 import { Badge, Button, Select, TextArea, TextInput } from '../common/ui'
 import { operationsApi, type OperationEventDetail, type OperationEventTemplate, type OperationEventTemplatePreview, type OperationsCreationOptions } from '../../lib/api/operations'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { newIdempotencyKey } from '../../lib/api/core'
 import { getTenantScope, getTenantScopeKey } from '../../lib/tenantScope'
 import { useOperationsStore } from '../../stores/operationsStore'
+import { useOperationsDraft } from '../../stores/operationsDraftStore'
 
 type StableCommandKey = { fingerprint: string; key: string }
 
@@ -48,9 +49,12 @@ export function EventTemplatesPanel({
   const [previewStartsAt, setPreviewStartsAt] = useState('')
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
-  const [versionReason, setVersionReason] = useState('')
-  const [archiveReason, setArchiveReason] = useState('')
-  const [restoreReason, setRestoreReason] = useState('')
+  // W0.2: these three are server-mandatory reasons living in a TabPanel, so a
+  // tab switch used to destroy them and turn a filled form back into a dead
+  // button. Surviving drafts are keyed by event id and cleared on success.
+  const [versionReason, setVersionReason, resetVersionReason] = useOperationsDraft(sourceEvent?.event.id ?? null, 'template.versionReason')
+  const [archiveReason, setArchiveReason, resetArchiveReason] = useOperationsDraft(sourceEvent?.event.id ?? null, 'template.archiveReason')
+  const [restoreReason, setRestoreReason, resetRestoreReason] = useOperationsDraft(sourceEvent?.event.id ?? null, 'template.restoreReason')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [organizerUserId, setOrganizerUserId] = useState('')
@@ -63,6 +67,21 @@ export function EventTemplatesPanel({
   const archiveCommand = useRef<StableCommandKey | null>(null)
   const restoreCommand = useRef<StableCommandKey | null>(null)
   const scopeKey = getTenantScopeKey()
+  // W0.3: `enabled` is a TRANSPORT predicate (online + a fresh server snapshot),
+  // never an authority map. Authority and transport must stay separate: a panel
+  // blocked by connectivity must not claim the caller lacks permission, and a
+  // mutation must be gated on BOTH the transport and its own capability.
+  const transportReady = enabled
+  const canInstantiate = transportReady && (creationOptions
+    ? Boolean(creationOptions.canCreateXuDoanEvent || creationOptions.units.some(unit => unit.canCreateEvent))
+    : true)
+  const canWriteSource = transportReady && Boolean(sourceEvent?.permissions['operations.event.create'])
+  // Distinguish "we have nothing to show yet" from "we may not show anything",
+  // so the catalog's empty state can state the true reason.
+  const catalogState: 'transport-blocked' | 'loading' | 'ready'
+    = !transportReady ? 'transport-blocked'
+      : projectionScopeKey === scopeKey && scopeKey ? 'ready'
+        : 'loading'
   const projectionIsCurrent = Boolean(enabled && scopeKey && projectionScopeKey === scopeKey)
   const visibleTemplates = projectionIsCurrent ? templates : []
   const visibleArchivedTemplates = projectionIsCurrent ? archivedTemplates : []
@@ -135,9 +154,12 @@ export function EventTemplatesPanel({
   // every button look equally idle while a long instantiate ran. busyControl
   // names the in-flight action so exactly that button spins.
   const [busyControl, setBusyControl] = useState<string | null>(null)
-  const run = async (action: (current: () => boolean) => Promise<void>, control?: string) => {
+  // `authority` is the caller's own capability verdict. W0.3: `run` refuses
+  // without transport AND without authority, so a panel that renders a disabled
+  // form offline still cannot issue a command when it re-enables incorrectly.
+  const run = async (action: (current: () => boolean) => Promise<void>, control?: string, authority = true) => {
     const scope = getTenantScopeKey()
-    if (!enabled || !scope || inFlight.current) return
+    if (!enabled || !authority || !scope || inFlight.current) return
     const token = generation.current; const current = () => token === generation.current && scope === getTenantScopeKey()
     inFlight.current = true; setBusy(true); setBusyControl(control ?? null); setMessage('')
     try { await action(current) } catch (error) {
@@ -182,9 +204,16 @@ export function EventTemplatesPanel({
       </div>
     </div>
 
-    {isCatalog && (visibleTemplates.length === 0
-      ? <EmptyState icon={LayoutTemplate} title="Chưa có mẫu trong phạm vi của bạn." description="Mẫu sẽ xuất hiện khi người có quyền trong Ban/Ngành tạo và duyệt nội dung." className="py-5" />
-      : <div className="grid gap-3 sm:grid-cols-2">
+    {isCatalog && (catalogState === 'transport-blocked'
+      // W0.3: connectivity, not authorization. The previous copy here claimed
+      // the caller had no templates in scope while merely being offline.
+      ? <EmptyState icon={LayoutTemplate} title="Tạm thời không kết nối." description="Danh sách mẫu sự kiện cần tải từ máy chủ. Kết nối lại để xem và dùng mẫu." className="py-5" />
+      : catalogState === 'loading'
+        // W0.3/F11: a fetch in flight is not an empty catalog.
+        ? <SkeletonCardGrid count={2} className="py-2" />
+        : visibleTemplates.length === 0
+          ? <EmptyState icon={LayoutTemplate} title="Chưa có mẫu trong phạm vi của bạn." description="Mẫu sẽ xuất hiện khi người có quyền trong Ban/Ngành tạo và duyệt nội dung." className="py-5" />
+          : <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm font-semibold text-text-main">Mẫu
           <Select aria-label="Mẫu sự kiện cần dùng" className="mt-1 w-full" value={templateId} disabled={busy} onChange={event => { setTemplateId(event.target.value); setPreview(null); setOrganizerUserId('') }}>
             {visibleTemplates.map(template => <option key={template.id} value={template.id}>{template.name} · v{template.latestVersion}</option>)}
@@ -218,8 +247,10 @@ export function EventTemplatesPanel({
           <p className="mb-0 mt-1 text-xs text-text-muted">{canPublishPublic ? 'Công khai tự sinh bản chiếu Lịch và thông báo phụ huynh;' : 'Bạn chưa có quyền công khai; bản tạo ra sẽ ở chế độ nội bộ;'} task, phân công và hậu kiểm luôn nội bộ.</p>
         </fieldset>
         <div className="flex flex-wrap gap-2 sm:col-span-2">
-          <Button variant="secondary" size="sm" loading={busyControl === 'preview'} disabled={busy || !startsAt || !selectedTemplate} onClick={previewSelected}>Xem trước</Button>
-          <Button size="sm" leadingIcon={<CalendarPlus className="h-4 w-4" />} loading={busyControl === 'instantiate'} disabled={busy || !preview || preview.template.id !== selectedTemplate?.id || preview.version !== selectedTemplate?.latestVersion || previewIsStale || (creationOptions !== null && instantiateOrganizers.length > 1 && !effectiveInstantiateOrganizer)} onClick={() => {
+          <Button variant="secondary" size="sm" loading={busyControl === 'preview'} disabled={busy || !transportReady || !startsAt || !selectedTemplate} onClick={previewSelected}>Xem trước</Button>
+          {/* W0.3: instantiate is a real Operations command, so the button needs
+              authority AND transport — `canInstantiate` carries both. */}
+          <Button size="sm" leadingIcon={<CalendarPlus className="h-4 w-4" />} loading={busyControl === 'instantiate'} disabled={busy || !canInstantiate || !preview || preview.template.id !== selectedTemplate?.id || preview.version !== selectedTemplate?.latestVersion || previewIsStale || (creationOptions !== null && instantiateOrganizers.length > 1 && !effectiveInstantiateOrganizer)} onClick={() => {
             if (!preview || !selectedTemplate || !startsAt) return
             void run(async current => {
               const scope = getTenantScope()
@@ -244,7 +275,7 @@ export function EventTemplatesPanel({
               setMessage(`Đã tạo bản nháp “${created.event.title}” với ${created.tasks.length} task; chưa có người được phân công.`)
               await loadTemplates()
               await onEventCreated(created.event.id)
-            }, 'instantiate')
+            }, 'instantiate', canInstantiate)
           }}>Tạo bản nháp từ mẫu</Button>
         </div>
         {/* W2.6: explain why the create button waits instead of dying silently. */}
@@ -272,12 +303,12 @@ export function EventTemplatesPanel({
         snapshotCommand.current = null
         setTemplateName(''); setTemplateDescription(''); setMessage('Đã lưu snapshot v1; thay đổi event sau này không sửa mẫu này.')
         await loadTemplates(); setTemplateId(created.id); setPreview(null); onTemplatesChanged?.()
-      }, 'snapshot')
+      }, 'snapshot', canWriteSource)
     }}>
       <div className="sm:col-span-2"><h3 className="m-0 text-sm font-extrabold text-text-main">Lưu sự kiện đang mở thành mẫu</h3><p className="mb-0 mt-1 text-xs text-text-muted">Task đã hủy và toàn bộ identity/quyền vận hành không được đưa vào snapshot.</p></div>
       <TextInput aria-label="Tên mẫu sự kiện" value={templateName} maxLength={200} required disabled={busy} placeholder="Ví dụ: Mẫu sinh hoạt ngành" onChange={event => setTemplateName(event.target.value)} />
       <TextInput aria-label="Mô tả mẫu sự kiện" value={templateDescription} maxLength={3000} disabled={busy} placeholder="Phạm vi áp dụng của mẫu" onChange={event => setTemplateDescription(event.target.value)} />
-      <Button type="submit" size="sm" leadingIcon={<CopyCheck className="h-4 w-4" />} loading={busyControl === 'snapshot'} disabled={busy || !templateName.trim()}>Lưu mẫu v1</Button>
+      <Button type="submit" size="sm" leadingIcon={<CopyCheck className="h-4 w-4" />} loading={busyControl === 'snapshot'} disabled={busy || !canWriteSource || !templateName.trim()}>Lưu mẫu v1</Button>
     </form>}
 
     {!isCatalog && visibleTemplates.length > 0 && <label className="block text-sm font-semibold text-text-main">Mẫu cần cập nhật
@@ -295,14 +326,14 @@ export function EventTemplatesPanel({
         const changed = await operationsApi.createEventTemplateVersion(selectedTemplate.id, payload, keyForPayload(versionCommand, { templateId: selectedTemplate.id, ...payload }))
         if (!current()) return
         versionCommand.current = null
-        setVersionReason(''); setPreview(null); setMessage(`Đã tạo phiên bản ${changed.latestVersion}; các event cũ vẫn giữ snapshot trước.`)
+        resetVersionReason(); setPreview(null); setMessage(`Đã tạo phiên bản ${changed.latestVersion}; các event cũ vẫn giữ snapshot trước.`)
         await loadTemplates(); onTemplatesChanged?.()
-      }, 'version')
+      }, 'version', canWriteSource)
     }}>
       <label className="text-sm font-semibold text-text-main">Lý do tạo phiên bản mới
         <TextArea aria-label="Lý do tạo phiên bản mẫu" className="mt-1 min-h-20 w-full" value={versionReason} maxLength={2000} required disabled={busy} placeholder="Điểm nào trong event hiện tại cần trở thành chuẩn mới?" onChange={event => setVersionReason(event.target.value)} />
       </label>
-      <Button type="submit" variant="secondary" size="sm" loading={busyControl === 'version'} disabled={busy || !versionReason.trim()}>Tạo phiên bản mới</Button>
+      <Button type="submit" variant="secondary" size="sm" loading={busyControl === 'version'} disabled={busy || !canWriteSource || !versionReason.trim()}>Tạo phiên bản mới</Button>
     </form>}
 
     {!isCatalog && canSnapshotSource && selectedTemplate && <form className="grid gap-3 border-t border-surface-border pt-4 sm:grid-cols-[1fr_auto] sm:items-end" onSubmit={event => {
@@ -313,14 +344,14 @@ export function EventTemplatesPanel({
         await operationsApi.archiveEventTemplate(selectedTemplate.id, payload, keyForPayload(archiveCommand, { templateId: selectedTemplate.id, ...payload }))
         if (!current()) return
         archiveCommand.current = null
-        setArchiveReason(''); setPreview(null); setMessage('Đã lưu trữ mẫu. Event đã tạo trước đây vẫn giữ nguyên provenance và snapshot.')
+        resetArchiveReason(); setPreview(null); setMessage('Đã lưu trữ mẫu. Event đã tạo trước đây vẫn giữ nguyên provenance và snapshot.')
         await loadTemplates(); onTemplatesChanged?.()
-      }, 'archive')
+      }, 'archive', canWriteSource)
     }}>
       <label className="text-sm font-semibold text-text-main">Lý do lưu trữ mẫu
         <TextArea aria-label="Lý do lưu trữ mẫu sự kiện" className="mt-1 min-h-20 w-full" value={archiveReason} maxLength={2000} required disabled={busy} placeholder="Ví dụ: tạm ẩn để rà soát nội dung" onChange={event => setArchiveReason(event.target.value)} />
       </label>
-      <Button type="submit" variant="danger" size="sm" loading={busyControl === 'archive'} disabled={busy || !archiveReason.trim()}>Lưu trữ mẫu</Button>
+      <Button type="submit" variant="danger" size="sm" loading={busyControl === 'archive'} disabled={busy || !canWriteSource || !archiveReason.trim()}>Lưu trữ mẫu</Button>
     </form>}
 
     {!isCatalog && canSnapshotSource && visibleArchivedTemplates.length > 0 && <form className="grid gap-3 border-t border-surface-border pt-4 sm:grid-cols-2" onSubmit={event => {
@@ -331,9 +362,9 @@ export function EventTemplatesPanel({
         await operationsApi.restoreEventTemplate(selectedArchivedTemplate.id, payload, keyForPayload(restoreCommand, { templateId: selectedArchivedTemplate.id, ...payload }))
         if (!current()) return
         restoreCommand.current = null
-        setRestoreReason(''); setMessage('Đã khôi phục mẫu vào catalog hoạt động.')
+        resetRestoreReason(); setMessage('Đã khôi phục mẫu vào catalog hoạt động.')
         await loadTemplates(); setTemplateId(selectedArchivedTemplate.id); onTemplatesChanged?.()
-      }, 'restore')
+      }, 'restore', canWriteSource)
     }}>
       <div className="sm:col-span-2"><h3 className="m-0 text-sm font-extrabold text-text-main">Mẫu đang lưu trữ</h3><p className="mb-0 mt-1 text-xs text-text-muted">Mẫu lưu trữ không thể xem trước, tạo phiên bản hay tạo event mới cho đến khi được khôi phục.</p></div>
       <label className="text-sm font-semibold text-text-main">Mẫu cần khôi phục
@@ -344,7 +375,7 @@ export function EventTemplatesPanel({
       <label className="text-sm font-semibold text-text-main">Lý do khôi phục
         <TextArea aria-label="Lý do khôi phục mẫu sự kiện" className="mt-1 min-h-20 w-full" value={restoreReason} maxLength={2000} required disabled={busy} placeholder="Nội dung đã được rà soát như thế nào?" onChange={event => setRestoreReason(event.target.value)} />
       </label>
-      <Button type="submit" variant="secondary" size="sm" loading={busyControl === 'restore'} disabled={busy || !selectedArchivedTemplate || !restoreReason.trim()}>Khôi phục mẫu</Button>
+      <Button type="submit" variant="secondary" size="sm" loading={busyControl === 'restore'} disabled={busy || !canWriteSource || !selectedArchivedTemplate || !restoreReason.trim()}>Khôi phục mẫu</Button>
     </form>}
 
     {message && <p role="status" className="m-0 text-sm text-text-main">{message}</p>}

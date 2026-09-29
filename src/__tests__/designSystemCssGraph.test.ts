@@ -8,8 +8,10 @@ const entryPath = path.join(srcRoot, 'index.css')
 const moduleDir = path.join(srcRoot, 'styles/design-system')
 const expectedImports = [
   '00-tokens.css',
+  '05-fonts.css',
   '10-foundations.css',
   '20-primitives.css',
+  '25-landing.css',
   '30-theme-media.css',
   '40-mobile-shell.css',
   '50-app-shell.css',

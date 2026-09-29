@@ -7,33 +7,72 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1E3A8A" />
-    <meta name="description" content="Catevia giúp Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn quản lý Giáo lý và đồng hành cùng từng thiếu nhi trong đời sống đức tin." />
+    <meta name="description" content="Catevia — nền tảng quản lý Giáo lý & Thiếu Nhi Thánh Thể của Xứ Đoàn Đức Mẹ Fatima, Giáo Xứ Gia Tôn: chuyên cần, điểm số, đời sống Xứ Đoàn và cổng phụ huynh trên điện thoại." />
     <link rel="canonical" href="https://tnttvn.vercel.app/" />
-    <!-- Open Graph / Zalo / Facebook Sharing -->
+    <!-- Open Graph / Zalo / Facebook Sharing.
+         og:image MUST be absolute: crawlers resolve a relative URL against their own
+         fetch origin, so every share card used to render empty (and the referenced
+         file was deleted outright). Dimensions + alt are declared because Zalo and
+         Facebook skip the preview rather than guess them. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Catevia" />
+    <meta property="og:locale" content="vi_VN" />
     <meta property="og:url" content="https://tnttvn.vercel.app/" />
     <meta property="og:title" content="Catevia — Nền tảng quản lý Giáo lý & Thiếu Nhi Thánh Thể" />
     <meta property="og:description" content="Đồng hành cùng Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn. Tra cứu điểm số, chuyên cần và đời sống đức tin thiếu nhi." />
-    <meta property="og:image" content="/images/xu-doan-tap-the.jpg" />
+    <meta property="og:image" content="https://tnttvn.vercel.app/images/og/catevia-og.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Tập thể huynh trưởng và thiếu nhi Xứ Đoàn Đức Mẹ Fatima trước thánh đường Gia Tôn" />
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Catevia — Nền tảng quản lý Giáo lý & Thiếu Nhi Thánh Thể" />
     <meta name="twitter:description" content="Đồng hành cùng Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn. Tra cứu điểm số, chuyên cần và đời sống đức tin thiếu nhi." />
-    <meta name="twitter:image" content="/images/xu-doan-tap-the.jpg" />
+    <meta name="twitter:image" content="https://tnttvn.vercel.app/images/og/catevia-og.jpg" />
+    <!-- Structured data for crawlers: one truthful WebApplication record, no
+         ratings/fakes. Kept in index.html (not React) so it is present in the
+         initial HTML without executing the app. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Catevia",
+        "alternateName": "TNTTVN",
+        "url": "https://tnttvn.vercel.app/",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "Web",
+        "inLanguage": "vi",
+        "description": "Nền tảng quản lý Giáo lý & Thiếu Nhi Thánh Thể của Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn: chuyên cần, điểm số, đời sống Xứ Đoàn và cổng phụ huynh.",
+        "publisher": {
+          "@type": "Organization",
+          "name": "Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn"
+        }
+      }
+    </script>
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Inter loads async via src/lib/fontLoader.ts (programmatic preload swap:
-         an onload="" attribute would violate script-src-attr 'none'). No-JS
-         clients fall back to the blocking stylesheet below. -->
-    <noscript>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;0,900;1,400;1,600&display=swap" rel="stylesheet" />
-    </noscript>
-    <title>Xứ Đoàn Đức Mẹ Fatima — Giáo Xứ Gia Tôn</title>
+    <!-- Self-hosted web fonts (src/styles/design-system/05-fonts.css declares the
+         @font-face rules). The two latin faces carry almost all of the first paint
+         — hero H1/body and the serif display numerals — so they are preloaded to
+         land before the first paint and avoid a swap shift. The vietnamese and
+         italic subsets load lazily on first use. -->
+    <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/playfair-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- LCP preload. The hero <img> only exists after React mounts, so its fetch used to
+         start only after the entry + route JS chains — even on localhost LCP measured
+         2.07s. The srcset candidate is deterministic because sizes is a fixed media
+         choice (see LandingHeroMedia.tsx), so this preload selects exactly the variant
+         the img will pick and the img's own request dedupes into it. -->
+    <link
+      rel="preload"
+      as="image"
+      fetchpriority="high"
+      imagesrcset="/images/hero/hero-640.avif 640w, /images/hero/hero-828.avif 828w, /images/hero/hero-1280.avif 1280w, /images/hero/hero-1600.avif 1600w, /images/hero/hero-2480.avif 2480w"
+      imagesizes="(max-width: 828px) 100vw, 1600px"
+    />
+    <title>Catevia — Quản lý Giáo lý & Thiếu Nhi Thánh Thể | Xứ Đoàn Đức Mẹ Fatima</title>
   </head>
   <body>
     <div id="root"></div>

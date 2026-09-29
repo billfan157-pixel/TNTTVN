@@ -3,7 +3,9 @@
    ═══════════════════════════════════════════════════ */
 
 html {
-  scroll-padding-top: 4.5rem;
+  /* Clears the sticky .app-header (77px) so anchor targets are never parked under it
+     (WCAG 2.4.11 Focus Not Obscured). */
+  scroll-padding-top: var(--header-clearance);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -71,7 +73,9 @@ body {
   z-index: var(--z-skip-link);
   font-weight: 600;
 }
-.skip-link:focus {
+/* focus-visible, not :focus: clicking anywhere with a pointer must not summon the
+   link (programmatic .focus() on skip targets would), while keyboard Tab still does. */
+.skip-link:focus-visible {
   top: 8px;
 }
 

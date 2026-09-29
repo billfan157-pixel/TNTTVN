@@ -138,4 +138,43 @@
   --motion-standard: 180ms;
   --motion-slow: 260ms;
   --motion-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ─── Brand scene surfaces ───
+     Derived from parish-primary so they follow the dark-mode token override
+     automatically. These used to be declared locally on `.landing-page`, which
+     made them a second token location and forced a manual `.dark` patch. */
+  --color-brand-deep: color-mix(in srgb, var(--color-parish-primary) 28%, black);
+  --color-brand-navy: color-mix(in srgb, var(--color-parish-primary) 46%, black);
+  --color-brand-gold: var(--color-parish-secondary-light);
+
+  /* ─── Public landing canvas ───
+     The marketing sections were split across two content widths (1480px for
+     community/cinematic/stats, max-w-7xl = 1280px for the tail sections), which
+     left the page visibly misaligned. One canvas, one gutter. */
+  --landing-canvas: 1480px;
+  --landing-gutter: clamp(1.25rem, 5vw, 5rem);
+
+  /* ─── Landing type scale ───
+     `.typography-*` in 10-foundations.css is an app-density ladder (30/24/18/16/
+     14/12/11px) and is wrong for marketing display type, so the landing keeps its
+     own scale — but as tokens, not as clamp() magic numbers in a component sheet.
+     The tracking values were previously 5 different positives and 7 different
+     negatives for the same two roles. */
+  --landing-eyebrow-tracking: 0.15em;
+  --landing-display-tracking: -0.05em;
+
+  /* ─── Cream that survives a photograph ───
+     The hero's cream text used `--color-brand-gold`, which is a light cream on paper
+     (#FEF3C7, luminance 0.89) but a dimmer gold in dark mode (#F0C36A, 0.59) because
+     it has to stay readable on dark *surfaces*. Behind the hero scrim the backdrop is a
+     photograph in both themes, so the colour has to be theme-stable: measured 8.14:1 in
+     light but 4.08:1 in dark — short of the 4.5:1 that 12px bold text needs. This is a
+     deliberately theme-invariant token; do not wire it to parish-gold. */
+  --landing-cream-on-media: #FEF3C7;
+
+  /* ─── Sticky header clearance ───
+     `.app-header` renders 76px + a 1px border = 77px, and the public landing header
+     reuses that class. Anchor scrolling and sticky offsets have to clear all of it.
+     The previous 4.5rem (72px) was already 5px short for the authenticated app. */
+  --header-clearance: 5rem;
 }

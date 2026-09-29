@@ -3,6 +3,7 @@ import { StrictMode } from 'react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { EventRetrospectivePanel } from '../../components/operations/EventRetrospectivePanel'
 import { operationsApi, type OperationEventDetail } from '../../lib/api/operations'
+import { useOperationsDraftStore } from '../../stores/operationsDraftStore'
 
 vi.mock('../../lib/api/operations', () => ({
   operationsApi: {
@@ -35,6 +36,9 @@ const detail: OperationEventDetail = {
 beforeEach(() => {
   scope = 'p:manager'
   vi.resetAllMocks()
+  // W0.2: the surviving-draft registry is module state, so it must start clean
+  // per test exactly like the stores do.
+  useOperationsDraftStore.getState().clear()
   vi.mocked(operationsApi.saveEventRetrospective).mockResolvedValue({ parishId: 'p', eventId: 'event-1', lessonsLearned: 'Phân công sớm.', improvementNotes: null, version: 1, createdBy: 'manager', updatedBy: 'manager', createdAt: '2026-10-02T00:00:00Z', updatedAt: '2026-10-02T00:00:00Z' })
   vi.mocked(operationsApi.createEventFollowUp).mockResolvedValue({ task: {} as any, assignment: {} as any, eventVersion: 6, conflictWarnings: [{ id: 'busy-1', startsAt: '2026-10-05T01:00:00Z', endsAt: '2026-10-05T02:00:00Z' }] })
 })
@@ -91,6 +95,56 @@ it('coalesces rapid double submit before React can render the disabled state', a
   fireEvent.click(submit)
   fireEvent.click(submit)
   expect(operationsApi.saveEventRetrospective).toHaveBeenCalledTimes(1)
+  expect(submit).toBeDisabled()
   resolve({})
+  // The in-flight lock must release. W0.2 also released the surviving draft on
+  // success, so the field is empty until the refreshed detail carries the saved
+  // text — prove the lock released by retyping and submitting again.
+  await waitFor(() => expect(operationsApi.saveEventRetrospective).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(submit).toBeDisabled())
+  fireEvent.change(screen.getByLabelText('Bài học rút ra'), { target: { value: 'Ghi lần hai.' } })
   await waitFor(() => expect(submit).toBeEnabled())
+  fireEvent.click(submit)
+  await waitFor(() => expect(operationsApi.saveEventRetrospective).toHaveBeenCalledTimes(2))
+})
+
+it('W0.2: keeps a half-typed retrospective across unmount and remount', () => {
+  const { unmount } = render(<EventRetrospectivePanel detail={detail} enabled refresh={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('Bài học rút ra'), { target: { value: 'Phân công sớm hơn năm ngoái.' } })
+  fireEvent.change(screen.getByLabelText('Điểm cần cải thiện'), { target: { value: 'Chốt vật dụng trước ba ngày.' } })
+  unmount()
+
+  render(<EventRetrospectivePanel detail={detail} enabled refresh={vi.fn()} />)
+  expect(screen.getByLabelText('Bài học rút ra')).toHaveValue('Phân công sớm hơn năm ngoái.')
+  expect(screen.getByLabelText('Điểm cần cải thiện')).toHaveValue('Chốt vật dụng trước ba ngày.')
+  expect(operationsApi.saveEventRetrospective).not.toHaveBeenCalled()
+})
+
+it('W0.2: an unsaved draft wins over the saved value but never crosses events', () => {
+  const { unmount } = render(<EventRetrospectivePanel detail={detail} enabled refresh={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('Bài học rút ra'), { target: { value: 'Bản nháp chưa lưu.' } })
+  unmount()
+
+  // A different event must never inherit the previous event's pending text.
+  const { unmount: unmountOther } = render(<EventRetrospectivePanel detail={{ ...detail, event: { ...detail.event, id: 'event-2' } }} enabled refresh={vi.fn()} />)
+  expect(screen.getByLabelText('Bài học rút ra')).toHaveValue('')
+  unmountOther()
+
+  // Back on event-1: the pending draft still outranks the persisted value, so
+  // a tab switch cannot silently replace half-typed work with older saved text.
+  const saved = {
+    ...detail,
+    retrospective: { parishId: 'p', eventId: 'event-1', lessonsLearned: 'Giá trị đã lưu.', improvementNotes: 'Ghi chú đã lưu.', version: 1, createdBy: 'm', updatedBy: 'm', createdAt: '', updatedAt: '' },
+  }
+  const { unmount: unmountSaved } = render(<EventRetrospectivePanel detail={saved} enabled refresh={vi.fn()} />)
+  expect(screen.getByLabelText('Bài học rút ra')).toHaveValue('Bản nháp chưa lưu.')
+  expect(screen.getByLabelText('Điểm cần cải thiện')).toHaveValue('Ghi chú đã lưu.')
+  unmountSaved()
+
+  // Releasing the draft (what a successful save does) hands the field back to
+  // the server value.
+  useOperationsDraftStore.getState().clear()
+  render(<EventRetrospectivePanel detail={saved} enabled refresh={vi.fn()} />)
+  expect(screen.getByLabelText('Bài học rút ra')).toHaveValue('Giá trị đã lưu.')
+  expect(screen.getByLabelText('Điểm cần cải thiện')).toHaveValue('Ghi chú đã lưu.')
 })

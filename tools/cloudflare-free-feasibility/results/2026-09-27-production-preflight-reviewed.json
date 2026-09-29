@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "checks": [
+    "recovery-quarantine-clear",
+    "schema-and-foreign-keys-ready",
+    "single-parish-data-scope"
+  ],
+  "checkedAt": "2026-09-27T16:49:37.651Z",
+  "testedRelease": "0292c52901abf2ff3ad32a887dbd1675e306df0c"
+}

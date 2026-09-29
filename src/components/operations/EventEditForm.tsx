@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react'
 import { Badge, Button, Select, TextArea, TextInput } from '../common/ui'
 import type { OperationEvent, OperationEventDetail } from '../../lib/api/operations'
 import { OPERATIONS_POSITION_LABELS_VI } from '../../lib/api/operations'
-import { useOnlineStatus } from '../../hooks/useOnlineStatus'
+import { useCanMutateOperations } from '../../hooks/useCanMutateOperations'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { useOperationsStore } from '../../stores/operationsStore'
@@ -13,12 +13,11 @@ import { toDateTimeInput, toIso, EVENT_TYPE_OPTIONS } from './operationsViewHelp
 
 /** In-modal event edit form with local draft state. */
 export function EventEditForm({ detail }: { detail: OperationEventDetail }) {
-  const isOnline = useOnlineStatus()
-  const source = useOperationsStore(s => s.source)
   const updateEvent = useOperationsStore(s => s.updateEvent)
   const selectEvent = useOperationsStore(s => s.selectEvent)
   const creationOptions = useOperationsStore(s => s.creationOptions)
-  const canMutate = isOnline && source === 'server'
+  // W1.4: transport-only predicate; authority is ANDed in by the caller.
+  const canMutate = useCanMutateOperations()
 
   const [draft, setDraft] = useState({ title: '', description: '', eventType: 'OTHER', startsAt: '', endsAt: '', location: '', expectedHeadcount: '', organizerUserId: '', visibility: 'INTERNAL' as OperationEvent['visibility'] })
   const [saving, setSaving] = useState(false)

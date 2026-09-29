@@ -135,6 +135,41 @@ describe('notificationQueue web/native delivery and Telegram retirement', () => 
     }
   })
 
+  it('persists a transient Worker failure and retries only in a later delivery invocation', async () => {
+    const previousRuntime = process.env.CATEVIA_RUNTIME
+    const previousWebSocketPair = (globalThis as { WebSocketPair?: unknown }).WebSocketPair
+    process.env.CATEVIA_RUNTIME = 'cloudflare-worker'
+    Object.defineProperty(globalThis, 'WebSocketPair', { configurable: true, value: function WebSocketPair() {} })
+    try {
+      const { enqueueNotification, runNotificationDeliveryCycle } = await import('../../services/notificationQueue.js')
+      const { sendAppPushToUsers } = await import('../../services/appPushService.js')
+      vi.mocked(sendAppPushToUsers).mockRejectedValueOnce(new Error('Synthetic provider unavailable'))
+      const id = await enqueueNotification('webpush', 'info', 'Retry on next alarm', {}, parishId, 3, { webpushUserIds: [parentId] })
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+      await runNotificationDeliveryCycle()
+      const [pending] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(pending).toMatchObject({ status: 'retrying', attemptCount: 1, leaseOwner: null, leaseExpiresAt: null })
+      expect(Date.parse(pending.nextAttemptAt!)).toBeGreaterThan(Date.now())
+      expect(vi.getTimerCount()).toBe(0)
+
+      await runNotificationDeliveryCycle()
+      expect(sendAppPushToUsers).toHaveBeenCalledTimes(1)
+      await db.update(notifications).set({ nextAttemptAt: null }).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      await runNotificationDeliveryCycle()
+      const [sent] = await db.select().from(notifications).where(and(eq(notifications.id, id), eq(notifications.parishId, parishId)))
+      expect(sent).toMatchObject({ status: 'sent', attemptCount: 2, leaseOwner: null, nextAttemptAt: null })
+      expect(sendAppPushToUsers).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.clearAllTimers()
+      vi.useRealTimers()
+      if (previousRuntime === undefined) delete process.env.CATEVIA_RUNTIME
+      else process.env.CATEVIA_RUNTIME = previousRuntime
+      if (previousWebSocketPair === undefined) delete (globalThis as { WebSocketPair?: unknown }).WebSocketPair
+      else Object.defineProperty(globalThis, 'WebSocketPair', { configurable: true, value: previousWebSocketPair })
+    }
+  })
+
   it('records an item as failed without dispatch when max attempts is zero', async () => {
     const { enqueueNotification, getFailedItems } = await import('../../services/notificationQueue.js')
     const { sendAppPushToUsers } = await import('../../services/appPushService.js')

@@ -126,14 +126,22 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
   it('renders the five TNTT branches with border color classes and without hardcoded colors', () => {
     const { container } = render(<LandingPage />)
 
+    // Scoped to the branch section: the hero title also contains "Thiếu Nhi", inside a
+    // `landing-hero-title__keep` span that exists to stop the name splitting across a
+    // line break, so an unscoped getByText now matches two elements.
+    const branchSection = within(container.querySelector('#tieu-de-nganh') as HTMLElement)
     for (const name of ['Chiên Con', 'Ấu Nhi', 'Thiếu Nhi', 'Nghĩa Sĩ', 'Hiệp Sĩ']) {
-      expect(screen.getByText(name, { exact: true })).toBeInTheDocument()
+      expect(branchSection.getByText(name, { exact: true })).toBeInTheDocument()
     }
     // Không có mã màu hex cứng trong markup render
     expect(container.innerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}/)
     // Có chứa class viền màu ngành
     expect(container.innerHTML).toContain('border-t-branch-chiencon')
     expect(container.innerHTML).toContain('border-t-branch-aunhi')
+    // Dải khăn quàng lấy màu qua token, không nhúng trực tiếp
+    for (const item of Array.from(container.querySelectorAll('.landing-branches__item'))) {
+      expect((item as HTMLElement).style.getPropertyValue('--chapter-color')).toMatch(/^var\(--color-branch-\w+\)$/)
+    }
   })
 
   it('shows "Vào hệ thống" when a session already exists', () => {
@@ -158,10 +166,22 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     render(<LandingPage />)
 
     const photo = screen.getByRole('img', { name: /tập thể huynh trưởng và thiếu nhi/i })
-    expect(photo).toHaveAttribute('src', '/images/xu-doan-tap-the-original.jpg')
-    // Kích thước tường minh giữ chỗ trước khi ảnh tải → không giật layout
+    expect(photo).toHaveAttribute('src', '/images/hero/hero-1280.jpeg')
+    // AVIF/WebP offered first, and every width the plan asks for, so a phone never pulls
+    // the desktop-sized file. See tools/generate-landing-media.mjs.
+    const picture = photo.closest('picture')!
+    const sources = Array.from(picture.querySelectorAll('source'))
+    expect(sources.map(source => source.getAttribute('type'))).toEqual(['image/avif', 'image/webp'])
+    for (const source of sources) {
+      for (const width of ['640w', '828w', '1280w', '1600w', '2480w']) {
+        expect(source.getAttribute('srcSet')).toContain(width)
+      }
+    }
+    // Kích thước tường minh giữ chỗ trước khi ảnh tải → không giật layout.
+    // 1674, not the source's 1772: the generated variants are cropped 5% off the top to
+    // drop the printed banner, and width/height must describe what is actually served.
     expect(photo).toHaveAttribute('width', '2480')
-    expect(photo).toHaveAttribute('height', '1772')
+    expect(photo).toHaveAttribute('height', '1674')
     // Ảnh hero trên màn hình đầu → ưu tiên tải, không lazy
     expect(photo).toHaveAttribute('decoding', 'async')
     expect(photo).toHaveAttribute('fetchpriority', 'high')
@@ -196,18 +216,26 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     expect(q1Btn).toBeInTheDocument()
     expect(q1Btn).toHaveAttribute('aria-expanded', 'false')
 
-    // Initial state: answer is not visible
-    expect(screen.queryByText(/tài khoản do ban giáo lý/i)).not.toBeInTheDocument()
+    // Initial state: the answer stays in the DOM but is inert. It used to be asserted as
+    // absent, which was only true because the panel used to unmount. Phase 4 switches the
+    // collapse to `grid-template-rows: 0fr → 1fr`, and an accordion has to stay mounted to
+    // animate at all. `aria-expanded` is the contract the plan names, and `inert` is what
+    // actually keeps a collapsed answer out of the accessibility tree and out of the tab
+    // order — a stronger guarantee than absence-by-unmounting, and one jsdom can see
+    // (this test environment loads no stylesheet, so `visibility` cannot be asserted here).
+    const q1Panel = () => document.getElementById(q1Btn.getAttribute('aria-controls') as string)!
+    expect(screen.getByText(/tài khoản do ban giáo lý/i)).toBeInTheDocument()
+    expect(q1Panel()).toHaveAttribute('inert')
 
     // Click to open question 1
     fireEvent.click(q1Btn)
     expect(q1Btn).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByText(/tài khoản do ban giáo lý/i)).toBeInTheDocument()
+    expect(q1Panel()).not.toHaveAttribute('inert')
 
     // Click to close question 1
     fireEvent.click(q1Btn)
     expect(q1Btn).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText(/tài khoản do ban giáo lý/i)).not.toBeInTheDocument()
+    expect(q1Panel()).toHaveAttribute('inert')
 
     // Open question 4 (Offline)
     const q4Btn = screen.getByRole('button', { name: /khi nhà thờ không có wifi/i })
@@ -220,8 +248,17 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
     render(<LandingPage />)
 
     expect(screen.getByRole('heading', { level: 2, name: /lần đầu đến với catevia\?/i })).toBeInTheDocument()
-    expect(screen.getByText(/dữ liệu thuộc về xứ đoàn đức mẹ fatima — giáo xứ gia tôn/i)).toBeInTheDocument()
-    expect(screen.getByText(/quyền truy cập được phân theo vai trò/i)).toBeInTheDocument()
+    // Both markers must sit in the same paragraph. The FAQ answer on data protection
+    // repeats "Quyền truy cập được phân theo vai trò và phạm vi phụ trách" almost verbatim,
+    // and since Phase 4 the FAQ panel stays mounted while collapsed — so a query on that
+    // fragment alone matches two elements. Only the footer's copy says "thuộc **về**".
+    // A function matcher rather than one long regex: the sentence contains an em dash and
+    // collapsed indentation, both of which make a full-sentence regex brittle for no gain.
+    expect(screen.getByText((_, element) => (
+      element?.tagName === 'P'
+      && /thuộc về/i.test(element.textContent ?? '')
+      && /quyền truy cập được phân theo vai trò/i.test(element.textContent ?? '')
+    ))).toBeInTheDocument()
   })
 
   it('dynamically reflects active academic year from useAcademicYearStore', () => {
@@ -230,7 +267,7 @@ describe('LandingPage — trang giới thiệu public trước đăng nhập', (
 
     const glassFigure = screen.getByRole('figure')
     expect(within(glassFigure).getByText(/Niên khóa 2027–2028/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Lớp Thiếu Nhi 1A — niên khóa 2027–2028/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText(/Lớp Thiếu Nhi 1A — niên khóa 2027–2028/).length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders the integrated Bento stats strip with 4 key metrics', () => {

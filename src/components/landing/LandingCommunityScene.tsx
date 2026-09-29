@@ -45,14 +45,24 @@ export const LandingCommunityScene = React.memo(function LandingCommunityScene({
       <div className="landing-community__sequence">
         {!sequential && <div className="landing-community__visual" aria-hidden="true">
           <div className="landing-community__visual-panel landing-community__visual-panel--gather">
-            <img src="/images/xu-doan-tap-the.jpg" alt="" width="1600" height="1143" loading="lazy" decoding="async" />
-            <span>Xứ Đoàn Đức Mẹ Fatima · Giáo Xứ Gia Tôn</span>
+            <img src="/images/hero/hero-1280.webp" alt="" width="1280" height="864" loading="lazy" decoding="async" />
+            <span>Xứ Đoàn Fatima · Gia Tôn</span>
           </div>
           <div className="landing-community__visual-panel landing-community__visual-panel--learn">
-            {lessonImage ? <img {...lessonImage} alt="" loading="lazy" decoding="async" /> : <div className="landing-community__product"><LandingWorkspacePreview workspace="academic" /></div>}
+            {lessonImage ? (
+              <>
+                <img {...lessonImage} alt="" loading="lazy" decoding="async" />
+                <span>Nghi thức tuyên hứa · Huynh Trưởng &amp; GLV</span>
+              </>
+            ) : <div className="landing-community__product"><LandingWorkspacePreview workspace="academic" /></div>}
           </div>
           <div className="landing-community__visual-panel landing-community__visual-panel--family">
-            {familyImage ? <img {...familyImage} alt="" loading="lazy" decoding="async" /> : <div className="landing-community__product landing-community__product--phone"><LandingWorkspacePreview workspace="parent" /></div>}
+            {familyImage ? (
+              <>
+                <img {...familyImage} alt="" loading="lazy" decoding="async" />
+                <span>Thiếu nhi Fatima · Hiệp dâng Thánh Lễ</span>
+              </>
+            ) : <div className="landing-community__product landing-community__product--phone"><LandingWorkspacePreview workspace="parent" /></div>}
           </div>
           <span className="landing-community__visual-mark"><Church aria-hidden="true" /> Đức Mẹ Fatima</span>
         </div>}
@@ -63,7 +73,7 @@ export const LandingCommunityScene = React.memo(function LandingCommunityScene({
               <span className="landing-community__chapter-number">{moment.number} / 03</span>
               {sequential && <div className={`landing-community__mobile-visual landing-community__mobile-visual--${moment.id}`} aria-hidden="true">
                 {moment.id === 'gather'
-                  ? <img src="/images/xu-doan-tap-the.jpg" alt="" width="1600" height="1143" loading="lazy" decoding="async" />
+                  ? <img src="/images/hero/hero-1280.webp" alt="" width="1280" height="864" loading="lazy" decoding="async" />
                   : moment.id === 'learn' && lessonImage
                     ? <img {...lessonImage} alt="" loading="lazy" decoding="async" />
                     : moment.id === 'family' && familyImage

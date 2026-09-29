@@ -3,28 +3,54 @@ import { expect, type Page } from '@playwright/test'
 export type MatrixTheme = 'light' | 'dark'
 
 export async function settleFiniteAnimations(page: Page) {
-  await page.evaluate(() => new Promise<void>(resolve => {
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
-  }))
-  await page.evaluate(async () => {
-    const finiteAnimations = document.getAnimations().filter(animation => {
-      const timing = animation.effect?.getComputedTiming()
-      // Scroll/view-timeline animations KHÔNG bao giờ "finished" theo thời gian
-      // (chúng được tua bởi vị trí cuộn — progress đứng ở 0 khi phần tử ngoài
-      // viewport). Chờ chúng sẽ treo settle: landing có storyBeatFocus/
-      // branchTrackGrow trên ViewTimeline trong khi trang protected thì không.
-      const timeline = (animation as Animation & { timeline?: AnimationTimeline | null }).timeline
-      if (timeline && !(timeline instanceof DocumentTimeline)) return false
-      return animation.playState === 'running' && timing?.iterations !== Infinity
-    })
-    // Chặn trên an toàn: settle là best-effort, không được treo gate nếu có
-    // animation tương lai không kết thúc.
-    await Promise.race([
-      Promise.allSettled(finiteAnimations.map(animation => animation.finished)),
-      new Promise<void>(resolve => setTimeout(resolve, 4_000)),
-    ])
-  })
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+  // Loop until quiet. A single pass snapshots `document.getAnimations()` and can do so
+  // *before* a viewport- or scroll-triggered entrance starts — the dashboard's
+  // `data-scroll-story-state` choreography does exactly that — so axe then samples a
+  // half-faded frame and reports a contrast violation that does not exist in the settled
+  // UI. Observed as a ~50% flake on `/dashboard` dark compact once `animate-in`/`fade-in`
+  // became live classes: `#60A5FA` at partial opacity measured as `#5188ce` on
+  // `#1b2537`, 4.21:1, while the settled element is well clear of 4.5:1.
+  //
+  // The inner list is rebuilt after awaiting `finished`, so a pass also catches
+  // animations that were queued behind the first batch.
+  for (let pass = 0; pass < 4; pass++) {
+    // Best-effort by contract, and a loop multiplies the `page.evaluate` calls — so a
+    // dev-server reload between two passes would destroy the context and throw out of a
+    // helper whose whole purpose is to be safe to call anywhere. The caller's
+    // `runAxeStable` already has the reopen path for a context that really did go away,
+    // so stopping here loses nothing and hands the decision to the code that can act on
+    // it. Observed as an intermittent "Execution context was destroyed" on the protected
+    // route matrix.
+    try {
+      await page.evaluate(() => new Promise<void>(resolve => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+      }))
+      const stillRunning = await page.evaluate(async () => {
+        const isFinite = (animation: Animation) => {
+          const timing = animation.effect?.getComputedTiming()
+          // Scroll/view-timeline animations are driven by scroll position, never "finish"
+          // on a clock, and waiting for them would hang the gate: the landing has
+          // storyBeatFocus/branchTrackGrow on a ViewTimeline. Only DocumentTimeline-driven
+          // animations are waited on.
+          const timeline = (animation as Animation & { timeline?: AnimationTimeline | null }).timeline
+          if (timeline && !(timeline instanceof DocumentTimeline)) return false
+          return animation.playState === 'running' && timing?.iterations !== Infinity
+        }
+        const finite = document.getAnimations().filter(isFinite)
+        // Safety valve: settle is best-effort and must never hang the gate on an animation
+        // that never resolves.
+        await Promise.race([
+          Promise.allSettled(finite.map(animation => animation.finished)),
+          new Promise<void>(resolve => setTimeout(resolve, 4_000)),
+        ])
+        return document.getAnimations().filter(isFinite).length
+      })
+      if (stillRunning === 0) return
+    } catch {
+      return
+    }
+  }
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))).catch(() => {})
 }
 export type MatrixViewportName = 'desktop' | 'mobile' | 'compact'
 

@@ -8,6 +8,7 @@ import { useFilterStore } from './filterStore'
 import { useParishProfileStore } from './parishProfileStore'
 import { useParishEventStore } from './parishEventStore'
 import { useOperationsStore } from './operationsStore'
+import { useOperationsDraftStore } from './operationsDraftStore'
 import { useExamStore } from './examStore'
 import { useNoticeStore } from './noticeStore'
 import { DEFAULT_SETTINGS, useSettingsStore } from './settingsStore'
@@ -68,6 +69,9 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
   useParishProfileStore.getState().clear()
   useParishEventStore.getState().clear()
   useOperationsStore.getState().clear()
+  // W0.2: an in-progress Operations draft is document-local like every other
+  // store, so it must not survive a tenant/account switch.
+  useOperationsDraftStore.getState().clear()
   useExamStore.setState({
     sessions: [],
     selectedSessionId: null,

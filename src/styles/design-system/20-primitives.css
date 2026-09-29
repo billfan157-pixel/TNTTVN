@@ -802,6 +802,31 @@ table td {
   to { transform: rotate(360deg); }
 }
 
+/* ─── Entrance utilities (animate-in / fade-in) ───
+   Repo uses `animate-in fade-in` in 11 places but the project never installed
+   `tailwindcss-animate` and declares no `@plugin`, so every one of those usages
+   was a silent no-op (no rule existed, `duration-*` is a transition utility and
+   does not reach `animation-duration`). Declared here as plain classes so the
+   authored intent actually renders without adding a runtime dependency.
+
+   Duration comes from the motion token, not from `duration-*`. Override per use
+   with `style={{ '--motion-standard': '240ms' }}` or swap the token locally. */
+@keyframes catevia-enter-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-in {
+  animation-duration: var(--motion-standard);
+  animation-fill-mode: backwards;
+  animation-timing-function: var(--motion-ease-out);
+  animation-iteration-count: 1;
+}
+
+.fade-in {
+  animation-name: catevia-enter-fade;
+}
+
 /* ═══════════════════════════════════════════════════
    GLOBAL BACKEND ACTIVITY INDICATOR
    Phản hồi "đang chờ máy chủ" cho mọi request backend.
@@ -1015,6 +1040,7 @@ table td {
   .hero-enter-4,
   .hero-enter-5,
   .mockup-scanner-line,
+  .animate-in,
   .card-border-beam::after {
     animation: none !important;
     transform: none !important;
@@ -1025,9 +1051,6 @@ table td {
   }
   .interactive-press:active {
     transform: none !important;
-  }
-  .scrolly-pinned-preview {
-    position: static !important;
   }
   .mockup-tab-pill {
     transition: none !important;

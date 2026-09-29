@@ -5,20 +5,22 @@ import { probeProductionBackup } from './probe-production-backup.mjs'
 const sha = 'a'.repeat(40)
 const token = 'operator-token-with-at-least-32-characters'
 const key = 'backups/v2/set-2026-09-25T00-00-00-000Z-abc123/manifest.json'
-function fakeFetch({ publicStatus = 503, workerRelease = sha, verifiedRows = 7 } = {}) {
+function fakeFetch({ publicStatus = 503, workerRelease = sha, verifiedRows = 7, mode = 'render' } = {}) {
   const calls = []
   const fetcher = async (url, options = {}) => {
     calls.push({ url, options })
     if (url.includes('workers.dev') && url.endsWith('/api/auth/me')) {
-      return new Response('Backend cutover pending', { status: publicStatus })
+      return new Response(mode === 'worker' ? 'Backend proxy authentication required' : 'Backend cutover pending', { status: publicStatus })
     }
     if (url.includes('vercel.app') && url.endsWith('/api/auth/me')) {
-      return new Response('', { status: 401, headers: { 'x-render-origin-server': 'Render' } })
+      return new Response('', { status: 401, headers: mode === 'worker'
+        ? { 'x-catevia-backend': 'cloudflare-worker' } : { 'x-render-origin-server': 'Render' } })
     }
     if (url.endsWith('/health')) return Response.json({
       releaseId: url.includes('workers.dev') ? workerRelease : sha,
       database: 'connected',
-    }, { headers: url.includes('vercel.app') ? { 'x-render-origin-server': 'Render' } : {} })
+    }, { headers: url.includes('vercel.app') ? (mode === 'worker'
+      ? { 'x-catevia-backend': 'cloudflare-worker' } : { 'x-render-origin-server': 'Render' }) : {} })
     if (url.endsWith('/verify')) return Response.json({ objectKey: key, rowCount: verifiedRows,
       tableCount: 78, encryptedBytes: 4096, manifestBytes: 512,
       archiveObjectCount: 2, format: 'tnttvn-backup-set-v2', checksum: 'f'.repeat(64) })
@@ -40,6 +42,14 @@ test('verifies a closed exact release before creating and checking its backup', 
     ['GET', 'GET', 'GET', 'GET', 'GET', 'POST', 'POST'])
   assert.equal(calls[5].options.headers['x-catevia-canary-token'], token)
   assert.equal(calls[6].options.headers['x-catevia-backup-key'], key)
+})
+
+test('backs up the active Worker without requiring a Render account or runtime', async () => {
+  const { fetcher, calls } = fakeFetch({ mode: 'worker' })
+  const result = await probeProductionBackup({ expectedWorkerRelease: sha, token, mode: 'worker', fetcher })
+  assert.equal(result.ok, true)
+  assert.equal(calls.some(call => call.url.includes('render.com')), false)
+  assert.equal(calls.filter(call => call.options.method === 'POST').length, 2)
 })
 
 test('refuses a public Worker, wrong release, or backup mismatch before claiming success', async () => {

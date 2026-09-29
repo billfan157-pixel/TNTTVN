@@ -476,4 +476,58 @@ describe('operationsStore server acknowledgement and scope boundary', () => {
     expect(useOperationsStore.getState().events[0]?.status).toBe('PLANNING')
     expect(useOperationsStore.getState().selectedEvent?.event.status).toBe('PLANNING')
   })
+
+  it('W1.1 (F14): ticking a required checklist item re-reads server-computed readiness', async () => {
+    // The defect this locks down: the store patched `task.version` and never
+    // touched `detail.readiness`, while EventLifecycleHub reads readiness in nine
+    // places. Ticking a required item left the progress bar, the blocker list and
+    // the READY/LIVE gate frozen on the pre-tick numbers.
+    const blocked = eventDetail('E')
+    const ready = { ...blocked, readiness: { percent: 100, blockers: [] as Array<{ type: string; id: string; label: string }> } }
+    const item: OperationChecklistItem = { id: 'CI1', parishId: parishA, taskId: 'T', label: 'Mua băng keo', isRequired: true, isDone: false, sortOrder: 0 }
+    useOperationsStore.setState({ selectedEvent: blocked, selectedTask: { ...taskDetail('T'), checklist: [item] } })
+    vi.spyOn(api, 'updateChecklistItem').mockResolvedValue({ item: { ...item, isDone: true }, taskVersion: 2 } as never)
+    // The recompute is a re-read of the same event, not a client-side guess.
+    const getEvent = vi.spyOn(api, 'getEvent').mockResolvedValue(ready)
+
+    await useOperationsStore.getState().toggleChecklistItem(task('T'), item)
+
+    expect(getEvent).toHaveBeenCalledWith('E', expect.anything())
+    expect(useOperationsStore.getState().selectedEvent?.readiness).toEqual({ percent: 100, blockers: [] })
+  })
+
+  it('W1.1: a failed readiness re-read never turns an acknowledged write into a failure', async () => {
+    const item: OperationChecklistItem = { id: 'CI2', parishId: parishA, taskId: 'T', label: 'Kiểm tra loa', isRequired: true, isDone: false, sortOrder: 0 }
+    useOperationsStore.setState({ selectedEvent: eventDetail('E'), selectedTask: { ...taskDetail('T'), checklist: [item] } })
+    vi.spyOn(api, 'updateChecklistItem').mockResolvedValue({ item: { ...item, isDone: true }, taskVersion: 2 } as never)
+    vi.spyOn(api, 'getEvent').mockRejectedValue(new Error('read failed'))
+
+    // The command was acknowledged by the server, so it must resolve. The failed
+    // re-read is reported as a READ problem, not as a failed write.
+    await expect(useOperationsStore.getState().toggleChecklistItem(task('T'), item)).resolves.toBeUndefined()
+    expect(useOperationsStore.getState().error).toContain('read failed')
+  })
+
+  it('W1.2: a task-dialog comment is parish-asserted and re-read through the store', async () => {
+    useOperationsStore.setState({ selectedTask: taskDetail('T') })
+    const comment = vi.spyOn(api, 'commentTask').mockResolvedValue({ id: 'C1', parishId: parishA, taskId: 'T', authorUserId: 'user-a', content: 'Lessons', createdAt: '2026-10-01T00:00:00Z' } as never)
+    vi.spyOn(api, 'getEvents').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getTasks').mockResolvedValue(page([]))
+    vi.spyOn(api, 'getPermissions').mockResolvedValue({ parishId: parishA, permissions: {}, timezone: 'Asia/Ho_Chi_Minh' } as never)
+    const getTask = vi.spyOn(api, 'getTask').mockResolvedValue(taskDetail('T'))
+
+    // Every Operations mutation carries a stable idempotency key (ADR-110).
+    await useOperationsStore.getState().commentTask(task('T'), 'Lessons', undefined, 'cmd-comment')
+    expect(comment).toHaveBeenCalledWith('T', { content: 'Lessons' }, 'cmd-comment')
+    expect(getTask).toHaveBeenCalledWith('T', expect.anything())
+  })
+
+  it('W1.2: a cross-parish comment response is rejected instead of rendered', async () => {
+    useOperationsStore.setState({ selectedTask: taskDetail('T') })
+    vi.spyOn(api, 'commentTask').mockResolvedValue({ id: 'C1', parishId: parishB, taskId: 'T', authorUserId: 'user-a', content: 'X', createdAt: '2026-10-01T00:00:00Z' } as never)
+    const getTask = vi.spyOn(api, 'getTask')
+
+    await expect(useOperationsStore.getState().commentTask(task('T'), 'X')).rejects.toThrow('sai phạm vi')
+    expect(getTask).not.toHaveBeenCalled()
+  })
 })

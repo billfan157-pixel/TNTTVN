@@ -2,11 +2,12 @@ import { useRef, useState } from 'react'
 import { Users } from 'lucide-react'
 import { Badge, Button, TextInput } from '../common/ui'
 import { EmptyState } from '../common/StateFeedback'
-import { operationsApi, type OperationTaskDetail } from '../../lib/api/operations'
+import type { OperationAssignment, OperationTaskDetail } from '../../lib/api/operations'
 import { operationsErrorText } from '../../lib/operationsErrors'
 import { getTenantScopeKey } from '../../lib/tenantScope'
 import { useStableCommandKey } from '../../hooks/useStableCommandKey'
 import { useOperationCandidates } from '../../hooks/useOperationCandidates'
+import { useOperationsStore } from '../../stores/operationsStore'
 
 /**
  * W2.4: current assignees of a task with a revoke path. The server command
@@ -16,15 +17,16 @@ import { useOperationCandidates } from '../../hooks/useOperationCandidates'
  * OWNER revokes normally leave the task without a responsible person, so the
  * handover form remains the gentler path; this one is the explicit removal.
  */
-export function TaskAssigneesPanel({ detail, enabled, refresh }: {
+export function TaskAssigneesPanel({ detail, enabled }: {
   detail: OperationTaskDetail
   enabled: boolean
-  refresh: () => Promise<unknown>
 }) {
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
   const [error, setError] = useState('')
   const { stableKey, releaseKey } = useStableCommandKey()
+  // W1.2
+  const removeTaskAssignment = useOperationsStore(s => s.removeTaskAssignment)
   const active = useRef(true)
   const inFlight = useRef(false)
   const canReassign = Boolean(detail.permissions['operations.task.reassign'] && !['DONE', 'CANCELLED'].includes(detail.task.status))
@@ -35,20 +37,22 @@ export function TaskAssigneesPanel({ detail, enabled, refresh }: {
       || (assignment.personId != null && candidate.personId === assignment.personId),
     )?.displayName ?? 'Thành viên được phân công'
 
-  const remove = async (assignmentId: string, assignmentVersion: number) => {
+  const remove = async (assignment: OperationAssignment) => {
     const scope = getTenantScopeKey()
+    const assignmentId = assignment.id
     const reason = (reasons[assignmentId] ?? '').trim()
     if (!scope || !enabled || inFlight.current || !reason) return
     inFlight.current = true; setBusyId(assignmentId); setError('')
     const current = () => active.current && scope === getTenantScopeKey()
     try {
-      const payload = { version: detail.task.version, assignmentVersion, reason }
+      const payload = { version: detail.task.version, assignmentVersion: assignment.version, reason }
       const key = stableKey(`assignment-remove:${assignmentId}`, { taskId: detail.task.id, assignmentId, ...payload })
-      await operationsApi.removeTaskAssignment(detail.task.id, assignmentId, payload, key)
+      // W1.2: through the store — parish-asserted, OCC-recovered, refreshed via
+      // the store's own primitive.
+      await removeTaskAssignment(detail.task, assignment, reason, key)
       releaseKey(`assignment-remove:${assignmentId}`)
       if (!current()) return
       setReasons(value => ({ ...value, [assignmentId]: '' }))
-      await refresh()
     } catch (failure) {
       if (current()) setError(operationsErrorText((failure as { code?: string })?.code, failure instanceof Error ? failure.message : 'Không thu hồi được phân công.'))
     } finally {
@@ -84,7 +88,7 @@ export function TaskAssigneesPanel({ detail, enabled, refresh }: {
             size="sm"
             disabled={!enabled || busyId !== null || !(reasons[assignment.id] ?? '').trim()}
             loading={busyId === assignment.id}
-            onClick={() => void remove(assignment.id, assignment.version)}
+            onClick={() => void remove(assignment)}
           >
             Thu hồi
           </Button>

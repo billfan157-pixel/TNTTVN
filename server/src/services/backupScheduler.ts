@@ -178,7 +178,7 @@ async function enforceRetention(retentionCount: number): Promise<void> {
  * hour it happened at. Checks before the target hour never fire, so a fresh
  * day still waits for its scheduled window.
  */
-export async function runAutoBackupCheck(now: Date = new Date()): Promise<boolean> {
+export async function runAutoBackupCheck(now: Date = new Date(), { throwOnFailure = false } = {}): Promise<boolean> {
   if (process.env.AUTO_BACKUP_ENABLED === 'false') return false
   if (now.getHours() < getTargetHour()) return false
 
@@ -214,9 +214,11 @@ export async function runAutoBackupCheck(now: Date = new Date()): Promise<boolea
       }
       return true
     }
+    if (throwOnFailure) throw new Error('Scheduled backup did not complete')
     return false
   } catch (err) {
     console.error('[BACKUP CHECK ERROR]', err)
+    if (throwOnFailure) throw err
     return false
   }
 }
