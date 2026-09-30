@@ -38,6 +38,11 @@ vi.mock(import('../../lib/api'), async (importOriginal) => {
         },
       ]),
       getAvailableTeachers: vi.fn().mockResolvedValue([]),
+      updateUserPhone: vi.fn().mockResolvedValue({
+        username: 'parent.binh',
+        phone: '0912345678',
+        usernameChanged: false,
+      }),
     },
   }
 })
@@ -148,5 +153,21 @@ describe('MobileClasses and UserManagement Responsive Views', () => {
     expect(screen.getAllByText('Nguyễn Văn An').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Trần Văn Bình').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/Đặt Mật Khẩu/i).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('normalizes a formatted international phone number before updating a user', async () => {
+    const { api } = await import('../../lib/api')
+    await act(async () => {
+      render(<UserManagementPage />)
+    })
+
+    fireEvent.click(screen.getAllByTitle('Đổi Số Điện Thoại')[0])
+    fireEvent.change(screen.getByPlaceholderText('0901234567'), { target: { value: '+84 912-345-678' } })
+    fireEvent.change(screen.getByPlaceholderText('Mật khẩu của bạn'), { target: { value: 'AdminPassword1!' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu SĐT Mới' }))
+
+    await vi.waitFor(() => {
+      expect(api.updateUserPhone).toHaveBeenCalledWith('u1', '0912345678', 'AdminPassword1!')
+    })
   })
 })
