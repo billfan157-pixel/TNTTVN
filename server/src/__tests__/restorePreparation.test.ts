@@ -17,7 +17,7 @@ afterAll(() => {
 
 describe('restore target preparation (DR-P2-001)', () => {
   it('prepares a fresh target whose fund seeds follow the configured deployment parish', async () => {
-    const target = createDisposableRestoreTarget()
+    const target = await createDisposableRestoreTarget()
     try {
       await prepareEmptyRestoreTarget(target)
       await assertDatabaseReady(target)
@@ -44,7 +44,7 @@ describe('restore target preparation (DR-P2-001)', () => {
   }, 30_000)
 
   it('still rejects a target that already contains application data', async () => {
-    const target = createDisposableRestoreTarget()
+    const target = await createDisposableRestoreTarget()
     try {
       await target.execute('CREATE TABLE parishes (id TEXT PRIMARY KEY)')
       await target.execute("INSERT INTO parishes VALUES ('existing')")

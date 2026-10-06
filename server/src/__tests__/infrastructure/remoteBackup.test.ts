@@ -27,7 +27,7 @@ const createMemoryClient = createDisposableRestoreTarget
 describe('encrypted Turso logical backup', () => {
   // Full-schema fixture setup and restore are integrity checks, not a runtime SLO.
   it.each(['ACTIVE', 'LOCKED'] as const)('restores populated Operations and historical organizer state (%s) without replaying command triggers', async status => {
-    const source = createMemoryClient(), target = createMemoryClient()
+    const source = await createMemoryClient(), target = await createMemoryClient()
     try {
       await prepareEmptyRestoreTarget(source)
       await prepareEmptyRestoreTarget(target)
@@ -55,7 +55,7 @@ describe('encrypted Turso logical backup', () => {
   }, 120_000)
 
   it('rejects a checksum-valid snapshot missing a target table before any writes', async () => {
-    const target = createMemoryClient()
+    const target = await createMemoryClient()
     try {
       await target.executeMultiple('CREATE TABLE academic_years (id TEXT PRIMARY KEY, status TEXT);')
       await target.execute("INSERT INTO academic_years VALUES ('year', 'FINALIZED')")
@@ -68,7 +68,7 @@ describe('encrypted Turso logical backup', () => {
   })
 
   it('does not replay trigger side effects while restoring facts, but reinstates normal writes', async () => {
-    const target = createMemoryClient()
+    const target = await createMemoryClient()
     try {
       await target.execute('CREATE TABLE academic_years (id TEXT PRIMARY KEY, policy TEXT)')
       await target.execute("INSERT INTO academic_years VALUES ('year', 'original-policy')")
@@ -83,7 +83,7 @@ describe('encrypted Turso logical backup', () => {
   })
 
   it('still rejects equal row counts with content coerced by target affinity', async () => {
-    const source = createMemoryClient(), target = createMemoryClient()
+    const source = await createMemoryClient(), target = await createMemoryClient()
     try {
       await source.execute('CREATE TABLE facts (id TEXT PRIMARY KEY, value TEXT)')
       await source.execute("INSERT INTO facts VALUES ('fact', '001')")
@@ -93,7 +93,7 @@ describe('encrypted Turso logical backup', () => {
   })
 
   it('rolls back rows and trigger suspension together on a failed load', async () => {
-    const source = createMemoryClient(), target = createMemoryClient()
+    const source = await createMemoryClient(), target = await createMemoryClient()
     try {
       await source.execute('CREATE TABLE facts (id TEXT PRIMARY KEY)')
       await source.execute("INSERT INTO facts VALUES ('valid'), ('invalid')")
@@ -137,7 +137,7 @@ describe('encrypted Turso logical backup', () => {
   })
 
   it('restores only into an empty compatible target and verifies counts/FKs', async () => {
-    const target = createMemoryClient()
+    const target = await createMemoryClient()
     try {
       const ddl = `
         DROP TABLE IF EXISTS children;
@@ -160,7 +160,7 @@ describe('encrypted Turso logical backup', () => {
   })
 
   it('refuses a non-empty target before deleting any target data', async () => {
-    const target = createMemoryClient()
+    const target = await createMemoryClient()
     try {
       await target.executeMultiple('DROP TABLE IF EXISTS children; DROP TABLE IF EXISTS parents; DROP TABLE IF EXISTS items; CREATE TABLE items (id TEXT PRIMARY KEY);')
       await target.execute("INSERT INTO items(id) VALUES ('SOURCE')")
@@ -177,7 +177,7 @@ describe('encrypted Turso logical backup', () => {
   })
 
   it('fails post-restore validation when the snapshot contains FK violations', async () => {
-    const target = createMemoryClient()
+    const target = await createMemoryClient()
     try {
       const ddl = `
         DROP TABLE IF EXISTS children;
@@ -199,7 +199,7 @@ describe('encrypted Turso logical backup', () => {
   })
 
   it('re-enables foreign keys when the restore transaction cannot be opened', async () => {
-    const source = createMemoryClient(), target = createMemoryClient()
+    const source = await createMemoryClient(), target = await createMemoryClient()
     try {
       await prepareEmptyRestoreTarget(source)
       await prepareEmptyRestoreTarget(target)
@@ -211,7 +211,7 @@ describe('encrypted Turso logical backup', () => {
   }, 120_000)
 
   it('publishes a manifest-last backup set and restores archive bytes into an isolated prefix', async () => {
-    const source = createMemoryClient(), target = createMemoryClient()
+    const source = await createMemoryClient(), target = await createMemoryClient()
     const previousKey = process.env.BACKUP_ENCRYPTION_KEY
     const sourceObjectKey = 'archive/source/archive-file.pdf'
     const archiveBytes = Buffer.from('private archive bytes')

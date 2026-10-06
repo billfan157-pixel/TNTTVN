@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuthStore } from '../stores/authStore'
 
 /**
  * W2.10: count of operations responses this user still owes
@@ -16,8 +17,13 @@ import { useEffect, useState } from 'react'
  */
 export function useOperationsPendingCount(enabled: boolean): number {
   const [count, setCount] = useState(0)
+  const authReady = useAuthStore(state => state.authReady)
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated)
+  const canFetch = enabled && authReady && isAuthenticated
   useEffect(() => {
-    if (!enabled) { setCount(0); return }
+    // RootLayout runs hooks even while displaying its bootstrap loading screen.
+    // Do not write a server snapshot before the session evidence is established.
+    if (!canFetch) { setCount(0); return }
     let active = true
     let unsubscribe: (() => void) | undefined
     void import('../stores/operationsStore').then(({ useOperationsStore }) => {
@@ -36,6 +42,6 @@ export function useOperationsPendingCount(enabled: boolean): number {
       if (snapshot.source === 'none' && !snapshot.loading) void snapshot.fetch().catch(() => undefined)
     }).catch(() => undefined)
     return () => { active = false; unsubscribe?.() }
-  }, [enabled])
+  }, [canFetch])
   return count
 }

@@ -47,6 +47,16 @@ test('@critical operations deep link + stepper/footer fit 320–390px viewports'
     // shrink-to-fit sheet header overflows, the truncate collapses its width.
     await expect(dialog.getByText(key).first(), `${viewportName}: dialog shows the linked event`).toBeVisible({ timeout: 20_000 })
 
+    // A visible dialog alone can race the initial generation check. Require
+    // its persisted baseline and the same authenticated deep link afterwards,
+    // so a false ghost-cache reset cannot pass as a successful viewport render.
+    await expect.poll(
+      () => page.evaluate(() => localStorage.getItem('parish_purge_version')),
+      { message: `${viewportName}: clean-device generation check finishes`, timeout: 20_000 },
+    ).not.toBeNull()
+    await expect(page).toHaveURL(new RegExp(`/operations\\?event=${event.id}$`))
+    await expect(dialog.getByRole('heading', { name: key, exact: true })).toBeVisible()
+
     const overflow = await page.evaluate(() => ({
       documentWidth: document.documentElement.scrollWidth,
       viewportWidth: window.innerWidth,

@@ -19,7 +19,7 @@ vi.mock('../lib/resetClientData', async (importOriginal) => {
 
 import { initDB, getDB } from '../lib/db'
 import { useSyncStore, getOwnUnsettledSyncOperations } from '../stores/syncStore'
-import { runSyncFlow, beginGenerationEvidenceBoundary } from '../lib/syncCoordinator'
+import { runSyncFlow, beginGenerationEvidenceBoundary, verifyClientDataGeneration } from '../lib/syncCoordinator'
 import { api } from '../lib/api'
 import { PURGE_VERSION_KEY, resetClientData } from '../lib/resetClientData'
 import { setTenantScope, scopedStorageKey } from '../lib/tenantScope'
@@ -38,6 +38,10 @@ async function resetDB() {
   localStorage.removeItem(PURGE_VERSION_KEY)
   localStorage.setItem('parish_current_user', JSON.stringify({ id: 'U-TEST', role: 'admin', parishId: 'PARISH-TEST' }))
   setTenantScope({ parishId: 'PARISH-TEST', userId: 'U-TEST' })
+  // The evidence boundary is module-level and now survives each verification
+  // (it is re-established per session activation). Reset it per test so cases
+  // cannot inherit each other's boundary.
+  await beginGenerationEvidenceBoundary()
 }
 
 function mockApiMethods(purgeVersion: number) {
@@ -120,12 +124,56 @@ describe('Sync Engine — PURGE v2.3 trên device mới (A-NEW-46)', () => {
       key: scopedStorageKey('parish_store_students')!,
       value: JSON.stringify({ state: { students: [{ id: 'stale-student' }] } }),
     })
+    // Models the real sequence: the cache already belonged to a previous session,
+    // so this session's `activateScope` snapshots it as pre-rehydrate evidence.
+    await beginGenerationEvidenceBoundary()
     mockApiMethods(4)
 
     await runSyncFlow()
 
     expect(resetClientDataMock).toHaveBeenCalledWith(4)
     expect(api.getSyncWatermark).not.toHaveBeenCalled()
+  })
+
+  it('empty persisted store populated by this session is not pre-session cache', async () => {
+    const key = scopedStorageKey('parish_store_classes')!
+    await getDB().stores.put({ key, value: JSON.stringify({ state: { classes: [] } }) })
+    await beginGenerationEvidenceBoundary()
+    await getDB().stores.put({ key, value: JSON.stringify({ state: { classes: [{ id: 'fresh-class' }] } }) })
+    mockApiMethods(4)
+
+    expect(await verifyClientDataGeneration()).toBe(true)
+    expect(resetClientDataMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PURGE_VERSION_KEY)).toBe('4')
+  })
+
+  it('rehydration cannot erase evidence of material cache from the previous session', async () => {
+    const key = scopedStorageKey('parish_store_students')!
+    await getDB().stores.put({ key, value: JSON.stringify({ state: { students: [{ id: 'stale-student' }] } }) })
+    await beginGenerationEvidenceBoundary()
+    await getDB().stores.put({ key, value: JSON.stringify({ state: { students: [] } }) })
+    mockApiMethods(4)
+
+    expect(await verifyClientDataGeneration()).toBe(false)
+    expect(resetClientDataMock).toHaveBeenCalledExactlyOnceWith(4)
+  })
+
+  it('repeated verification retains clean-device evidence when baseline storage fails', async () => {
+    mockApiMethods(4)
+    const setItem = localStorage.setItem.bind(localStorage)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation((key, value) => {
+      if (key === PURGE_VERSION_KEY) throw new Error('Storage unavailable')
+      setItem(key, value)
+    })
+
+    expect(await verifyClientDataGeneration()).toBe(true)
+    await getDB().stores.put({
+      key: scopedStorageKey('parish_operations_overview_v1')!,
+      value: JSON.stringify({ events: [{ id: 'fresh-event' }] }),
+    })
+    expect(await verifyClientDataGeneration()).toBe(true)
+    expect(resetClientDataMock).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PURGE_VERSION_KEY)).toBeNull()
   })
 
   it('cached tenant state thuộc giáo xứ khác không được xem là cache của phiên hiện tại', async () => {

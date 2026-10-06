@@ -14,7 +14,7 @@ import { useAcademicYearStore } from '../stores/academicYearStore'
 import { decryptQueueValue, decryptValue } from '../lib/offlineCipher'
 import { runWithSyncLease } from '../lib/syncLease'
 import type { SyncQueueItem } from '../lib/db'
-import { captureTenantScope, getTenantScope, type TenantScopeSnapshot } from '../lib/tenantScope'
+import { captureTenantScope, getTenantScope, type TenantScope, type TenantScopeSnapshot } from '../lib/tenantScope'
 import {
   isSyncOwnerCurrent,
   persistSyncResultForOwner,
@@ -702,30 +702,43 @@ function reportGenerationFailure(message: string): void {
   store.setStatus(navigator.onLine ? 'failed' : 'offline')
 }
 
-let generationEvidenceBoundary: Set<string> | null = null
+let generationEvidenceBoundary: { ownerKey: string; hasLocalState: boolean } | null = null
+let generationEvidenceRequest = 0
 
-export async function beginGenerationEvidenceBoundary(): Promise<void> {
+export async function beginGenerationEvidenceBoundary(owner: TenantScope | null = getTenantScope()): Promise<void> {
+  const request = ++generationEvidenceRequest
+  generationEvidenceBoundary = null
+  if (!owner) return
   try {
-    const database = getDB()
-    const [storeKeys, metaKeys] = await Promise.all([
-      database.stores.toCollection().primaryKeys() as Promise<string[]>,
-      database.syncMeta.toCollection().primaryKeys() as Promise<string[]>,
-    ])
-    generationEvidenceBoundary = new Set([...storeKeys, ...metaKeys])
+    // Classify the original contents, before the new session can write cache.
+    // A set of keys is insufficient: an empty row may later contain fresh data,
+    // or rehydration may clear a stale row before verification reads it.
+    const hasLocalState = await readLocalTenantState(owner)
+    if (request === generationEvidenceRequest) {
+      generationEvidenceBoundary = { ownerKey: `${owner.parishId}:${owner.userId}`, hasLocalState }
+    }
   } catch {
-    generationEvidenceBoundary = null
+    if (request === generationEvidenceRequest) generationEvidenceBoundary = null
   }
 }
 
 async function hasLocalTenantState(owner: TenantScopeSnapshot): Promise<boolean> {
+  const boundary = generationEvidenceBoundary
+  if (boundary?.ownerKey === `${owner.parishId}:${owner.userId}`) return boundary.hasLocalState
+  // Without evidence for this owner, conservatively inspect the current cache.
+  return readLocalTenantState(owner)
+}
+
+async function readLocalTenantState(owner: TenantScope): Promise<boolean> {
   try {
     const database = getDB()
     const suffix = `:${owner.parishId}:${owner.userId}`
     const belongsToOwner = (key: string) => key.endsWith(suffix) || !key.includes(':')
-    const existedBeforeRehydrate = (key: string) => generationEvidenceBoundary === null || generationEvidenceBoundary.has(key)
-    const metaKeys = (await database.syncMeta.toCollection().primaryKeys() as string[]).filter(existedBeforeRehydrate)
+    const [metaKeys, rows] = await database.transaction('r', database.syncMeta, database.stores, () => Promise.all([
+      database.syncMeta.toCollection().primaryKeys() as Promise<string[]>,
+      database.stores.toArray(),
+    ]))
     if (metaKeys.some(belongsToOwner)) return true
-    const rows = (await database.stores.toArray()).filter(row => existedBeforeRehydrate(row.key))
     const materialFields = [
       'students', 'grades', 'attendance', 'entries', 'serverEntries', 'sessions', 'results',
       'cachedResultsBySession', 'classes', 'branches', 'notices', 'transactions', 'classFeeRecords',
@@ -822,12 +835,17 @@ async function verifyClientDataGenerationInternal(): Promise<boolean> {
   return !!owner && isSyncOwnerCurrent(owner)
 }
 
+/**
+ * `generationEvidenceBoundary` MUST survive this call.
+ *
+ * It records this owner's material cache before session bootstrap/rehydration.
+ * Clearing or recomputing it during verification would confuse freshly pulled
+ * data with legacy cache, causing a valid clean-device session to be wiped.
+ *
+ * The boundary is refreshed on the next session activation instead.
+ */
 export async function verifyClientDataGeneration(): Promise<boolean> {
-  try {
-    return await verifyClientDataGenerationInternal()
-  } finally {
-    generationEvidenceBoundary = null
-  }
+  return verifyClientDataGenerationInternal()
 }
 
 export async function fetchAllData(incremental?: boolean): Promise<{ queryTime: string; ok: boolean }> {

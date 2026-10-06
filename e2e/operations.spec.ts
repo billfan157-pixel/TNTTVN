@@ -6,11 +6,20 @@ test('@critical public Operations event is projected to the parent read-only cal
   const admin = await getAdminSession(page.request)
   const parishLeader = await getRoleSession(page.request, 'phuta')
   const key = testKey(testInfo, 'OPS-PUBLIC-CALENDAR')
-  const now = new Date()
-  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
   await injectSession(page, parishLeader)
   await page.goto('/operations')
+  // The parent calendar lists only the selected liturgical day, which the app
+  // derives from the *browser* clock (playwright.config timezoneId). This spec
+  // file used to compute "today" from the host clock instead: CI runners are
+  // UTC while the context is Asia/Ho_Chi_Minh, so between 17:00-24:00 UTC the
+  // event landed on the previous parish day and the projection never rendered.
+  // Derive the date from the same clock the app renders with.
+  const date = await page.evaluate(() => {
+    const now = new Date()
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  })
   await page.getByRole('button', { name: 'Tạo mới' }).click()
   await page.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }).click()
   await page.getByRole('button', { name: 'Công khai', exact: true }).click()
@@ -645,6 +654,10 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   const eventDialog = page.getByRole('dialog')
   await expect(eventDialog).toContainText(eventTitle)
   const reopenDetail = async () => {
+    // This journey alternates between two actors. WebKit may throttle the
+    // other page's animation frames, leaving click stability checks waiting.
+    // Restore the acting page's foreground before interacting with its dialog.
+    await page.bringToFront()
     await page.getByRole('button', { name: 'Đóng chi tiết' }).click()
     await page.getByRole('article').filter({ hasText: eventTitle }).getByRole('button', { name: 'Xem chi tiết' }).click()
     await expect(page.getByRole('dialog')).toContainText(eventTitle)
@@ -790,6 +803,7 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
       await staffPage.getByRole('article').filter({ hasText: title }).getByRole('button', { name: 'Hoàn tất' }).click()
       expect((await response).status()).toBe(200)
     }
+    await staffPage.bringToFront()
     await completeFutureTask(executionTask.id, executionTitle)
     await completeFutureTask(followUpTask.id, followUpTitle)
 

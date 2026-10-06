@@ -4,7 +4,7 @@ import { setTokens, clearTokens, loadTokensFromStorage, bootstrapAccessToken, ap
 import { initPushSubscription, disablePushSubscription, isNativePushAvailable } from '../lib/pushManager'
 import { isTenantCacheDirty, resetAllStoresToDefault } from './resetStores'
 import { getTenantScope, rehydrateTenantStores, setTenantScope } from '../lib/tenantScope'
-import { AUTH_SNAPSHOT_KEY, clearAuthSnapshot, dexieStorage } from '../lib/db'
+import { AUTH_SNAPSHOT_KEY, clearAuthSnapshot, dexieStorage, initDB } from '../lib/db'
 import { markSyncScopeInvalidated, quarantineInvalidatedSyncScope, type SyncOwnerScope } from '../lib/syncSessionBoundary'
 
 export interface AuthUser {
@@ -67,10 +67,18 @@ function isOffline(): boolean {
   return typeof navigator !== 'undefined' && navigator.onLine === false
 }
 
+async function prepareScope(user: Pick<AuthUser, 'id' | 'parishId'>): Promise<void> {
+  const owner = { parishId: user.parishId, userId: user.id }
+  // Capture existing cache before exposing the scope to storage readers or
+  // background fetches. Include legacy localStorage migration in that evidence.
+  const { beginGenerationEvidenceBoundary } = await import('../lib/syncCoordinator')
+  await initDB()
+  await beginGenerationEvidenceBoundary(owner)
+  setTenantScope(owner)
+}
+
 async function activateScope(user: AuthUser): Promise<void> {
   setTenantScope({ parishId: user.parishId, userId: user.id })
-  const { beginGenerationEvidenceBoundary } = await import('../lib/syncCoordinator')
-  await beginGenerationEvidenceBoundary()
   if (isTenantCacheDirty()) await resetAllStoresToDefault()
   await rehydrateTenantStores()
 }
@@ -185,6 +193,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         setTenantScope(null)
         set({ user: null, isAuthenticated: false })
         await resetAllStoresToDefault({ clearPersisted: false })
+        await prepareScope(user)
         await activateScope(user)
         // ADR-045: marker (localStorage) + snapshot (Dexie mã hóa). Chờ snapshot ghi
         // xong để reload ngay sau login không bị rơi vào đường rebuild /auth/me.
@@ -307,7 +316,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         await resetAllStoresToDefault({ clearPersisted: false })
       }
       // Cần scope (parishId:userId) TRƯỚC khi đọc snapshot scoped trong Dexie.
-      setTenantScope({ parishId: marker.parishId, userId: marker.id })
+      await prepareScope(marker)
     } catch {
       clearAuth()
       setTenantScope(null)

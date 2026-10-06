@@ -1,4 +1,4 @@
-import { Worker } from 'node:worker_threads'
+import { spawn } from 'node:child_process'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db, dbConfig } from '../db/index.js'
@@ -34,34 +34,40 @@ async function whileAnotherWriterCommits<T>(
   operation: () => Promise<T>,
 ): Promise<T> {
   if (dbConfig.isRemote) throw new Error('This interleaving test requires the local SQLite test database')
-  // libsql's local binding can block this event loop while waiting on a write
-  // lock. Hold and release the competing transaction in a worker so the
-  // interleaving is real and cannot deadlock the test runner itself.
-  const worker = new Worker(`
-    const { parentPort, workerData } = require('node:worker_threads')
+  // Keep a real competing SQLite writer outside the test runner. Repeatedly
+  // terminating threads with libsql's native binding can hang a later thread
+  // inside createClient, before it even obtains the lock. A child process also
+  // releases its native connection handles when it exits.
+  const worker = spawn(process.execPath, ['-e', `
+    const workerData = JSON.parse(process.argv[1])
     const { createClient } = require('@libsql/client')
     ;(async () => {
       const client = createClient({ url: workerData.url })
-      await client.execute('PRAGMA busy_timeout=5000')
-      const tx = await client.transaction('write')
-      await tx.execute(workerData.sql, workerData.args)
-      parentPort.postMessage({ type: 'locked' })
-      setTimeout(async () => {
-        try {
-          await tx.commit()
-          client.close()
-          parentPort.postMessage({ type: 'committed' })
-        } catch (error) {
-          parentPort.postMessage({ type: 'error', message: String(error) })
-        }
-      }, 150)
-    })().catch(error => parentPort.postMessage({ type: 'error', message: String(error) }))
-  `, {
-    eval: true,
-    workerData: { url: dbConfig.url, sql, args },
+      try {
+        await client.execute('PRAGMA busy_timeout=5000')
+        const tx = await client.transaction('write')
+        await tx.execute(workerData.sql, workerData.args)
+        const release = new Promise(resolve => process.once('message', resolve))
+        process.send({ type: 'locked' })
+        await release
+        await new Promise(resolve => setTimeout(resolve, 150))
+        await tx.commit()
+        process.send({ type: 'committed' })
+      } finally {
+        client.close()
+      }
+    })().catch(error => {
+      process.exitCode = 1
+      process.send({ type: 'error', message: String(error) })
+    }).finally(() => process.disconnect())
+  `, JSON.stringify({ url: dbConfig.url, sql, args })], {
+    stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
   })
+  let stderr = ''
+  worker.stderr?.on('data', chunk => { stderr += String(chunk) })
+  const exited = new Promise<void>(resolve => worker.once('close', () => resolve()))
 
-  // The competing writer runs on its own thread, so a stuck lock must surface as a
+  // The competing writer runs on its own process, so a stuck lock must surface as a
   // named failure. An unbounded wait here previously turned file-lock contention on
   // a slow host into an opaque 30s test timeout that said nothing about the cause.
   const waitFor = (type: 'locked' | 'committed') => new Promise<void>((resolve, reject) => {
@@ -83,22 +89,35 @@ async function whileAnotherWriterCommits<T>(
       cleanupListeners()
       reject(error)
     }
+    const onExit = (code: number | null) => {
+      cleanupListeners()
+      reject(new Error(`Writer exited (${code}) before "${type}": ${stderr}`))
+    }
     const cleanupListeners = () => {
       clearTimeout(timer)
       worker.off('message', onMessage)
       worker.off('error', onError)
+      worker.off('close', onExit)
     }
     worker.on('message', onMessage)
     worker.on('error', onError)
+    worker.on('close', onExit)
   })
 
   try {
     await waitFor('locked')
     const committed = waitFor('committed')
+    // Arm the commit listener before permitting the writer to release its lock.
+    // IPC may deliver multiple queued messages before an await resumes.
+    worker.send('release')
     const [, result] = await Promise.all([committed, operation()])
     return result
   } finally {
-    await worker.terminate()
+    if (worker.exitCode === null && worker.signalCode === null) worker.kill()
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Competing writer did not exit')), 5_000)
+      exited.then(() => { clearTimeout(timer); resolve() })
+    })
   }
 }
 

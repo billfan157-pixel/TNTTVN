@@ -162,7 +162,7 @@ describe('XD-02/03 historical policy and cohort', () => {
     const snapshot = await createLogicalSnapshot(tx)
     await tx.commit()
     const restoredSnapshot = decryptLogicalSnapshot(encryptLogicalSnapshot(snapshot, '33'.repeat(32)), '33'.repeat(32))
-    const target = createDisposableRestoreTarget()
+    const target = await createDisposableRestoreTarget()
     try {
       // Same preparation sequence as the operator CLI, no seed/delete shortcut.
       await prepareEmptyRestoreTarget(target)

@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createClient } from '@libsql/client'
-import { randomUUID } from 'node:crypto'
-import { dirname, join } from 'node:path'
+import { createDisposableRestoreTarget } from './helpers/restoreTarget.js'
 import { applyBootstrapSchema } from '../db/bootstrapSchema.js'
 import { applyMigrations } from '../db/migrationRunner.js'
 import { assertSingleParishDeploymentData } from '../db/deploymentParishHealth.js'
@@ -22,9 +20,7 @@ describe('fresh non-default parish provisioning', () => {
 
     const testDatabasePath = process.env.DB_PATH
     expect(testDatabasePath).toBeTruthy()
-    const client = createClient({
-      url: `file:${join(dirname(testDatabasePath!), `fresh-nondefault-${randomUUID()}.db`)}`,
-    })
+    const client = await createDisposableRestoreTarget()
     try {
       await client.execute('PRAGMA foreign_keys=ON')
       await applyBootstrapSchema(client)
@@ -61,9 +57,7 @@ describe('fresh non-default parish provisioning', () => {
     const repairIndex = MIGRATIONS.findIndex(migration => migration.version === '20260917-261')
     const testDatabasePath = process.env.DB_PATH
     expect(testDatabasePath).toBeTruthy()
-    const client = createClient({
-      url: `file:${join(dirname(testDatabasePath!), `foreign-parish-guard-${randomUUID()}.db`)}`,
-    })
+    const client = await createDisposableRestoreTarget()
 
     try {
       await client.execute('PRAGMA foreign_keys=ON')
