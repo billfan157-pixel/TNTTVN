@@ -50,6 +50,9 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
     await page.goto('/students')
     expect((await bootstrap).status()).toBe(200)
     expect((await roster).status()).toBe(200)
+    // Data hydration can finish before the lazy route module. Readiness belongs
+    // to browser setup; keep the action assertions and the 30s case budget intact.
+    await page.locator('#main-content .product-view').waitFor({ state: 'visible' })
     await expect(page.getByRole('heading', { name: 'Danh Sách Thiếu Nhi' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Import Excel' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Thêm Mới' })).toBeVisible()
