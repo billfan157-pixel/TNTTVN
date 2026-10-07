@@ -4,11 +4,11 @@
 
 ---
 
-### TINI attendance import boundary — 2026-09-23
+### Retired TINI attendance import — 2026-10-07
 
-The optional browser extension reads the currently rendered TINI `/glv` attendance table only when the user requests an export. It neither calls TINI endpoints nor reads cookies or tokens. The local JSON file is imported through Catevia's admin-only `/api/tini-attendance-import` routes. Preview proposes class/student links using visible names, birth dates and current class, while an admin must select and review each link with a reason. Active links are parish-scoped and uniquely map source IDs to Catevia IDs; class links are additionally scoped to the TINI academic year.
+The TINI attendance import has been removed at the product owner's request. Desktop and mobile Attendance no longer expose its entrypoint. The dedicated import client, panel, backend route/service, browser extension and packaging tools are removed; `/api/tini-attendance-import/*` is no longer mounted and returns HTTP 404, including for authenticated admins.
 
-The backend stores file and observation hashes, reviewed links, audit entries and commit receipts rather than the raw export. Commit revalidates the preview, tenant, authority, identity mapping, class membership, attendance conflicts and locks before using `AttendanceApplicationService` as the sole Attendance writer. Profile differences are shown for review and use existing Student correction workflows; import does not write Student or parent data.
+Existing Attendance records, reviewed external links, import runs/items, commit receipts and audit history remain stored. Schema and migrations are retained; retirement performs no data deletion. Ordinary Attendance continues through `AttendanceApplicationService`, with its authorization, tenancy, locks, optimistic concurrency and audit checks. Grades and the separate Student import workflow remain available.
 
 ### Desktop sub-tab command strip boundary & anti-bloat standardization — 2026-09-23
 
@@ -26,7 +26,7 @@ Bulk transfer of students across classes within the same academic year is perfor
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 26 source page modules                                    │
-│  Components: 164 (attendance: 1, audit: 5, auth: 5, common: 34,   │
+│  Components: 163 (audit: 5, auth: 5, common: 34,                  │
 │  desktop: 24, exam: 15, finance: 4, landing: 11, mobile: 17,      │
 │  operations: 30, parish: 13, ui: 5)                               │
 │  Router: TanStack Router (27 policy paths, 6 public + 21 protected)│
@@ -42,9 +42,9 @@ Bulk transfer of students across classes within the same academic year is perfor
 ┌────────────────────────────▼─────────────────────────────────────┐
 │              BACKEND (Hono + @libsql/client)                       │
 │  Auth: JWT (access 15m, refresh 7d), bcrypt, RBAC enforced       │
-│  Routes: 33 route modules under server/src/routes/                │
+│  Routes: 32 route modules under server/src/routes/                │
 │  Repositories: 6 (2 projection read models + 4 Drizzle write)    │
-│  Services: 60 under server/src/services/                          │
+│  Services: 59 under server/src/services/                          │
 │  Domain: 13 under server/src/domain/                              │
 │  Middleware: 4 (auth, security, logger, metrics)                  │
 │  DB: SQLite/Turso via @libsql/client, Drizzle ORM (76 tables)    │
