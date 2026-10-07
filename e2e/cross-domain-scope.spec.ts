@@ -59,10 +59,26 @@ test('@critical reconnect retracts revoked Grade and Attendance caches without d
   expect(unlocked.status()).toBe(200)
 
   // Own historical test inputs; do not depend on scores from another spec.
+  //
+  // (studentId, academicYear, semester) is the server's unique grade key, and the
+  // chromium/webkit projects plus every retry share one sandbox database
+  // (playwright.config.ts: workers 1, fullyParallel false, one webServer). A
+  // versionless POST is therefore refused with 409 VERSION_CONFLICT as soon as an
+  // earlier attempt pushed the row past version 1 (upsertGrade, ADR-016 S24).
+  // Read the current version and send it back — the ordinary OCC read-modify-write
+  // contract, unchanged. academicYear is compared by suffix because the server
+  // keeps legacy persistence ids such as `AY-2025-2026` intact.
+  const gradeScope = { studentId: 'student-e2e-001', academicYear: '2025-2026', semester: 1 }
+  const before = await authorizedRequest(request, admin, 'GET', '/api/grades')
+  expect(before.status()).toBe(200)
+  const current = (await before.json()).data.find((row: { studentId: string; academicYear: string; semester: number; version: number }) =>
+    row.studentId === gradeScope.studentId && row.semester === gradeScope.semester
+    && row.academicYear.endsWith(gradeScope.academicYear))
   const grade = await authorizedRequest(request, admin, 'POST', '/api/grades', {
-    studentId: 'student-e2e-001', academicYear: '2025-2026', semester: 1, scoreFinal: 8,
+    ...gradeScope, scoreFinal: 8,
+    ...(current ? { version: current.version } : {}),
   })
-  expect(grade.status()).toBe(200)
+  expect(grade.status(), await grade.text()).toBe(200)
   const dateOffset = Number.parseInt(testKey(testInfo, 'ATT').split('-').at(-1)!, 16) % 3650
     + (testInfo.project.name.toLowerCase().includes('webkit') ? 1 : 0)
   const attendanceDate = new Date(Date.UTC(2010, 0, 1 + dateOffset)).toISOString().slice(0, 10)
@@ -74,7 +90,13 @@ test('@critical reconnect retracts revoked Grade and Attendance caches without d
   await page.goto('/grades')
   await expect(page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' })).toBeVisible({ timeout: 15_000 })
   for (const entity of ['grades', 'attendance'] as const) {
-    await expect.poll(async () => (await academicCache(page, userId, entity))?.studentIds).toContain('student-e2e-001')
+    // The offline cache is only written once the page's scope pull resolves and
+    // IndexedDB finishes its AES-GCM round trip. expect.poll defaults to a 5s
+    // budget, which is shorter than the 15s this same page already needed for the
+    // visibility assertion above, so a loaded runner reported "undefined" and the
+    // retry silently became a flaky test.
+    await expect.poll(async () => (await academicCache(page, userId, entity))?.studentIds,
+      { timeout: 15_000 }).toContain('student-e2e-001')
   }
 
   try {
