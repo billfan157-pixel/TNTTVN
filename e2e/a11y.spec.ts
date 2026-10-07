@@ -81,6 +81,44 @@ const analyzeOnce = async (page: Page, testInfo: TestInfo, artifactName: string)
 test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () => {
   test.describe.configure({ timeout: 240_000 })
 
+  test('failed sync banner retains AA contrast in mobile themes and retry hover @critical', async ({ page }, testInfo) => {
+    await page.setViewportSize(matrixViewports.mobile)
+    await installUiBoot(page)
+    await injectSession(page, await getAdminSession(page.request))
+    // Exercise the real fail-closed generation guard through a controlled outage.
+    await page.route('**/api/system/purge-version', route => route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'SERVICE_UNAVAILABLE' } }),
+    }))
+    const bootstrap = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/auth/me' && response.request().method() === 'GET',
+    )
+    const outage = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/system/purge-version',
+    )
+    await page.goto('/dashboard')
+    expect((await bootstrap).status()).toBe(200)
+    expect((await outage).status()).toBe(503)
+    const banner = page.locator('.offline-status-banner--failed')
+    await expect(banner).toBeVisible()
+    for (const theme of ['light', 'dark'] as const) {
+      await setThemeThroughHeader(page, theme)
+      await page.setViewportSize(matrixViewports.mobile)
+      for (const hovered of [false, true]) {
+        if (hovered) await banner.getByRole('button', { name: 'Thử lại' }).hover()
+        else await page.mouse.move(0, 0)
+        await settleFiniteAnimations(page)
+        const results = await new AxeBuilder({ page }).include('.offline-status-banner--failed')
+          .withTags(wcagTags).analyze()
+        await testInfo.attach(`axe-sync-failed-${theme}-${hovered ? 'hover' : 'rest'}.json`, {
+          body: Buffer.from(JSON.stringify(results, null, 2)), contentType: 'application/json',
+        })
+        expect(results.violations, formatViolations(results.violations)).toEqual([])
+      }
+    }
+  })
+
   test('protected route viewport/theme matrix', async ({ page }, testInfo) => {
     const failedObservations: string[] = []
     await installUiBoot(page)
