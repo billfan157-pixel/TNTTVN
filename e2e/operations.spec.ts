@@ -114,10 +114,16 @@ test('@critical Operations primary dispatch appears only after planning and firs
   try {
     const recipient = await apiLogin(recipientPage.request, 'e2e_chunhiem', process.env.E2E_ROLE_PASSWORD || 'E2e-Role-Password-1!')
     await injectSession(recipientPage, recipient)
-    expect((await (await recipientPage.request.get('/api/operations/dispatches/inbox', { headers: authHeaders(recipient) })).json()).data).toEqual([])
 
     await injectSession(page, admin)
+    // This test has two actor pages; foreground the one performing this action.
+    await page.bringToFront()
+    const adminBootstrap = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/auth/me' && response.request().method() === 'GET',
+    )
     await page.goto('/operations')
+    expect((await adminBootstrap).status()).toBe(200)
+    await expect(page.getByRole('banner').getByRole('button', { name: 'Đăng xuất' })).toBeVisible()
     await page.getByRole('article').filter({ hasText: key }).getByRole('button', { name: 'Xem chi tiết' }).click()
     await page.getByLabel('Task cần phân công').selectOption(task.id)
     await page.getByLabel('Vai trò phân công').selectOption('OWNER')
@@ -130,15 +136,30 @@ test('@critical Operations primary dispatch appears only after planning and firs
     expect(dispatchResponse.status()).toBe(201)
     expect((await dispatchResponse.json()).data.dispatch).toMatchObject({ status: 'SCHEDULED', primaryInvitedAt: null })
 
+    // Only this dispatch must remain invisible before planning. Other tests may
+    // leave legitimate invitations in this shared sandbox recipient's inbox.
+    const scheduledInbox = await recipientPage.request.get('/api/operations/dispatches/inbox', { headers: authHeaders(recipient) })
+    expect(scheduledInbox.status()).toBe(200)
+    expect((await scheduledInbox.json()).data.filter((invitation: { taskId: string }) => invitation.taskId === task.id)).toEqual([])
+
     const planningResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && response.request().method() === 'POST')
     await page.getByRole('button', { name: 'Bắt đầu lập kế hoạch' }).click()
     expect((await planningResponsePromise).status()).toBe(200)
 
+    await recipientPage.bringToFront()
+    const invitedInbox = recipientPage.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/operations/dispatches/inbox' && response.request().method() === 'GET',
+    )
     await recipientPage.goto('/operations')
+    const inboxResponse = await invitedInbox
+    expect(inboxResponse.status()).toBe(200)
+    expect((await inboxResponse.json()).data).toEqual(expect.arrayContaining([expect.objectContaining({ taskId: task.id })]))
+    await recipientPage.locator('#main-content .product-view').first().waitFor({ state: 'visible' })
     const invitationPanel = recipientPage.locator('[aria-label="Lời mời nhận nhiệm vụ"]')
-    await expect(invitationPanel).toContainText(`Trực cổng ${key}`)
+    const invitationRow = invitationPanel.locator('div.rounded-xl', { hasText: `Trực cổng ${key}` })
+    await expect(invitationRow).toContainText(`Trực cổng ${key}`)
     const acceptanceResponsePromise = recipientPage.waitForResponse(response => response.url().includes(`/api/operations/tasks/${task.id}/dispatches/`) && response.url().endsWith('/accept') && response.request().method() === 'POST')
-    await invitationPanel.getByRole('button', { name: 'Nhận nhiệm vụ' }).click()
+    await invitationRow.getByRole('button', { name: 'Nhận nhiệm vụ' }).click()
     expect((await acceptanceResponsePromise).status()).toBe(200)
 
     const readBack = await page.request.get(`/api/operations/tasks/${task.id}`, { headers: authHeaders(admin) })
