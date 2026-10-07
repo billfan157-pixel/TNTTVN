@@ -65,7 +65,7 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
         page.request,
         session,
         'GET',
-        '/api/attendance?studentId=student-e2e-001&date=2026-08-23&type=SundayMass',
+        `/api/attendance?studentId=student-e2e-001&date=${testDate}&type=SundayMass`,
       )
       if (!response.ok()) return null
       const rows = (await response.json()).data as Array<{ status: string }>

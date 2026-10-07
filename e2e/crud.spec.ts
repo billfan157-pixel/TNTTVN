@@ -38,7 +38,22 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
   })
 
   test('student page shows import and create actions for admin', async ({ page }) => {
+    // This case starts with an injected marker, not an activated browser session.
+    // Auth and roster hydration are separate stages of the cold browser boot.
+    // Wait for real responses before measuring the availability of admin actions.
+    const bootstrap = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/auth/me' && response.request().method() === 'GET',
+    )
+    const roster = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/students' && response.request().method() === 'GET',
+    )
     await page.goto('/students')
+    expect((await bootstrap).status()).toBe(200)
+    expect((await roster).status()).toBe(200)
+    // Data hydration can finish before the lazy route module. Readiness belongs
+    // to browser setup; keep the action assertions and the 30s case budget intact.
+    await page.locator('#main-content .product-view').first().waitFor({ state: 'visible' })
+    await expect(page.getByRole('heading', { name: 'Danh Sách Thiếu Nhi' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Import Excel' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Thêm Mới' })).toBeVisible()
   })

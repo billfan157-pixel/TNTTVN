@@ -58,7 +58,12 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
   })
 
   afterAll(async () => {
-    await browser?.close()
+    if (!browser) return
+    // launch() also opens an about:blank page. Drain every page, including
+    // pages left by a failed assertion, before waiting for Chrome to exit.
+    // Otherwise Windows can stall in browser.close() after all tests passed.
+    for (const page of await browser.pages()) await page.close()
+    await browser.close()
   })
 
   it.each(boundaryQuestionCounts)(

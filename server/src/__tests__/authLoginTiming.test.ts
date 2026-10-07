@@ -4,7 +4,7 @@ import { cpus } from 'node:os'
 import { performance } from 'node:perf_hooks'
 import { eq } from 'drizzle-orm'
 import auth from '../routes/auth.js'
-import { db } from '../db/index.js'
+import { client, db } from '../db/index.js'
 import { users, refreshTokens, auditLogs } from '../db/schema.js'
 import { BCRYPT_COST, consumeRejectedLogin, verifyLoginPassword } from '../utils/passwordPolicy.js'
 
@@ -106,7 +106,22 @@ describe('AUTH-P2-003 work-factor parity and measured login behavior', () => {
   })
 
   it('still limits a public caller to ten login attempts per window', async () => {
-    for (let n = 0; n < 10; n++) expect((await login('unknown', wrong, '198.18.2.1')).status).toBe(401)
-    expect((await login('unknown', wrong, '198.18.2.1')).status).toBe(429)
+    // The interleaved timing case above owns real bcrypt execution. This case
+    // owns the real route and durable limiter: repeated CPU work must not turn
+    // the ten-attempt security assertion into another timing benchmark.
+    const compare = vi.spyOn(bcrypt, 'compare').mockResolvedValue(false as never)
+    try {
+      for (let n = 0; n < 10; n++) expect((await login('unknown', wrong, '198.18.2.1')).status).toBe(401)
+      const stored = await client.execute({
+        sql: 'SELECT count FROM rate_limits WHERE key = ?',
+        args: ['login:198.18.2.1'],
+      })
+      expect(Number(stored.rows[0]?.count)).toBe(10)
+      const passwordWorkCalls = compare.mock.calls.length
+      expect((await login('unknown', wrong, '198.18.2.1')).status).toBe(429)
+      expect(compare).toHaveBeenCalledTimes(passwordWorkCalls)
+    } finally {
+      compare.mockRestore()
+    }
   }, 20000)
 })

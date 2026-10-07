@@ -61,7 +61,7 @@ export const OfflineStatusBanner: React.FC = () => {
     return (
       <>
         {conflictBanner}
-        <div className="offline-status-banner offline-status-banner--failed bg-parish-danger-bg text-parish-danger border-b border-parish-danger/30 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-all">
+        <div className="offline-status-banner offline-status-banner--failed bg-parish-danger-bg text-parish-danger-hover border-b border-parish-danger/30 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-all">
           <div className="offline-status-banner__content flex items-center gap-2">
             <WifiOff size={15} className="text-parish-danger shrink-0" />
             <span>🔴 <strong>Lỗi đồng bộ:</strong> Chưa thể gửi dữ liệu lên máy chủ.</span>

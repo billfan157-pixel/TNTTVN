@@ -159,6 +159,28 @@ describe('Design System v4.5 Foundation Tokens & Classes', () => {
     expect(cssContent).toMatch(/::placeholder\s*\{\s*opacity:\s*1;/)
   })
 
+  it('keeps danger button text at WCAG AA contrast in both themes and hover states', () => {
+    const lightTokens = cssContent.slice(cssContent.indexOf('@theme {'), cssContent.indexOf('GLOBAL RESET & BASE'))
+    const darkTokens = cssContent.slice(cssContent.indexOf('.dark {'))
+    const declaration = (selector: string, property: string) => (
+      ruleBody(cssContent, selector).match(new RegExp(`(?:[{;]|\\n)\\s*${property}:\\s*([^;]+);`))?.[1].trim()
+    )
+    const resolveColor = (tokens: string, value: string) => {
+      if (value === 'white') return hexToRgb('#FFFFFF')
+      const token = value.match(/^var\((--[\w-]+)\)$/)?.[1]
+      if (!token) throw new Error(`Unsupported button color: ${value}`)
+      return tokenColor(tokens, token)
+    }
+    for (const [theme, tokens] of [['light', lightTokens], ['dark', darkTokens]] as const) {
+      const selector = theme === 'dark' ? '.dark .btn-danger' : '.btn-danger'
+      const foreground = declaration(selector, 'color') ?? declaration('.btn-danger', 'color')!
+      for (const state of ['', ':hover']) {
+        const background = declaration(`${selector}${state}`, 'background')!
+        expect(contrastRatio(resolveColor(tokens, foreground), resolveColor(tokens, background)), `${theme}${state}`).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  })
+
   it('keeps inverse placeholder and focus tokens visible on every navy brand surface', () => {
     const themeSection = cssContent.slice(cssContent.indexOf('@theme {'), cssContent.indexOf('GLOBAL RESET & BASE'))
     const placeholder = tokenColor(themeSection, '--color-text-placeholder-on-brand')

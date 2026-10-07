@@ -47,6 +47,7 @@ vi.mock('../../lib/syncSessionBoundary', () => ({
 }))
 
 vi.mock('../../lib/db', () => ({
+  initDB: vi.fn().mockResolvedValue(undefined),
   AUTH_SNAPSHOT_KEY: 'parish_auth_user',
   clearAuthSnapshot: vi.fn(async () => snapshotStore.clear()),
   dexieStorage: {
@@ -56,10 +57,15 @@ vi.mock('../../lib/db', () => ({
   },
 }))
 
+vi.mock('../../lib/syncCoordinator', () => ({
+  beginGenerationEvidenceBoundary: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { useAuthStore } from '../../stores/authStore'
 import { setTokens, clearTokens, loadTokensFromStorage, bootstrapAccessToken } from '../../lib/api'
 import { setTenantScope } from '../../lib/tenantScope'
 import { resetAllStoresToDefault } from '../../stores/resetStores'
+import { beginGenerationEvidenceBoundary } from '../../lib/syncCoordinator'
 
 const fullUser = {
   id: 'USR-1',
@@ -205,6 +211,25 @@ describe('authStore — changePassword', () => {
 })
 
 describe('authStore — loadFromStorage (bootstrap phiên sau reload)', () => {
+  it('does not expose the restored owner or refresh until pre-session cache evidence is captured', async () => {
+    localStorage.setItem('parish_current_user', JSON.stringify({ id: 'USR-1', role: 'chunhiem', parishId: 'PX-1' }))
+    snapshotStore.set('parish_auth_user', JSON.stringify(fullUser))
+    vi.mocked(bootstrapAccessToken).mockResolvedValue(true)
+    let finishBoundary!: () => void
+    vi.mocked(beginGenerationEvidenceBoundary).mockImplementationOnce(() => new Promise<void>(resolve => { finishBoundary = resolve }))
+
+    const pending = useAuthStore.getState().loadFromStorage()
+    await vi.waitFor(() => expect(beginGenerationEvidenceBoundary).toHaveBeenCalledWith({ parishId: 'PX-1', userId: 'USR-1' }))
+    expect(setTenantScope).not.toHaveBeenCalled()
+    expect(bootstrapAccessToken).not.toHaveBeenCalled()
+    expect(useAuthStore.getState().authReady).toBe(false)
+
+    finishBoundary()
+    await pending
+    expect(useAuthStore.getState().isAuthenticated).toBe(true)
+    expect(beginGenerationEvidenceBoundary).toHaveBeenCalledOnce()
+  })
+
   it('không có marker → unauthenticated, authReady=true', async () => {
     await useAuthStore.getState().loadFromStorage()
     expect(useAuthStore.getState().isAuthenticated).toBe(false)

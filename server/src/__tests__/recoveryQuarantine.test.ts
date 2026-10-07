@@ -18,7 +18,7 @@ const settingsDDL = `CREATE TABLE system_settings (
 )`
 
 async function fixture() {
-  const source = createDisposableRestoreTarget()
+  const source = await createDisposableRestoreTarget()
   const directory = mkdtempSync(join(tmpdir(), 'catevia-quarantine-'))
   const dbPath = join(directory, 'target.sqlite').replace(/\\/g, '/')
   const target = createClient({ url: `file:${dbPath}` })
@@ -34,7 +34,7 @@ async function fixture() {
 
 describe('DR-P2-005 restored-target quarantine', () => {
   it('keeps full current-schema readiness compatible with the quarantined metadata overlay', async () => {
-    const source = createDisposableRestoreTarget(), target = createDisposableRestoreTarget()
+    const source = await createDisposableRestoreTarget(), target = await createDisposableRestoreTarget()
     try {
       await prepareEmptyRestoreTarget(source)
       await prepareEmptyRestoreTarget(target)
@@ -134,7 +134,7 @@ describe('DR-P2-005 restored-target quarantine', () => {
   })
 
   it.each(['not-json', '{"status":"RELEASED"}', ''])('does not trust marker contents or another parish to bypass quarantine (%s)', async value => {
-    const target = createDisposableRestoreTarget()
+    const target = await createDisposableRestoreTarget()
     try {
       await target.execute(settingsDDL)
       await target.execute({ sql: 'INSERT INTO system_settings VALUES (?, ?, NULL, NULL, ?, ?)', args: [RECOVERY_QUARANTINE_KEY, value, '2026-09-19', 'another-parish'] })
@@ -143,7 +143,7 @@ describe('DR-P2-005 restored-target quarantine', () => {
   })
 
   it('allows new and ordinary databases; query failures do not fail open', async () => {
-    const target = createDisposableRestoreTarget()
+    const target = await createDisposableRestoreTarget()
     try {
       await expect(assertNotRecoveryQuarantined(target)).resolves.toBeUndefined()
       await target.execute(settingsDDL)
@@ -154,7 +154,7 @@ describe('DR-P2-005 restored-target quarantine', () => {
 
   it('rejects an already-quarantined source instead of laundering its marker', async () => {
     const { source, target, snapshot } = await fixture()
-    const next = createDisposableRestoreTarget()
+    const next = await createDisposableRestoreTarget()
     try {
       await restoreLogicalSnapshot(target, snapshot, targetIdentity)
       await expect(restoreLogicalSnapshot(next, await createLogicalSnapshot(target), targetIdentity)).rejects.toThrow('already recovery-quarantined')
