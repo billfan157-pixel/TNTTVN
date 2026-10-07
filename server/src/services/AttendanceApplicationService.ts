@@ -29,8 +29,7 @@ export interface MarkAttendanceCommand {
   expected?: AcademicWriteExpectation
   ip?: string
   userAgent?: string
-  auditAction?: 'MARK_ATTENDANCE' | 'BATCH_MARK_ATTENDANCE_ITEM' | 'IMPORT_TINI_ATTENDANCE'
-  auditProvenance?: { provider: 'tini'; runId: string; observationHash: string; late: boolean }
+  auditAction?: 'MARK_ATTENDANCE' | 'BATCH_MARK_ATTENDANCE_ITEM'
 }
 
 export class AttendanceApplicationService {
@@ -157,7 +156,6 @@ export class AttendanceApplicationService {
         newValue: JSON.stringify({
           studentId: current.studentId, date: current.date, type: current.type,
           status: current.status, version: current.version,
-          ...(cmd.auditProvenance ? { provenance: cmd.auditProvenance } : {}),
         }),
         ip: cmd.ip ?? '',
         userAgent: cmd.userAgent ?? '',

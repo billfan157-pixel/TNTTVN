@@ -7,7 +7,7 @@ import { useFilterStore } from '../../stores/filterStore';
 import { getFilteredClassList, scopeClassesForAssignedWrites, useClassStore } from '../../stores/classStore';
 import {
   CheckSquare, Save, CheckCircle2,
-  XCircle, AlertTriangle, CalendarClock, ArrowRight, BarChart2, FileSpreadsheet
+  XCircle, AlertTriangle, CalendarClock, ArrowRight, BarChart2
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { getDefaultDate } from '../../utils/getDefaultDate';
@@ -26,11 +26,7 @@ import { SegmentedControl, TabPanel, Tabs } from '../common/ui/SelectionControls
 
 type AttendanceSubTab = 'summary' | 'attendance' | 'leave-requests';
 
-export interface DesktopAttendanceGridProps {
-  onOpenTiniImport?: () => void;
-}
-
-export const DesktopAttendanceGrid: React.FC<DesktopAttendanceGridProps> = ({ onOpenTiniImport }) => {
+export const DesktopAttendanceGrid: React.FC = () => {
   const navigate = useNavigate();
   const search = useSearch({ from: '/attendance' });
   const { can, role } = useAuth();
@@ -207,22 +203,6 @@ export const DesktopAttendanceGrid: React.FC<DesktopAttendanceGridProps> = ({ on
         icon={<CheckSquare className="text-parish-primary" size={24} />}
         title="Điểm Danh & Chuyên Cần"
         description="Theo dõi chuyên cần theo ngày, tổng hợp tỷ lệ tham dự Thánh Lễ - Giáo Lý và duyệt đơn nghỉ phép"
-        actions={
-          onOpenTiniImport ? (
-            <button
-              type="button"
-              onClick={onOpenTiniImport}
-              className="group inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-parish-primary/10 hover:bg-parish-primary/15 border border-parish-primary/25 text-parish-primary font-semibold text-xs shadow-xs hover:shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-parish-primary/30"
-              title="Nhập dữ liệu điểm danh trích xuất từ tiện ích TINI DOM Export (CCAMS Xuân Lộc)"
-            >
-              <FileSpreadsheet size={16} className="text-parish-primary shrink-0" />
-              <span>Nhập Điểm Danh TINI</span>
-              <span className="px-1.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wider bg-parish-primary text-text-inverse shrink-0">
-                Extension
-              </span>
-            </button>
-          ) : undefined
-        }
       />
       {/* Top Main Tab Navigation */}
       {/* Top Main Tab Navigation */}
