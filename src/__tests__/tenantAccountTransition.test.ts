@@ -13,6 +13,8 @@ import { useDailyGradeStore } from '../stores/dailyGradeStore'
 import { useLeaveRequestStore } from '../stores/leaveRequestStore'
 import { usePromotionStore } from '../stores/promotionStore'
 import { useUIStore } from '../stores/uiStore'
+import { useGradeStore } from '../stores/gradeStore'
+import { flushAcademicCache } from '../lib/academicPull'
 
 describe('TENANT-P1-001 account transition live-state boundary', () => {
   beforeEach(async () => {
@@ -25,6 +27,29 @@ describe('TENANT-P1-001 account transition live-state boundary', () => {
   })
 
   afterEach(() => setTenantScope(null))
+
+  it('rehydrates the authenticated account encrypted grade snapshot without reading another owner', async () => {
+    useGradeStore.getState().setGrades([])
+    await flushAcademicCache('parish_store_grades')
+    const gradeA = { id: 'GRADE-A', studentId: 'ST-A', semester: 1, academicYear: '2026-2027', scoreFinal: 8 }
+    const gradeB = { id: 'GRADE-B', studentId: 'ST-B', semester: 1, academicYear: '2026-2027', scoreFinal: 6 }
+    await dexieStorage.setItem('parish_store_grades', JSON.stringify({ version: 2, state: { grades: [gradeA], syncScopeRevision: 'SCOPE-A' } }))
+    setTenantScope({ parishId: 'PARISH-B', userId: 'USER-B' })
+    await dexieStorage.setItem('parish_store_grades', JSON.stringify({ version: 2, state: { grades: [gradeB], syncScopeRevision: 'SCOPE-B' } }))
+    expect((await db.stores.get('parish_store_grades:PARISH-A:USER-A'))?.value).toMatch(/^enc:v1:/)
+    expect((await db.stores.get('parish_store_grades:PARISH-B:USER-B'))?.value).toMatch(/^enc:v1:/)
+
+    setTenantScope({ parishId: 'PARISH-A', userId: 'USER-A' })
+    await rehydrateTenantStores()
+    expect(useGradeStore.getState()).toMatchObject({ grades: [gradeA], syncScopeRevision: 'SCOPE-A' })
+
+    // Exercise the normal reset-before-account-switch boundary, then activate B.
+    await resetAllStoresToDefault({ clearPersisted: false })
+    setTenantScope({ parishId: 'PARISH-B', userId: 'USER-B' })
+    await rehydrateTenantStores()
+    expect(useGradeStore.getState()).toMatchObject({ grades: [gradeB], syncScopeRevision: 'SCOPE-B' })
+    expect(useGradeStore.getState().grades).not.toContainEqual(gradeA)
+  })
 
   it('A exam and tenant state cannot survive logout into B with no snapshot', async () => {
     useExamStore.setState({

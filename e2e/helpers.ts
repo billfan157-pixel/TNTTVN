@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { APIRequestContext, APIResponse, Page, TestInfo } from '@playwright/test'
+import { expect, type APIRequestContext, type APIResponse, type BrowserContext, type Page, type TestInfo } from '@playwright/test'
 
 /**
  * TQ-F2 (audit 2026-08-21): E2E chạy với BACKEND THẬT nên fake-token fixture
@@ -19,12 +19,43 @@ const ROLE_USERNAMES = {
   phuhuynh: '0900000000',
 } as const
 let loginClientSequence = 0
+const clientIps = new WeakMap<APIRequestContext, string>()
+const preparedBrowsers = new WeakSet<BrowserContext>()
 
 function nextLoginClientIp() {
   // Every Playwright context models a separate client. Include the worker PID
   // so a restarted worker never reuses the previous worker's limiter bucket.
   loginClientSequence += 1
   return `198.18.${process.pid % 250}.${(loginClientSequence % 249) + 1}`
+}
+
+function clientIpFor(request: APIRequestContext): string {
+  let ip = clientIps.get(request)
+  if (!ip) {
+    ip = nextLoginClientIp()
+    clientIps.set(request, ip)
+  }
+  return ip
+}
+
+async function prepareBrowserClient(page: Page): Promise<void> {
+  const context = page.context()
+  if (preparedBrowsers.has(context)) return
+  // Login already models separate clients; refresh and ordinary browser API
+  // requests must use the same context-owned IP. Otherwise rapid navigations
+  // across independent tests exhaust one loopback refresh bucket (30/min).
+  // Keep this IP stable across tabs, reloads and account changes so the real
+  // per-client limit remains enforceable by the isolated trusted proxy.
+  await context.setExtraHTTPHeaders({ 'x-real-ip': clientIpFor(context.request) })
+  preparedBrowsers.add(context)
+}
+
+async function waitForBootstrapBaseline(page: Page): Promise<void> {
+  // A route/name can paint while the first generation probe is still pending.
+  // Reloading then aborts that probe and leaves material read caches without a
+  // baseline, which the next boot correctly treats as unverified legacy data.
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('parish_purge_version')),
+    { message: 'Fresh login establishes its real generation baseline before another navigation' }).not.toBeNull()
 }
 
 export interface E2ESession {
@@ -41,7 +72,7 @@ export async function apiLogin(
 ): Promise<E2ESession> {
   const res = await request.post('/api/auth/login', {
     data: { username, password, parishId },
-    headers: { 'x-real-ip': nextLoginClientIp() },
+    headers: { 'x-real-ip': clientIpFor(request) },
   })
   if (!res.ok()) {
     throw new Error(
@@ -58,6 +89,7 @@ export async function injectSession(
   session: E2ESession,
 ): Promise<void> {
   const { accessToken, user, cookies } = session
+  await prepareBrowserClient(page)
   await page.context().addCookies(cookies)
   await page.addInitScript(
     ([access, currentUser]) => {
@@ -121,17 +153,21 @@ export function testKey(testInfo: TestInfo, prefix: string): string {
 }
 
 export async function loginThroughStaffPortal(page: Page): Promise<void> {
+  await prepareBrowserClient(page)
   await page.goto('/login/nhan-su')
   await page.getByLabel('Tên Đăng Nhập').fill(E2E_ADMIN)
   await page.getByRole('textbox', { name: 'Mật Khẩu', exact: true }).fill(ROLE_PASSWORD)
   await page.getByRole('button', { name: 'Đăng Nhập Ngay' }).click()
   await page.waitForURL(/\/dashboard$/)
+  await waitForBootstrapBaseline(page)
 }
 
 export async function loginThroughParentPortal(page: Page): Promise<void> {
+  await prepareBrowserClient(page)
   await page.goto('/login/phuhuynh')
   await page.getByLabel('Số Điện Thoại Phụ Huynh').fill(ROLE_USERNAMES.phuhuynh)
   await page.getByRole('textbox', { name: 'Mật Khẩu', exact: true }).fill(ROLE_PASSWORD)
   await page.getByRole('button', { name: 'Đăng Nhập Ngay' }).click()
   await page.waitForURL(/\/dashboard$/)
+  await waitForBootstrapBaseline(page)
 }

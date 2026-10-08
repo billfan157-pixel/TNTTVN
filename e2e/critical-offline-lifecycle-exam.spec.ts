@@ -6,6 +6,13 @@ import {
   testKey,
 } from './helpers'
 
+// The Smart Exam case boots the app twice (goto /grades, then reload) and drives
+// roughly fifteen interactions plus four network round trips; the others unlock
+// or lock a semester and then drive a full journey. The 30s suite default is not
+// enough on a loaded CI runner — it is the same shape as the grade-entry journey
+// that timed out at 30000ms in run 37732578231.
+test.describe.configure({ timeout: 60_000 })
+
 async function countPendingAttendanceOps(page: Page): Promise<number> {
   return page.evaluate(async () => {
     const openRequest = indexedDB.open('ParishDB')
@@ -34,7 +41,12 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     await expect(page.getByRole('tab', { name: 'Điểm Danh' })).toHaveAttribute('aria-selected', 'true')
     await page.getByRole('button', { name: /Chọn lớp Thiếu Nhi 1/ }).click()
     const dateInput = page.locator('input[type="date"]').first()
-    const testDate = testInfo.project.name === 'webkit' ? '2026-08-24' : '2026-08-23'
+    // Projects, retries and repeat-each attempts share one server database.
+    // Reusing a saved Absent date leaves no draft change, so Save correctly
+    // disables itself. Each attempt must own a fresh attendance natural key.
+    const dateOffset = testInfo.repeatEachIndex * 4 + testInfo.retry * 2
+      + (testInfo.project.name === 'webkit' ? 1 : 0)
+    const testDate = new Date(Date.UTC(2026, 7, 23 + dateOffset)).toISOString().slice(0, 10)
     await dateInput.fill(testDate)
 
     await context.setOffline(true)
@@ -179,7 +191,18 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
 
     await page.reload()
     await page.getByRole('tab', { name: /Chấm Bài:/ }).click()
+    // Reload restores the persisted selected session. Prove its identity,
+    // rather than looking for a list-row button that is absent in that view.
+    await expect(page.getByRole('combobox', { name: 'Chọn phiên chấm hiện tại' })).toHaveValue(exam.id)
+    // The OMR fixture wrote results through the backend, outside this browser's
+    // old result cache. Reopen the restored session through the real UI to pull
+    // those server-authoritative results, as the original list journey did.
+    await page.getByRole('button', { name: 'Danh sách phiên', exact: true }).click()
+    const resultsResponse = page.waitForResponse(response =>
+      new URL(response.url()).pathname === `/api/exams/${exam.id}/results`
+        && response.request().method() === 'GET')
     await page.getByRole('button', { name: subject, exact: false }).click()
+    expect((await resultsResponse).status()).toBe(200)
     await expect(page.getByText('Kết quả đã lưu (1)')).toBeVisible()
     const completeResponsePromise = page.waitForResponse(response => (
       response.url().endsWith(`/api/exams/${exam.id}/complete`)

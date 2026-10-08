@@ -7,6 +7,14 @@ import {
 } from './helpers'
 
 test.describe('Critical persisted business outcomes', () => {
+  // Every journey here boots the app at least twice: a create pass, then a
+  // reload that has to prove the committed record. RootLayout re-runs its auth
+  // bootstrap on every navigation, so the 30s suite default runs out on a
+  // loaded CI runner — the grade-entry case hit "Test timeout of 30000ms
+  // exceeded" on its second load. The finance case below already needed an
+  // explicit 60s, so give the whole file the same headroom.
+  test.describe.configure({ timeout: 60_000 })
+
   test('@critical admin creates a class through UI and reload reads the committed class', async ({ page }, testInfo) => {
     const session = await getAdminSession(page.request)
     await injectSession(page, session)
