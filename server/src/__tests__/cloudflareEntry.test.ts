@@ -59,4 +59,41 @@ describe('production Worker backup admission', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     try { expect((await worker.fetch(request(), boundEnv)).status).toBe(503) } finally { log.mockRestore() }
   })
+
+  it.each(['pause', 'resume', 'status'])('settles every %s RPC before returning an incomplete response', async mode => {
+    const { env } = environment()
+    let finish!: () => void
+    const pending = new Promise<void>(resolve => { finish = resolve })
+    const started: string[] = []
+    const action = async (name: string) => {
+      started.push(name)
+      if (name.endsWith('-notification')) throw new Error('Synthetic first RPC failure')
+      if (name.endsWith('-operation-reminders')) await pending
+    }
+    const boundEnv = { ...env, MAINTENANCE_JOB: {
+      idFromName: (name: string) => name,
+      get: (name: string) => ({
+        pause: () => action(name), resume: () => action(name),
+        status: async () => {
+          if (mode === 'status') await action(name)
+          return { paused: true, active: false, nextAlarm: null }
+        },
+      }),
+    } }
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let returned = false
+    const response = worker.fetch(new Request(`https://worker.example/__ops/maintenance?mode=${mode}`, {
+      method: 'POST', headers: { 'x-catevia-canary-token': token },
+    }), boundEnv).then(result => { returned = true; return result })
+    try {
+      // One event-loop turn completes the rejected RPC and its promise callbacks.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(started).toHaveLength(10)
+      expect(returned).toBe(false)
+    } finally {
+      finish()
+      expect((await response).status).toBe(503)
+      log.mockRestore()
+    }
+  })
 })

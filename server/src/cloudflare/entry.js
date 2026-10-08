@@ -39,12 +39,22 @@ export default {
       const mode = new URL(request.url).searchParams.get('mode')
       if (!['pause', 'resume', 'status'].includes(mode)) return new Response('Invalid maintenance operation', { status: 400 })
       try {
-        const jobs = await Promise.all(Object.keys(MAINTENANCE_INTERVALS_MS).map(async kind => {
+        const kinds = Object.keys(MAINTENANCE_INTERVALS_MS)
+        // An early rejection must not end the Worker request while sibling RPCs
+        // are still draining/resuming: those RPCs would be canceled on return.
+        const results = await Promise.allSettled(kinds.map(async kind => {
           const job = env.MAINTENANCE_JOB.get(env.MAINTENANCE_JOB.idFromName(`catevia-production-${kind}`))
           if (mode === 'pause') await job.pause()
           if (mode === 'resume') await job.resume(kind)
           return { ...await job.status(), kind }
         }))
+        const failures = results.flatMap((result, index) => result.status === 'rejected'
+          ? [{ kind: kinds[index], errorClass: result.reason?.name || 'UnknownError' }] : [])
+        if (failures.length > 0) {
+          console.error(JSON.stringify({ type: 'MAINTENANCE_CONTROL_FAILED', mode, failures }))
+          return new Response('Maintenance control incomplete', { status: 503 })
+        }
+        const jobs = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
         return Response.json({ jobs })
       } catch (error) {
         console.error(JSON.stringify({ type: 'MAINTENANCE_CONTROL_FAILED', errorClass: error?.name || 'UnknownError' }))
