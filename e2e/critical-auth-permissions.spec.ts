@@ -9,6 +9,49 @@ import {
 } from './helpers'
 
 test.describe('Critical authentication, session and authorization journeys', () => {
+  test('@critical separate browser clients isolate refresh quota while one client remains rate limited', async ({ request, page }, testInfo) => {
+    test.setTimeout(60_000)
+    await getAdminSession(request)
+    const headers = { Origin: process.env.E2E_BASE_URL! }
+    const pressureIp = `198.19.${testInfo.workerIndex % 250}.${testInfo.repeatEachIndex + 1}`
+    // Reproduce the old fixture's shared bucket using real rotation, with an
+    // attempt-owned IP so this regression never exhausts another test's quota.
+    // No limiter state, API response or application store is substituted.
+    const pressure: number[] = []
+    for (let index = 0; index < 31; index++) {
+      pressure.push((await request.post('/api/auth/refresh', { headers: { ...headers, 'x-real-ip': pressureIp } })).status())
+    }
+    expect(pressure.slice(0, 30)).toEqual(Array(30).fill(200))
+    expect(pressure[30]).toBe(429)
+
+    // A legacy shared proxy header must be replaced by this browser's stable
+    // client identity when the authenticated fixture activates its context.
+    await page.context().setExtraHTTPHeaders({ 'x-real-ip': pressureIp })
+    const staff = await getRoleSession(page.request, 'phuta')
+    await injectSession(page, staff)
+    const gradePulls: number[] = []
+    page.on('response', response => {
+      const url = new URL(response.url())
+      if (url.pathname === '/api/grades' && url.searchParams.get('includeScope') === 'true'
+        && response.request().method() === 'GET') gradePulls.push(response.status())
+    })
+    const bootstrap = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/auth/refresh' && response.request().method() === 'POST')
+    await page.goto('/grades')
+    expect((await bootstrap).status()).toBe(200)
+    await expect(page.locator('#main-content')).toBeVisible()
+    await expect.poll(() => gradePulls).toContain(200)
+
+    // Reloads/tabs/API calls from that browser retain its IP. Moving to a new
+    // IP for every request would bypass the real security policy and fail here.
+    const sameClient: number[] = []
+    for (let index = 0; index < 31; index++) {
+      sameClient.push((await page.request.post('/api/auth/refresh', { headers })).status())
+    }
+    expect(sameClient.slice(0, 29)).toEqual(Array(29).fill(200))
+    expect(sameClient.slice(29)).toEqual([429, 429])
+  })
+
   test('@critical staff login survives reload and explicit logout closes the client session', async ({ page }) => {
     await test.step('sign in through the real staff portal', async () => {
       await loginThroughStaffPortal(page)
