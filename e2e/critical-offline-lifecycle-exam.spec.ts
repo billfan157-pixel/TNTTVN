@@ -6,6 +6,13 @@ import {
   testKey,
 } from './helpers'
 
+// The Smart Exam case boots the app twice (goto /grades, then reload) and drives
+// roughly fifteen interactions plus four network round trips; the others unlock
+// or lock a semester and then drive a full journey. The 30s suite default is not
+// enough on a loaded CI runner — it is the same shape as the grade-entry journey
+// that timed out at 30000ms in run 37732578231.
+test.describe.configure({ timeout: 60_000 })
+
 async function countPendingAttendanceOps(page: Page): Promise<number> {
   return page.evaluate(async () => {
     const openRequest = indexedDB.open('ParishDB')
