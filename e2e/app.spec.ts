@@ -45,7 +45,15 @@ test.describe('Critical Path — Attendance', () => {
     await expect(studentRow.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()
     await studentRow.getByRole('radio', { name: 'Vắng', exact: true }).click()
 
+    const saveResponse = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/attendance/batch'
+        && response.request().method() === 'POST')
     await page.getByRole('button', { name: 'Lưu Điểm Danh' }).click()
-    await expect(page.getByText('Đã Lưu!')).toBeVisible({ timeout: 5000 })
+    const saved = await saveResponse
+    expect(saved.status()).toBe(200)
+    expect((await saved.json()).data.results).toContainEqual(expect.objectContaining({
+      studentId: 'student-e2e-001', record: expect.objectContaining({ status: 'AbsentUnexcused' }),
+    }))
+    await expect(page.getByText('Đã Lưu!')).toBeVisible()
   })
 })

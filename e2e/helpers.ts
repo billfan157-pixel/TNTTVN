@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { APIRequestContext, APIResponse, BrowserContext, Page, TestInfo } from '@playwright/test'
+import { expect, type APIRequestContext, type APIResponse, type BrowserContext, type Page, type TestInfo } from '@playwright/test'
 
 /**
  * TQ-F2 (audit 2026-08-21): E2E chạy với BACKEND THẬT nên fake-token fixture
@@ -48,6 +48,14 @@ async function prepareBrowserClient(page: Page): Promise<void> {
   // per-client limit remains enforceable by the isolated trusted proxy.
   await context.setExtraHTTPHeaders({ 'x-real-ip': clientIpFor(context.request) })
   preparedBrowsers.add(context)
+}
+
+async function waitForBootstrapBaseline(page: Page): Promise<void> {
+  // A route/name can paint while the first generation probe is still pending.
+  // Reloading then aborts that probe and leaves material read caches without a
+  // baseline, which the next boot correctly treats as unverified legacy data.
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('parish_purge_version')),
+    { message: 'Fresh login establishes its real generation baseline before another navigation' }).not.toBeNull()
 }
 
 export interface E2ESession {
@@ -151,6 +159,7 @@ export async function loginThroughStaffPortal(page: Page): Promise<void> {
   await page.getByRole('textbox', { name: 'Mật Khẩu', exact: true }).fill(ROLE_PASSWORD)
   await page.getByRole('button', { name: 'Đăng Nhập Ngay' }).click()
   await page.waitForURL(/\/dashboard$/)
+  await waitForBootstrapBaseline(page)
 }
 
 export async function loginThroughParentPortal(page: Page): Promise<void> {
@@ -160,4 +169,5 @@ export async function loginThroughParentPortal(page: Page): Promise<void> {
   await page.getByRole('textbox', { name: 'Mật Khẩu', exact: true }).fill(ROLE_PASSWORD)
   await page.getByRole('button', { name: 'Đăng Nhập Ngay' }).click()
   await page.waitForURL(/\/dashboard$/)
+  await waitForBootstrapBaseline(page)
 }

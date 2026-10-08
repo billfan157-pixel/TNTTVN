@@ -74,7 +74,7 @@ export async function rehydrateTenantStores(): Promise<void> {
   await Promise.all(
     stores.map((module) => {
       const candidate = Object.values(module).find((value) =>
-        value && typeof value === 'object' && 'persist' in (value as object)
+        value && (typeof value === 'function' || typeof value === 'object') && 'persist' in value
       ) as { persist?: { rehydrate?: () => Promise<void> } } | undefined
       return candidate?.persist?.rehydrate?.() || Promise.resolve()
     })
