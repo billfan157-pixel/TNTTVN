@@ -75,10 +75,20 @@ test('@critical public Operations event is projected to the parent read-only cal
 
   const parent = await getRoleSession(page.request, 'phuhuynh')
   await injectSession(page, parent)
+  // RootLayout shows a bootstrap screen until authReady, and the calendar only
+  // then fetches its read model in a mount effect (DesktopCalendarView calls
+  // fetchEvents()). page.goto resolves on load, so the previous version raced a
+  // whole session bootstrap plus a parish-events round trip against expect()'s
+  // 5s default and lost on a loaded CI runner. Wait for the calendar's own read
+  // before asserting, the same response-first shape used elsewhere in this file,
+  // and give the visibility checks the 15s budget line 526 already uses.
+  const calendarEventsResponse = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/parish-events' && response.request().method() === 'GET')
   await page.goto('/calendar')
+  expect((await calendarEventsResponse).status()).toBe(200)
   const calendarEvent = page.getByText(key, { exact: true }).locator('..').locator('..')
-  await expect(calendarEvent).toBeVisible()
-  await expect(calendarEvent.getByText('Sân giáo xứ E2E', { exact: true })).toBeVisible()
+  await expect(calendarEvent).toBeVisible({ timeout: 15_000 })
+  await expect(calendarEvent.getByText('Sân giáo xứ E2E', { exact: true })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('button', { name: /Tạo sự kiện|Sửa sự kiện|Xóa sự kiện/ })).toHaveCount(0)
 })
 
