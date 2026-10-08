@@ -207,11 +207,13 @@ jobs:
           OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
         run: |
           set -euo pipefail
+          # curl retries an intentional closed-state 503. Keep only the final
+          # response body instead of concatenating every attempt on stdout.
+          probe_body="$RUNNER_TEMP/catevia-worker-probe-body"
           if [ "$CATEVIA_BACKEND_TARGET" != "worker" ]; then
-            response="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
-              --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/api/auth/me)"
-            status="${response##*$'\n'}"
-            body="${response%$'\n'*}"
+            status="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+              --output "$probe_body" --write-out '%{http_code}' https://catevia-api.billfan157.workers.dev/api/auth/me)"
+            body="$(cat "$probe_body")"
             if [ "$status" != "503" ] || [ "$body" != "Backend cutover pending" ]; then
               echo "Cloudflare Worker is not in its expected closed state (HTTP $status)." >&2
               exit 1
@@ -221,11 +223,10 @@ jobs:
           test -n "${OPS_TOKEN:-}"
           # The open Worker serves ops health only to the operator token, so this
           # proves the deployed release without opening direct public API traffic.
-          response="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+          status="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
             --header "Authorization: Bearer ${OPS_TOKEN}" \
-            --write-out $'\n%{http_code}' https://catevia-api.billfan157.workers.dev/health)"
-          status="${response##*$'\n'}"
-          body="${response%$'\n'*}"
+            --output "$probe_body" --write-out '%{http_code}' https://catevia-api.billfan157.workers.dev/health)"
+          body="$(cat "$probe_body")"
           if [ "$status" != "200" ]; then
             echo "Open Worker health failed (HTTP $status)." >&2
             exit 1
