@@ -296,7 +296,7 @@ jobs:
             echo "Vercel did not report a deployment URL." >&2
             exit 1
           fi
-          node tools/cloudflare-free-feasibility/verify-preview-ingress.mjs "$deployment_url"
+          node tools/cloudflare-free-feasibility/verify-preview-ingress.mjs "https://${deployment_url#https://}"
 
       - name: Deploy exact SHA to Render production
         id: render
