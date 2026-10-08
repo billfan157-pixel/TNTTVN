@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useStudentStore } from '../../stores/studentStore';
 import { useAttendanceStore } from '../../stores/attendanceStore';
@@ -29,7 +29,7 @@ type AttendanceSubTab = 'summary' | 'attendance' | 'leave-requests';
 export const DesktopAttendanceGrid: React.FC = () => {
   const navigate = useNavigate();
   const search = useSearch({ from: '/attendance' });
-  const { can, role } = useAuth();
+  const { can, role, user } = useAuth();
   const canEditAttendance = can('admin', 'chunhiem', 'phuta');
   const students = useStudentStore(s => s.students);
   const attendance = useAttendanceStore(s => s.attendance);
@@ -69,6 +69,8 @@ export const DesktopAttendanceGrid: React.FC = () => {
     });
   };
   const [attendanceState, setAttendanceState] = useState<Record<string, { status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused'; note: string }>>({});
+  const draftScope = JSON.stringify([user?.parishId, user?.id, role, canEditAttendance, selectedClassId, date, type]);
+  const serverSnapshot = useRef<{ scope: string; records: typeof attendanceState } | null>(null);
   const [isSaved, setIsSaved] = useState(false);
 
   useEffect(() => {
@@ -91,8 +93,21 @@ export const DesktopAttendanceGrid: React.FC = () => {
         note: rec?.note || ''
       };
     });
-    setAttendanceState(map);
-  }, [date, type, filteredStudents, attendance]);
+    const previousSnapshot = serverSnapshot.current;
+    setAttendanceState(previous => {
+      const next: typeof map = {};
+      for (const [id, record] of Object.entries(map)) {
+        const baseline = previousSnapshot?.records[id];
+        // A late read or roster refresh must not overwrite a local edit when
+        // that student's server values have not changed. New scope/data wins.
+        next[id] = previousSnapshot?.scope === draftScope && baseline && previous[id]
+          && baseline.status === record.status && baseline.note === record.note
+          ? previous[id] : record;
+      }
+      return next;
+    });
+    serverSnapshot.current = { scope: draftScope, records: map };
+  }, [date, type, filteredStudents, attendance, draftScope]);
 
   const handleStatusChange = (studentId: string, status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused') => {
     if (!canEditAttendance) return;

@@ -236,6 +236,12 @@ describe('deployment and native privacy contracts', () => {
       .toBeLessThan(at('Open the verified Worker only after backup and ownership checks'))
     expect(at('Open the verified Worker only after backup and ownership checks'))
       .toBeLessThan(at('Verify the destination release before moving ingress'))
+    expect(at('Prove Render no longer owns scheduled writes when opening traffic'))
+      .toBeLessThan(at('Resume the approved Cloudflare jobs before verifying the destination'))
+    expect(at('Resume the approved Cloudflare jobs before verifying the destination'))
+      .toBeLessThan(at('Verify the destination release before moving ingress'))
+    expect(step('Resume the approved Cloudflare jobs before verifying the destination'))
+      .toContain('resume "$CUTOVER_RELEASE" "$EXPECTED_RENDER_RELEASE"')
     expect(at('Prepare the Render rollback release with writers disabled'))
       .toBeLessThan(at('Point Vercel ingress at the recorded backend'))
     expect(at('Wait for the Vercel deployment that carries the new ingress'))
@@ -248,6 +254,8 @@ describe('deployment and native privacy contracts', () => {
       .toBeLessThan(at('Restore Render to the verified release before rollback boundary'))
     expect(at('Restore Render to the verified release before rollback boundary'))
       .toBeLessThan(at('Prove the recorded production boundary'))
+    expect(step('Restore Render to the verified release before rollback boundary'))
+      .toContain('wait-maintenance-state.mjs closed "$CUTOVER_RELEASE"')
     // The single-writer proof is an open-path gate. Running it during rollback would
     // demand the very ownership state rollback is undoing.
     expect(step('Prove Render no longer owns scheduled writes when opening traffic'))

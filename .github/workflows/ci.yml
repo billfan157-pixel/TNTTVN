@@ -62,6 +62,7 @@ jobs:
             tools/cloudflare-free-feasibility/detect-password-cpu-retries.test.mjs \
             tools/cloudflare-free-feasibility/detect-worker-incidents.test.mjs \
             tools/cloudflare-free-feasibility/deploy-render-release.test.mjs
+          node --test tools/cloudflare-free-feasibility/wait-maintenance-state.test.mjs
 
       - name: Run ESLint
         run: npm run lint --if-present

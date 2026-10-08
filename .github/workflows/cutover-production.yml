@@ -229,29 +229,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          jobs="$(curl --fail --silent --show-error --max-time 120 --request POST \
-            --header "x-catevia-canary-token: ${OPS_TOKEN}" \
-            'https://catevia-api.billfan157.workers.dev/__ops/maintenance?mode=resume')"
-          jq -e --arg sha "$CUTOVER_RELEASE" \
-            '.jobs | length == 10 and all(.releaseId == $sha and .paused == false and (.nextAlarm != null or .active == true))' <<<"$jobs" >/dev/null
+          node tools/cloudflare-free-feasibility/wait-maintenance-state.mjs \
+            resume "$CUTOVER_RELEASE" "$EXPECTED_RENDER_RELEASE"
 
       - name: Verify the destination release before moving ingress
         shell: bash
         run: |
           set -euo pipefail
           if [ "$CUTOVER_MODE" = "open" ]; then
-            endpoint=https://catevia-api.billfan157.workers.dev/ready
-            runtime=cloudflare-worker
-            enabled=true
+            mode=open
           else
-            endpoint=https://tnttvn.onrender.com/ready
-            runtime=node
-            enabled=false
+            mode=render
           fi
-          ready="$(curl --fail --silent --show-error --max-time 30 \
-            --header "Authorization: Bearer ${OPS_TOKEN}" --header "x-catevia-canary-token: ${OPS_TOKEN}" "$endpoint")"
-          jq -e --arg sha "$CUTOVER_RELEASE" --arg runtime "$runtime" --argjson enabled "$enabled" \
-            '.status == "ready" and .releaseId == $sha and .maintenance.runtime == $runtime and .maintenance.enabled == $enabled' <<<"$ready" >/dev/null
+          node tools/cloudflare-free-feasibility/wait-maintenance-state.mjs "$mode" "$CUTOVER_RELEASE"
 
       - name: Point Vercel ingress at the recorded backend
         id: vercel
@@ -363,11 +353,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ready="$(curl --fail --silent --show-error --max-time 30 \
-            --header "Authorization: Bearer ${OPS_TOKEN}" --header "x-catevia-canary-token: ${OPS_TOKEN}" \
-            https://catevia-api.billfan157.workers.dev/ready)"
-          jq -e --arg sha "$CUTOVER_RELEASE" \
-            '.status == "ready" and .releaseId == $sha and .maintenance.runtime == "cloudflare-worker" and .maintenance.enabled == false' <<<"$ready" >/dev/null
+          node tools/cloudflare-free-feasibility/wait-maintenance-state.mjs closed "$CUTOVER_RELEASE"
           curl --fail --silent --show-error --output /dev/null --request PUT \
             --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/env-vars/CATEVIA_MAINTENANCE_OWNER" \
             --header "Authorization: Bearer ${RENDER_API_KEY}" --header "Content-Type: application/json" \
