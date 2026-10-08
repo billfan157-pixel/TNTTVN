@@ -33,7 +33,9 @@ export default defineConfig({
   use: {
     // E2E dùng cặp cổng riêng 3100/3101 để không reuse hay chặn phiên dev 3000/3001.
     baseURL: e2eEndpoints.baseUrl,
-    trace: 'on-first-retry',
+    // A retry can pass after the failure state has disappeared. Keep the first
+    // failed attempt's real requests and browser timeline for CI triage too.
+    trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     timezoneId: 'Asia/Ho_Chi_Minh',
