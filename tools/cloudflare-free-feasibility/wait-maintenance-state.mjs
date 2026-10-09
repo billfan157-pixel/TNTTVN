@@ -12,7 +12,9 @@ function ready(body, release, runtime, enabled) {
 }
 
 export async function waitMaintenanceState({ mode, release, renderRelease = release, token,
-  fetcher = fetch, wait = delay, attempts = 24, intervalMs = 5000, deadlineMs = 120000 }) {
+  // Worker and Durable Object updates propagate independently. Keep a bounded
+  // five-minute deployment window while rechecking ownership on every retry.
+  fetcher = fetch, wait = delay, attempts = 60, intervalMs = 5000, deadlineMs = 300000 }) {
   if (!['resume', 'open', 'closed', 'render'].includes(mode)
     || !/^[a-f0-9]{40}$/.test(release || '') || !/^[a-f0-9]{40}$/.test(renderRelease || '')
     || typeof token !== 'string' || token.length < 32

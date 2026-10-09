@@ -90,3 +90,42 @@ test('accepts the paused Render destination and bounds permanently failing trans
   } }), { code: 'STATE_NOT_VERIFIED' })
   assert.equal(calls, options.attempts)
 })
+
+test('admits a delayed Durable Object rollout only after all ten jobs match and the source stays paused', async t => {
+  let now = 0
+  let sourceChecks = 0
+  t.mock.method(Date, 'now', () => now)
+  const result = await waitMaintenanceState({ mode: 'resume', release, token,
+    wait: async ms => { now += ms }, fetcher: async url => {
+      if (url.includes('onrender.com')) {
+        sourceChecks++
+        return Response.json(ready('node', false))
+      }
+      const rollout = jobs()
+      if (now < 150_000) for (const job of rollout.slice(2)) {
+        job.releaseId = 'b'.repeat(40)
+        job.paused = true
+        job.nextAlarm = null
+      }
+      return Response.json({ jobs: rollout })
+    } })
+  assert.equal(result.ok, true)
+  assert.equal(result.elapsedMs, 150_000)
+  assert.equal(sourceChecks, result.attempts)
+})
+
+test('a permanently stale rollout still fails within the bounded deployment window', async t => {
+  let now = 0
+  let sourceChecks = 0
+  t.mock.method(Date, 'now', () => now)
+  await assert.rejects(waitMaintenanceState({ mode: 'resume', release, token,
+    wait: async ms => { now += ms }, fetcher: async url => {
+      if (url.includes('onrender.com')) {
+        sourceChecks++
+        return Response.json(ready('node', false))
+      }
+      return Response.json({ jobs: jobs().map(job => ({ ...job, releaseId: 'b'.repeat(40) })) })
+    } }), { code: 'STATE_NOT_VERIFIED' })
+  assert.ok(now <= 300_000)
+  assert.ok(sourceChecks >= 1 && sourceChecks <= 60)
+})
