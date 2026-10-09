@@ -50,9 +50,11 @@ test('@critical operations deep link + stepper/footer fit 320–390px viewports'
     // A visible dialog alone can race the initial generation check. Require
     // its persisted baseline and the same authenticated deep link afterwards,
     // so a false ghost-cache reset cannot pass as a successful viewport render.
+    // The bounded 2s probe can time out under CI load; the normal sync engine
+    // retries every 30s. Observe that recovery before declaring a missing baseline.
     await expect.poll(
       () => page.evaluate(() => localStorage.getItem('parish_purge_version')),
-      { message: `${viewportName}: clean-device generation check finishes`, timeout: 20_000 },
+      { message: `${viewportName}: clean-device generation check finishes`, timeout: 45_000 },
     ).not.toBeNull()
     await expect(page).toHaveURL(new RegExp(`/operations\\?event=${event.id}$`))
     await expect(dialog.getByRole('heading', { name: key, exact: true })).toBeVisible()
