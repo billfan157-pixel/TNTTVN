@@ -93,8 +93,26 @@ export class MaintenanceJob extends DurableObject {
     return this.status()
   }
 
-  async resume(kind) {
-    if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') throw new Error('Maintenance owner is not Cloudflare')
+  async resume(kind, target) {
+    if (target && (target.maintenanceOwner !== 'cloudflare'
+      || !/^[a-f0-9]{40}$/.test(target.releaseId || ''))) {
+      throw new Error('Invalid maintenance control target')
+    }
+    if (target && (this.env.APP_RELEASE_ID !== target.releaseId
+      || this.env.CATEVIA_MAINTENANCE_OWNER !== target.maintenanceOwner)) {
+      // A binding-only deployment can leave a warm instance on older settings.
+      // Reset only a fully paused, idle instance; storage and ownership stay intact.
+      if (await this.ctx.storage.get('paused') === true
+        && await this.ctx.storage.getAlarm() === null && !this.activeAlarm) {
+        this.ctx.abort('MAINTENANCE_ENVIRONMENT_RELOAD', { retryAlarm: false })
+      }
+      throw Object.assign(new Error('Maintenance configuration differs from controller'),
+        { name: 'MaintenanceConfigurationMismatchError' })
+    }
+    if (this.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') {
+      throw Object.assign(new Error('Maintenance owner is not Cloudflare'),
+        { name: 'MaintenanceOwnerMismatchError' })
+    }
     if (!(kind in MAINTENANCE_INTERVALS_MS)) throw new Error('Unknown maintenance job')
     await this.ctx.storage.put('paused', false)
     return this.ensureScheduled(kind)
@@ -103,6 +121,8 @@ export class MaintenanceJob extends DurableObject {
   async status() {
     return {
       releaseId: this.env.APP_RELEASE_ID || null,
+      maintenanceOwner: ['cloudflare', 'render'].includes(this.env.CATEVIA_MAINTENANCE_OWNER)
+        ? this.env.CATEVIA_MAINTENANCE_OWNER : 'unknown',
       paused: Boolean(await this.ctx.storage.get('paused')),
       active: Boolean(this.activeAlarm),
       kind: await this.ctx.storage.get('kind') || null,

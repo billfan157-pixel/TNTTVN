@@ -13,14 +13,19 @@ vi.mock('cloudflare:workers', () => ({
 
 function coordinator(kind = 'rate-limit-cleanup', owner = 'cloudflare') {
   const values = new Map<string, unknown>([['kind', kind]])
+  let alarm: number | null = null
   const storage = {
     get: vi.fn(async (key: string) => values.get(key)),
     put: vi.fn(async (key: string, value: unknown) => { values.set(key, value) }),
-    getAlarm: vi.fn(async () => null),
-    setAlarm: vi.fn(async (_at: number) => {}),
-    deleteAlarm: vi.fn(async () => {}),
+    getAlarm: vi.fn(async (): Promise<number | null> => alarm),
+    setAlarm: vi.fn(async (at: number) => { alarm = at }),
+    deleteAlarm: vi.fn(async () => { alarm = null }),
   }
-  return { job: new MaintenanceJob({ storage }, { CATEVIA_MAINTENANCE_OWNER: owner }), storage, values }
+  const abort = vi.fn((_message?: string, _options?: { retryAlarm?: boolean }): never => {
+    throw new Error('Synthetic instance reset')
+  })
+  const env = { CATEVIA_MAINTENANCE_OWNER: owner, APP_RELEASE_ID: 'a'.repeat(40) }
+  return { job: new MaintenanceJob({ storage, abort }, env), storage, values, abort }
 }
 
 afterEach(async () => {
@@ -96,6 +101,57 @@ describe('Cloudflare maintenance lifecycle', () => {
     expect(storage.setAlarm).not.toHaveBeenCalled()
     await expect(job.ensureScheduled('notification')).resolves.toEqual({ enabled: false })
     expect(storage.deleteAlarm).toHaveBeenCalledTimes(1)
+  })
+
+  it('restarts a paused idle instance with stale ownership without changing persisted state', async () => {
+    const { job, storage, values, abort } = coordinator('notification', 'render')
+    values.set('paused', true)
+    const before = new Map(values)
+    await expect(job.resume('notification', { releaseId: 'a'.repeat(40), maintenanceOwner: 'cloudflare' }))
+      .rejects.toThrow('Synthetic instance reset')
+    expect(abort).toHaveBeenCalledWith('MAINTENANCE_ENVIRONMENT_RELOAD', { retryAlarm: false })
+    expect(values).toEqual(before)
+    expect(storage.put).not.toHaveBeenCalled()
+    expect(storage.setAlarm).not.toHaveBeenCalled()
+  })
+
+  it.each(['unpaused', 'armed'])('does not restart a stale instance while %s', async state => {
+    const { job, storage, values, abort } = coordinator('notification', 'render')
+    values.set('paused', state !== 'unpaused')
+    if (state === 'armed') storage.getAlarm.mockResolvedValue(123)
+    await expect(job.resume('notification', { releaseId: 'a'.repeat(40), maintenanceOwner: 'cloudflare' }))
+      .rejects.toThrow('Maintenance configuration differs from controller')
+    expect(abort).not.toHaveBeenCalled()
+    expect(storage.put).not.toHaveBeenCalled()
+    expect(storage.setAlarm).not.toHaveBeenCalled()
+  })
+
+  it('preserves a running alarm while a newer controller waits for configuration', async () => {
+    const { job, storage, values, abort } = coordinator('notification')
+    let finish!: () => void
+    const pending = new Promise<void>(resolve => { finish = resolve })
+    const run = vi.spyOn(job, 'run').mockImplementation(() => pending)
+    const active = job.alarm()
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(1))
+    values.set('paused', true)
+    try {
+      await expect(job.resume('notification', { releaseId: 'b'.repeat(40), maintenanceOwner: 'cloudflare' }))
+        .rejects.toThrow('Maintenance configuration differs from controller')
+      expect(abort).not.toHaveBeenCalled()
+      expect(values.get('paused')).toBe(true)
+      expect(storage.put).not.toHaveBeenCalledWith('paused', false)
+    } finally { finish(); await active }
+    expect(storage.setAlarm).not.toHaveBeenCalled()
+  })
+
+  it('arms a refreshed instance only after its own configuration matches the controller', async () => {
+    const { job, storage, values, abort } = coordinator('notification')
+    values.set('paused', true)
+    await job.resume('notification', { releaseId: 'a'.repeat(40), maintenanceOwner: 'cloudflare' })
+    expect(values.get('paused')).toBe(false)
+    expect(storage.setAlarm).toHaveBeenCalledTimes(1)
+    expect(abort).not.toHaveBeenCalled()
+    await expect(job.status()).resolves.toMatchObject({ maintenanceOwner: 'cloudflare' })
   })
 
   it('blocks every job under recovery quarantine and rearms for recovery', async () => {

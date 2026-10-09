@@ -49,8 +49,11 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     const testDate = new Date(Date.UTC(2026, 7, 23 + dateOffset)).toISOString().slice(0, 10)
     await dateInput.fill(testDate)
 
-    await context.setOffline(true)
     const studentStatus = page.getByRole('group', { name: 'Trạng thái của Maria Thiếu Nhi E2E' })
+    // Offline editing starts from a loaded roster. The route shell can appear
+    // while auth/bootstrap reads are still fetching the student's cached data.
+    await expect(studentStatus).toBeVisible()
+    await context.setOffline(true)
     await studentStatus.getByRole('button', { name: 'Vắng không phép: Maria Thiếu Nhi E2E' }).click()
     await page.getByRole('button', { name: 'Lưu điểm danh' }).click()
     await expect.poll(() => countPendingAttendanceOps(page)).toBeGreaterThan(0)

@@ -70,7 +70,7 @@ describe('production Worker backup admission', () => {
       if (name.endsWith('-notification')) throw new Error('Synthetic first RPC failure')
       if (name.endsWith('-operation-reminders')) await pending
     }
-    const boundEnv = { ...env, MAINTENANCE_JOB: {
+    const boundEnv = { ...env, CATEVIA_MAINTENANCE_OWNER: 'cloudflare', MAINTENANCE_JOB: {
       idFromName: (name: string) => name,
       get: (name: string) => ({
         pause: () => action(name), resume: () => action(name),
@@ -95,5 +95,19 @@ describe('production Worker backup admission', () => {
       expect((await response).status).toBe(503)
       log.mockRestore()
     }
+  })
+
+  it('refuses resume when the controller is closed even if an old object would allow it', async () => {
+    const { env } = environment('no')
+    const resume = vi.fn(async () => {})
+    const boundEnv = { ...env, CATEVIA_MAINTENANCE_OWNER: 'render', MAINTENANCE_JOB: {
+      idFromName: (name: string) => name,
+      get: () => ({ resume, status: async () => ({ paused: false, nextAlarm: 123 }) }),
+    } }
+    const response = await worker.fetch(new Request('https://worker.example/__ops/maintenance?mode=resume', {
+      method: 'POST', headers: { 'x-catevia-canary-token': token },
+    }), boundEnv)
+    expect(response.status).toBe(503)
+    expect(resume).not.toHaveBeenCalled()
   })
 })

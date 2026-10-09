@@ -9,7 +9,7 @@ export interface MaintenanceStorage {
 }
 
 export declare class MaintenanceJob {
-  constructor(ctx: { storage: MaintenanceStorage }, env: {
+  constructor(ctx: { storage: MaintenanceStorage; abort(message?: string, options?: { retryAlarm?: boolean }): never }, env: {
     CATEVIA_MAINTENANCE_OWNER?: string
     BLOB_BUCKET?: unknown
     APP_RELEASE_ID?: string
@@ -17,9 +17,10 @@ export declare class MaintenanceJob {
   ensureScheduled(kind: string): Promise<{ enabled: boolean; kind?: string; nextAlarm?: number | null }>
   alarm(): Promise<void>
   pause(): ReturnType<MaintenanceJob['status']>
-  resume(kind: string): ReturnType<MaintenanceJob['ensureScheduled']>
+  resume(kind: string, target?: { releaseId: string; maintenanceOwner: 'cloudflare' }): ReturnType<MaintenanceJob['ensureScheduled']>
   status(): Promise<{
     releaseId: string | null
+    maintenanceOwner: 'cloudflare' | 'render' | 'unknown'
     paused: boolean
     active: boolean
     kind: string | null

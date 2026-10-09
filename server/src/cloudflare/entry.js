@@ -38,6 +38,9 @@ export default {
       if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
       const mode = new URL(request.url).searchParams.get('mode')
       if (!['pause', 'resume', 'status'].includes(mode)) return new Response('Invalid maintenance operation', { status: 400 })
+      if (mode === 'resume' && env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare') {
+        return new Response('Cloudflare maintenance is not the current owner', { status: 503 })
+      }
       try {
         const kinds = Object.keys(MAINTENANCE_INTERVALS_MS)
         // An early rejection must not end the Worker request while sibling RPCs
@@ -45,7 +48,9 @@ export default {
         const results = await Promise.allSettled(kinds.map(async kind => {
           const job = env.MAINTENANCE_JOB.get(env.MAINTENANCE_JOB.idFromName(`catevia-production-${kind}`))
           if (mode === 'pause') await job.pause()
-          if (mode === 'resume') await job.resume(kind)
+          if (mode === 'resume') await job.resume(kind, {
+            releaseId: env.APP_RELEASE_ID, maintenanceOwner: env.CATEVIA_MAINTENANCE_OWNER,
+          })
           return { ...await job.status(), kind }
         }))
         const failures = results.flatMap((result, index) => result.status === 'rejected'
