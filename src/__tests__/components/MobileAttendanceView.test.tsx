@@ -4,6 +4,7 @@ import { MobileAttendanceView } from '../../components/mobile/MobileAttendanceVi
 
 const mocks = vi.hoisted(() => ({
   role: 'admin',
+  user: { id: 'actor-a', parishId: 'parish-a' },
   selectedClassId: 'all',
   students: [] as any[],
   attendance: [] as any[],
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     role: mocks.role,
+    user: mocks.user,
     can: (action: string, ...roles: string[]) => {
       if (mocks.role === 'admin') return true
       if (action === 'admin') return mocks.role === 'admin'
@@ -91,6 +93,7 @@ describe('MobileAttendanceView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.role = 'admin'
+    mocks.user = { id: 'actor-a', parishId: 'parish-a' }
     mocks.selectedClassId = 'all'
     mocks.students = [
       student('1', 'Têrêsa', 'Đỗ Ngọc Bảo An'),
@@ -146,6 +149,55 @@ describe('MobileAttendanceView', () => {
     expect(statusSummary.querySelector('.attendance-summary-item--present strong')).toHaveTextContent('1')
     expect(statusSummary.querySelector('.attendance-summary-item--excused strong')).toHaveTextContent('1')
     expect(screen.getByText('2 chưa lưu')).toBeInTheDocument()
+  })
+
+  it('preserves an unsaved change when unchanged attendance and roster hydrate late', async () => {
+    mocks.selectedClassId = 'class-a'
+    mocks.attendance = mocks.students.filter(s => s.classId === 'class-a').map(s => ({
+      id: `attendance-${s.id}`, studentId: s.id, date: '2026-08-23',
+      type: 'SundayMass', status: 'Present', note: '',
+    }))
+    const { rerender } = render(<MobileAttendanceView />)
+    const excused = await screen.findByRole('button', { name: 'Vắng có phép: Têrêsa Đỗ Ngọc Bảo An' })
+    fireEvent.click(excused)
+    expect(screen.getByRole('button', { name: 'Lưu điểm danh' })).toBeEnabled()
+    mocks.attendance = mocks.attendance.map(r => ({ ...r }))
+    mocks.students = mocks.students.map(s => ({ ...s }))
+    mocks.classes = mocks.classes.map(c => ({ ...c }))
+    rerender(<MobileAttendanceView />)
+    expect(excused).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Lưu điểm danh' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Lưu điểm danh' }))
+    await waitFor(() => expect(mocks.batchSaveAttendance).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ studentId: '1', status: 'AbsentExcused' }),
+    ]), '2026-08-23', 'SundayMass'))
+  })
+
+  it('accepts changed server values and resets local edits when the actor changes', async () => {
+    mocks.selectedClassId = 'class-a'
+    mocks.attendance = [{ id: 'attendance-1', studentId: '1', date: '2026-08-23',
+      type: 'SundayMass', status: 'Present', note: '' }]
+    const { rerender } = render(<MobileAttendanceView />)
+    const excused = await screen.findByRole('button', { name: 'Vắng có phép: Têrêsa Đỗ Ngọc Bảo An' })
+    fireEvent.click(excused)
+    mocks.attendance = [{ ...mocks.attendance[0], status: 'AbsentUnexcused', note: 'Server updated' }]
+    rerender(<MobileAttendanceView />)
+    expect(screen.getByRole('button', { name: 'Vắng không phép: Têrêsa Đỗ Ngọc Bảo An' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(excused)
+    mocks.user = { id: 'actor-b', parishId: 'parish-a' }
+    rerender(<MobileAttendanceView />)
+    expect(excused).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: 'Vắng không phép: Têrêsa Đỗ Ngọc Bảo An' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(excused)
+    mocks.user = { id: 'actor-b', parishId: 'parish-b' }
+    rerender(<MobileAttendanceView />)
+    expect(excused).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(excused)
+    fireEvent.change(screen.getByLabelText('Ngày'), { target: { value: '2026-08-30' } })
+    expect(screen.getByRole('button', { name: 'Có mặt: Têrêsa Đỗ Ngọc Bảo An' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(excused)
+    fireEvent.change(screen.getByLabelText('Buổi sinh hoạt'), { target: { value: 'CatechismClass' } })
+    expect(excused).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('only announces success after the asynchronous batch result resolves', async () => {

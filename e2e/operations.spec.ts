@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { apiLogin, authHeaders, getAdminSession, getRoleSession, injectSession, testKey } from './helpers'
+import { apiLogin, authHeaders, getAdminSession, getRoleSession, injectSession, testKey, waitForBootstrapBaseline } from './helpers'
 
 test('@critical public Operations event is projected to the parent read-only calendar', async ({ page }, testInfo) => {
   test.setTimeout(90_000)
@@ -332,6 +332,9 @@ test('@critical Operations P4 standalone group assignment respects private block
   await expect(panel.getByText('Đã lưu phân công, nhưng người nhận có lịch bận tại hạn công việc.')).toBeVisible()
   await expect(page.getByText('Lý do riêng P4 không được lộ')).toHaveCount(0)
 
+  // A timed-out initial probe retries on the real 30s sync cycle. Reloading
+  // before that baseline exists correctly invalidates the unverified cache.
+  await waitForBootstrapBaseline(recipientPage, 45_000)
   await recipientPage.reload()
   const myTask = recipientPage.getByRole('article').filter({ hasText: taskTitle })
   await expect(myTask).toBeVisible()

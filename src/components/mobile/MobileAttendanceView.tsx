@@ -57,7 +57,7 @@ const STATUS_OPTIONS: Array<{
 ]
 
 export const MobileAttendanceView: React.FC = () => {
-  const { role, can } = useAuth()
+  const { role, can, user } = useAuth()
   const canEditAttendance = can('admin', 'chunhiem', 'phuta')
   const students = useStudentStore(s => s.students)
   const attendance = useAttendanceStore(s => s.attendance)
@@ -86,6 +86,8 @@ export const MobileAttendanceView: React.FC = () => {
   const [editingNoteStudent, setEditingNoteStudent] = useState<Student | null>(null)
   const [noteInputText, setNoteInputText] = useState<string>('')
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const draftScope = JSON.stringify([user?.parishId, user?.id, role, canEditAttendance, selectedClassId, date, type])
+  const serverSnapshot = useRef<{ scope: string; records: Record<string, AttendanceDraft> } | null>(null)
 
   const needsAdminClassSelection = role === 'admin' && selectedClassId === 'all'
 
@@ -140,9 +142,19 @@ export const MobileAttendanceView: React.FC = () => {
     for (const student of filteredStudents) {
       nextMap[student.id] = attendanceIndex.get(student.id) || { status: 'Present', note: '' }
     }
-    setAttendanceMap(nextMap)
+    const previousSnapshot = serverSnapshot.current
+    setAttendanceMap(previous => Object.fromEntries(Object.entries(nextMap).map(([id, record]) => {
+      const baseline = previousSnapshot?.records[id]
+      // Retain a draft only within the same actor/session scope and while the
+      // corresponding server values stay unchanged. Changed server data wins.
+      const draft = previousSnapshot?.scope === draftScope && baseline && previous[id]
+        && baseline.status === record.status && baseline.note === record.note
+        ? previous[id] : record
+      return [id, draft]
+    })))
+    serverSnapshot.current = { scope: draftScope, records: nextMap }
     setSaveMessage(null)
-  }, [attendanceIndex, filteredStudents])
+  }, [attendanceIndex, filteredStudents, draftScope])
 
   useEffect(() => {
     void fetchPendingCount()

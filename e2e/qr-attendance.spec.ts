@@ -15,6 +15,10 @@ test.use({
 test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
   test('Catechist can log in, navigate to attendance, and mark mobile attendance', async ({ page }) => {
     await loginAsRole(page, 'chunhiem')
+    const attendanceResponsePromise = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/attendance'
+      && new URL(response.url()).searchParams.get('includeScope') === 'true'
+      && response.request().method() === 'GET')
     await page.goto('/attendance')
 
     const attendanceTab = page.getByRole('tab', { name: 'Điểm Danh' })
@@ -23,6 +27,21 @@ test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
     await expect(page.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()
     // Toggle status to guarantee a state change regardless of pre-existing state in shared test DB
     const studentStatus = page.getByRole('group', { name: /Trạng thái của/ })
+    // The roster can paint before attendance finishes hydrating. Wait for the
+    // real row for this fixture/date/session before choosing a different status.
+    const attendanceResponse = await attendanceResponsePromise
+    expect(attendanceResponse.status()).toBe(200)
+    const serverRows = (await attendanceResponse.json()).data.records as Array<{
+      studentId: string; date: string; type: string;
+      status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused';
+    }>
+    expect(Array.isArray(serverRows)).toBe(true)
+    const date = await page.getByLabel('Ngày', { exact: true }).inputValue()
+    const type = await page.getByLabel('Buổi sinh hoạt').inputValue()
+    const persisted = serverRows.find(row => row.studentId === 'student-e2e-001' && row.date === date && row.type === type)
+    const statusNames = { Present: /^Có mặt:/, AbsentExcused: /^Vắng có phép:/, AbsentUnexcused: /^Vắng không phép:/ }
+    await expect(studentStatus.getByRole('button', { name: statusNames[persisted?.status || 'Present'] }))
+      .toHaveAttribute('aria-pressed', 'true')
     const presentBtn = studentStatus.getByRole('button', { name: /Có mặt:/ })
     const isPresent = (await presentBtn.getAttribute('aria-pressed')) === 'true'
     if (isPresent) {

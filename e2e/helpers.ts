@@ -50,12 +50,12 @@ async function prepareBrowserClient(page: Page): Promise<void> {
   preparedBrowsers.add(context)
 }
 
-async function waitForBootstrapBaseline(page: Page): Promise<void> {
+export async function waitForBootstrapBaseline(page: Page, timeout = 15_000): Promise<void> {
   // A route/name can paint while the first generation probe is still pending.
   // Reloading then aborts that probe and leaves material read caches without a
   // baseline, which the next boot correctly treats as unverified legacy data.
   await expect.poll(() => page.evaluate(() => localStorage.getItem('parish_purge_version')),
-    { message: 'Fresh login establishes its real generation baseline before another navigation' }).not.toBeNull()
+    { message: 'Fresh login establishes its real generation baseline before another navigation', timeout }).not.toBeNull()
 }
 
 export interface E2ESession {
