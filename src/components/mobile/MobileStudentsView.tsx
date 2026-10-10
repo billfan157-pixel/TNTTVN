@@ -20,7 +20,8 @@ import {
   ArrowRightLeft, UserRound, Lock
 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
-import { sortStudentsByClassHierarchy } from '../../utils/classSort';
+import { compareStudentByName, sortStudentsByClassHierarchy } from '../../utils/classSort';
+import { createStudentSearchMatcher } from '../../utils/studentSearch';
 import { SkeletonTable, NoResultState } from '../common/StateFeedback';
 import { StudentName } from '../common/StudentName';
 import { Button, IconButton } from '../common/ui/Button';
@@ -89,28 +90,20 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
     setPage(1)
   }, [selectedClassId, selectedBranchId, searchQuery])
 
-  // 2026-08-22: mặc định 'asc' — danh sách mở lên đã nhóm theo cấp bậc lớp
-  // (Chiến Con → Ấu → Thiếu → Nghĩa → Hiệp; trong lớp theo tên), không còn
-  // thứ tự nhập thô từ server. Bấm lại nút để tắt/toggle như cũ.
-  const [sortClassDirection, setSortClassDirection] = React.useState<'asc' | 'desc' | null>('asc')
+  // Khi không chọn cấp bậc lớp, mặc định xếp họ tên A–Z.
+  const [sortClassDirection, setSortClassDirection] = React.useState<'asc' | 'desc' | null>(null)
 
   const filteredStudents = React.useMemo(() => {
+    const matchesSearch = createStudentSearchMatcher(searchQuery);
     return students.filter(s => {
       if (selectedBranchId !== 'all' && s.branch !== selectedBranchId) return false;
       if (selectedClassId !== 'all' && s.classId !== selectedClassId) return false;
-      if (searchQuery.trim() !== '') {
-        const q = searchQuery.toLowerCase();
-        const matchHoly = s.holyName.toLowerCase().includes(q);
-        const matchFull = s.fullName.toLowerCase().includes(q);
-        const matchCode = s.code.toLowerCase().includes(q);
-        if (!matchHoly && !matchFull && !matchCode) return false;
-      }
-      return true;
+      return matchesSearch(s);
     });
   }, [students, selectedBranchId, selectedClassId, searchQuery]);
 
   const sortedStudents = React.useMemo(() => {
-    if (!sortClassDirection) return filteredStudents
+    if (!sortClassDirection) return [...filteredStudents].sort(compareStudentByName)
     return sortStudentsByClassHierarchy(filteredStudents, findClassById, sortClassDirection)
   }, [filteredStudents, sortClassDirection, findClassById])
 
@@ -252,6 +245,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
             type="text"
             inputMode="search"
             placeholder="Tìm tên thánh, họ tên hoặc mã..."
+            title="Tìm tên thánh, họ tên hoặc mã; có thể nhập không dấu và nhiều từ khác thứ tự"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full min-h-[44px] rounded-xl text-sm"
@@ -365,13 +359,28 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       </div>
       )}
 
-      {/* Sắp Xếp Cấp Bậc Lớp (Mobile Sort Bar) */}
+      {/* Sắp xếp họ tên hoặc cấp bậc lớp */}
       <div className="view-toolbar text-xs">
         <span className="font-bold text-text-muted px-2">Sắp xếp:</span>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1 min-w-0">
           <button
             type="button"
-            onClick={() => setSortClassDirection(prev => prev === 'asc' ? null : 'asc')}
+            onClick={() => { setSortClassDirection(null); setPage(1) }}
+            aria-pressed={sortClassDirection === null}
+            title="Sắp xếp họ tên A–Z"
+            className={`px-3 py-2 rounded-xl font-bold transition-colors flex items-center gap-1 min-h-[44px] ${
+              sortClassDirection === null
+                ? 'bg-parish-primary text-text-inverse shadow-xs'
+                : 'bg-surface-app text-text-secondary hover:bg-surface-hover'
+            }`}
+          >
+            <ArrowDownAZ size={14} />
+            <span>Họ tên A–Z</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSortClassDirection(prev => prev === 'asc' ? null : 'asc'); setPage(1) }}
+            aria-pressed={sortClassDirection === 'asc'}
             className={`px-3 py-2 rounded-xl font-bold transition-colors flex items-center gap-1 min-h-[44px] ${
               sortClassDirection === 'asc'
                 ? 'bg-parish-primary text-text-inverse shadow-xs'
@@ -383,7 +392,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setSortClassDirection(prev => prev === 'desc' ? null : 'desc')}
+            onClick={() => { setSortClassDirection(prev => prev === 'desc' ? null : 'desc'); setPage(1) }}
+            aria-pressed={sortClassDirection === 'desc'}
             className={`px-3 py-2 rounded-xl font-bold transition-colors flex items-center gap-1 min-h-[44px] ${
               sortClassDirection === 'desc'
                 ? 'bg-parish-primary text-text-inverse shadow-xs'

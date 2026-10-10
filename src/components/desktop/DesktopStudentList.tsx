@@ -5,6 +5,7 @@ import {
   getCoreRowModel,
   useReactTable,
   getSortedRowModel,
+  getPaginationRowModel,
   SortingState,
 } from '@tanstack/react-table';
 import {
@@ -22,7 +23,8 @@ import { useUIStore } from '../../stores/uiStore';
 import { useAuth } from '../../hooks/useAuth';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
-import { compareClassHierarchy } from '../../utils/classSort';
+import { compareClassHierarchy, compareStudentByName } from '../../utils/classSort';
+import { createStudentSearchMatcher } from '../../utils/studentSearch';
 import type { Student } from '../../types';
 import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
@@ -63,10 +65,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const canDelete = isAdmin;
   const canTransfer = isAdmin || (isChunhiem && isCurrentClassAssigned);
 
-  // 2026-08-22: mặc định xếp theo cấp bậc lớp (Chiến Con → Ấu Nhi → Thiếu Nhi →
-  // Nghĩa Sĩ → Hiệp Sĩ; trong lớp theo tên) thay vì thứ tự nhập từ server
-  // (Excel nhập A-Z nên trông như alphabet) — nút "Sắp Xếp Cấp Bậc Lớp" bật sẵn.
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'classId', desc: false }]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'fullName', desc: false }]);
   // Phải khớp một option của select "Xem" (50/100/200/all) — trước đây default 20
   // không tồn tại trong options khiến select hiển thị giá trị trống/misleading.
   const [pageSize, setPageSize] = useState(50);
@@ -75,23 +74,21 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [pendingBulkTransfer, setPendingBulkTransfer] = useState(false);
 
+  React.useEffect(() => { setPageIndex(0) }, [selectedClassId, selectedBranchId, searchQuery]);
+
   // Filter logic
   const filteredStudents = useMemo(() => {
+    const matchesSearch = createStudentSearchMatcher(searchQuery);
     return students.filter((s) => {
       const matchClass = selectedClassId === 'all' || s.classId === selectedClassId;
       const matchBranch = selectedBranchId === 'all' || s.branch === selectedBranchId;
-      const matchSearch = !searchQuery ||
-        s.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.holyName.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchClass && matchBranch && matchSearch;
+      return matchClass && matchBranch && matchesSearch(s);
     });
   }, [students, selectedClassId, selectedBranchId, searchQuery]);
 
   const totalFiltered = filteredStudents.length;
   const totalPages = Math.ceil(totalFiltered / pageSize);
   const start = pageIndex * pageSize;
-  const pagedStudents = useMemo(() => filteredStudents.slice(start, start + pageSize), [filteredStudents, start, pageSize]);
 
   const handlePageSizeChange = (size: number) => {
     setPageSize(size);
@@ -106,6 +103,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   };
 
   const toggleSelectPage = () => {
+    const pagedStudents = table.getRowModel().rows.map(row => row.original);
     const allOnPageSelected = pagedStudents.every(s => selectedIds.has(s.id));
     const next = new Set(selectedIds);
     pagedStudents.forEach(s => {
@@ -133,9 +131,10 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
       id: 'select',
       header: ({ table }) => {
         const meta = table.options.meta as any;
+        const pagedStudents = table.getRowModel().rows.map(row => row.original);
         return (
           <button onClick={meta.toggleSelectPage} aria-label="Chọn tất cả học viên trên trang" className="p-1 text-text-muted hover:text-parish-primary transition-colors">
-            {meta.pagedStudents.length > 0 && meta.pagedStudents.every((s: Student) => meta.selectedIds.has(s.id)) ? 
+            {pagedStudents.length > 0 && pagedStudents.every((s: Student) => meta.selectedIds.has(s.id)) ?
               <CheckSquare size={18} className="text-parish-primary" /> : <Square size={18} />
             }
           </button>
@@ -165,6 +164,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
     }),
     columnHelper.accessor('fullName', {
       header: 'Họ và Tên',
+      sortingFn: (rowA, rowB) => compareStudentByName(rowA.original, rowB.original),
       cell: (info) => {
         const meta = info.table.options.meta as any;
         return (
@@ -277,14 +277,14 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const handleViewProfile = onViewProfile || globalOpenProfile;
 
   const table = useReactTable({
-    data: pagedStudents,
+    data: filteredStudents,
     columns,
-    state: { sorting },
-    onSortingChange: setSorting,
+    state: { sorting, pagination: { pageIndex, pageSize } },
+    onSortingChange: updater => { setSorting(updater); setPageIndex(0) },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
     meta: {
-      pagedStudents,
       selectedIds,
       toggleSelectPage,
       toggleSelect,
@@ -351,6 +351,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               density="sm"
               type="text"
               placeholder="Tìm theo tên, mã thiếu nhi..."
+              title="Tìm tên thánh, họ tên hoặc mã; có thể nhập không dấu và nhiều từ khác thứ tự"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full h-8 text-xs font-medium rounded-xl !pl-8 !pr-7 bg-surface-hover text-text-main placeholder:text-text-placeholder focus:bg-surface-card transition-colors shadow-inner"
@@ -385,17 +386,33 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             </Select>
           </div>
 
-          {/* Nút Sắp Xếp Cấp Bậc Lớp */}
+          {/* Sắp xếp họ tên hoặc cấp bậc lớp */}
           <div className="flex items-center bg-surface-hover p-0.5 rounded-lg border border-surface-border shadow-inner gap-0.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => { setSorting([{ id: 'fullName', desc: false }]); setPageIndex(0) }}
+              aria-pressed={sorting[0]?.id === 'fullName'}
+              title="Sắp xếp họ tên A–Z"
+              className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
+                sorting[0]?.id === 'fullName'
+                  ? 'bg-parish-primary text-text-inverse shadow-xs'
+                  : 'text-text-secondary hover:bg-surface-card hover:text-text-main'
+              }`}
+            >
+              <ArrowDownAZ size={13} />
+              <span>Họ tên A–Z</span>
+            </button>
             <button
               type="button"
               onClick={() => {
                 if (sorting[0]?.id === 'classId' && !sorting[0]?.desc) {
-                  setSorting([])
+                  setSorting([{ id: 'fullName', desc: false }])
                 } else {
                   setSorting([{ id: 'classId', desc: false }])
                 }
+                setPageIndex(0)
               }}
+              aria-pressed={sorting[0]?.id === 'classId' && !sorting[0]?.desc}
               className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
                 sorting[0]?.id === 'classId' && !sorting[0]?.desc
                   ? 'bg-parish-primary text-text-inverse shadow-xs'
@@ -410,11 +427,13 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
               type="button"
               onClick={() => {
                 if (sorting[0]?.id === 'classId' && sorting[0]?.desc) {
-                  setSorting([])
+                  setSorting([{ id: 'fullName', desc: false }])
                 } else {
                   setSorting([{ id: 'classId', desc: true }])
                 }
+                setPageIndex(0)
               }}
+              aria-pressed={sorting[0]?.id === 'classId' && !!sorting[0]?.desc}
               className={`px-2 py-1 text-xs font-bold rounded-md transition-colors flex items-center gap-1 whitespace-nowrap ${
                 sorting[0]?.id === 'classId' && sorting[0]?.desc
                   ? 'bg-parish-primary text-text-inverse shadow-xs'

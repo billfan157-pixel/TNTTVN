@@ -94,6 +94,13 @@ export function parseClassHierarchy(
 
 export type SortDirection = 'asc' | 'desc'
 
+/** Sắp xếp alphabet theo họ tên, dùng quy tắc đối chiếu tiếng Việt. */
+export function compareStudentByName(studentA: Student, studentB: Student): number {
+  return studentA.fullName.trim().localeCompare(studentB.fullName.trim(), 'vi', { sensitivity: 'base' })
+    || studentA.holyName.localeCompare(studentB.holyName, 'vi', { sensitivity: 'base' })
+    || studentA.code.localeCompare(studentB.code, 'vi', { sensitivity: 'base', numeric: true })
+}
+
 /**
  * So sánh 2 đối tượng lớp học theo thứ tự cấp bậc (Ngành -> Khối lớp -> Hậu tố)
  */
