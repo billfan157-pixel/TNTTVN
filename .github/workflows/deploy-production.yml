@@ -35,7 +35,7 @@ jobs:
 
     steps:
       - name: Checkout the verified commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.VERIFIED_SHA }}
           fetch-depth: 1
