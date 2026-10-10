@@ -163,18 +163,18 @@ describe('deployment and native privacy contracts', () => {
     expect(alert).toContain("steps.detect.outputs.detected == 'true'")
   })
 
-  it('probes the deployed Vercel artifact instead of trusting the routing config', () => {
+  it('probes the public alias bound to the deployed Vercel artifact before touching Render', () => {
     const deploy = read('.github/workflows/deploy-production.yml')
 
     // Routing Middleware and an external rewrite can both claim /api and /health.
     // Which one wins is invisible to unit tests, so the deployment gate probes the
     // artifact it just published and fails before Render is touched.
     expect(deploy).toContain('Verify Vercel ingress is owned by the proxy')
-    expect(deploy).toContain('verify-preview-ingress.mjs')
+    expect(deploy).toContain('verify-production-ingress.mjs')
     expect(deploy).toContain('${{ steps.vercel.outputs.deployment_id }}')
     // The ingress proof must precede the Render deploy so a broken ingress can never
     // leave a half-applied release in production.
-    expect(deploy.indexOf('verify-preview-ingress.mjs'))
+    expect(deploy.indexOf('verify-production-ingress.mjs'))
       .toBeLessThan(deploy.indexOf('Deploy exact SHA to Render production'))
   })
 
