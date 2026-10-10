@@ -57,6 +57,7 @@ jobs:
           node --test \
             tools/cloudflare-free-feasibility/production-secret-policy.test.mjs \
             tools/cloudflare-free-feasibility/verify-preview-ingress.test.mjs \
+            tools/cloudflare-free-feasibility/verify-production-ingress.test.mjs \
             tools/cloudflare-free-feasibility/probe-production-backup.test.mjs \
             tools/cloudflare-free-feasibility/drill-production-backup-restore.test.mjs \
             tools/cloudflare-free-feasibility/detect-password-cpu-retries.test.mjs \
