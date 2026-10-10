@@ -166,6 +166,11 @@ Clients must validate the envelope, remove cached rows outside scope even when l
 - `POST /api/students` → `409 CLASS_REQUIRED` ("Vui lòng tạo lớp học trước khi thêm học sinh") khi giáo xứ chưa có lớp học.
 - UI phải chặn trước (ẩn nút Thêm + banner hướng dẫn) và không fallback "làm ngơ" khi nhận 409 này.
 
+### Student creation identity conflicts
+- `POST /api/students` trả `409 STUDENT_ALREADY_EXISTS` khi cùng họ tên chuẩn hóa + ngày sinh đã có trong giáo xứ, kể cả hồ sơ xóa mềm. Khác lớp, tên thánh hoặc request key không cho phép tạo lại. Lỗi trả thông báo chung, không kèm ID hay PII của hồ sơ khớp. Replay cùng key và payload vẫn trả hồ sơ đã tạo theo hợp đồng idempotency.
+- Client chặn trước nếu cache đã biết hồ sơ trùng. Nếu server từ chối một CREATE trong queue, sync giữ permanent failure để người dùng xử lý; không xem đó là ACK, không tự remap sang hồ sơ khác hoặc bỏ payload.
+- Preview import trả `duplicateOf.creationBlocked`; UI bỏ lựa chọn `create` cho trường hợp này. Server vẫn kiểm tra trong transaction ghi. Import trả lỗi theo từng dòng trong kết quả partial-success, không đổi toàn bộ batch thành HTTP 409 chỉ vì một dòng trùng.
+
 ---
 
 ## 4. ACADEMIC YEAR LIFECYCLE API (`/api/academic-years`)
@@ -703,8 +708,8 @@ Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/khô
 
 | Endpoint | Contract chính |
 | :--- | :--- |
-| `POST /api/students/validate` | Body bắt buộc `{ rows[0..2000], academicYearId }`; year phải tồn tại, chưa khóa, cùng parish. Trả preview/class suggestions/duplicate reason/previous hash. Exact và fuzzy match chỉ xét year đã chọn; tie/lead không đủ phải chọn tường minh. Validation không tạo year. Duplicate ngoài class scope của CN không lộ metadata. |
-| `POST /api/students/import` | Bắt buộc cùng `academicYearId` đã validate. `duplicateActions: Record<rowIndex, 'skip'|'update'|'create'>`; thiếu action cho duplicate = `skip`. `fileName ≤255`, mapping/newClasses/serviceExclusions cap 2000. Partial-success itemized. `studentChanges` chỉ chứa record commit. Row + audit/provenance/counter commit cùng transaction; batch/class bootstrap atomic; stale `processing` từ process trước được recover từ provenance. |
+| `POST /api/students/validate` | Body bắt buộc `{ rows[0..2000], academicYearId }`; year phải tồn tại, chưa khóa, cùng parish. Trả preview/class suggestions/duplicate reason/previous hash; `duplicateOf.creationBlocked` cho biết không được tạo mới vì cùng họ tên chuẩn hóa + ngày sinh. Exact và fuzzy match chỉ xét year đã chọn; tie/lead không đủ phải chọn tường minh. Validation không tạo year. Duplicate ngoài class scope của CN không lộ metadata. |
+| `POST /api/students/import` | Bắt buộc cùng `academicYearId` đã validate. `duplicateActions: Record<rowIndex, 'skip'|'update'|'create'>`; thiếu action cho duplicate = `skip`, `create` không vượt được chốt cùng họ tên chuẩn hóa + ngày sinh. Fast chunk và fallback đều kiểm tra lại trong transaction ghi. `fileName ≤255`, mapping/newClasses/serviceExclusions cap 2000. Partial-success itemized. `studentChanges` chỉ chứa record commit. Row + audit/provenance/counter commit cùng transaction; batch/class bootstrap atomic; stale `processing` từ process trước được recover từ provenance. |
 | `POST /api/students/undo/:batchId` | Admin-only, 24h; trả `{ undone, errors, items: [{ rowIndex, studentId, action, status: 'undone'\|'blocked'\|'already_undone', message? }], classesDeleted }`. Exact snapshot + post-import mutation/dependency gate gồm fee; batch có thể `partial_undone` và retry idempotently. |
 
 Lỗi 500 từ validate/import trả message chung kèm mã tham chiếu; chi tiết DB/stack chỉ nằm trong server log. Client chặn file >10 MB hoặc >2000 data rows trước request.

@@ -10,6 +10,12 @@ import { getClassDependencyBlockers } from './classDependencyService.js'
 import { resolveMembershipBranch, resolveStudentBranch, STUDENT_BRANCHES, type StudentBranch } from './studentMembershipPolicy.js'
 import { phoneMatchVariants } from '../utils/phone.js'
 import { isAcademicYearClosedForWrite } from '../utils/academicYear.js'
+import { assertStudentIdentitiesAvailable, isSameStudentIdentity, normalizeStudentName } from './studentIdentityPolicy.js'
+
+type ImportDuplicate = {
+  studentId: string; fullName: string; reason: string; creationBlocked: boolean
+  currentClassId?: string; currentClassName?: string
+}
 
 interface ImportRow {
   rowIndex: number
@@ -43,7 +49,7 @@ interface ValidationRow {
   classMatch: { id: string; name: string; confidence: string; reason: string[] } | null
   classSuggestions: { id: string; name: string; code: string; branchName: string; confidence: number; reason: string[] }[]
   classAutoCreate?: boolean
-  duplicateOf: { studentId: string; fullName: string; reason: string; currentClassId?: string; currentClassName?: string } | null
+  duplicateOf: ImportDuplicate | null
 }
 
 interface ClassMatchResult {
@@ -405,13 +411,7 @@ function levenshtein(a: string, b: string): number {
 }
 
 function normalizeName(str: string): string {
-  return toStr(str)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return normalizeStudentName(toStr(str))
 }
 
 function stripForMatch(str: string): string {
@@ -660,8 +660,8 @@ export async function detectDuplicates(
   rows: ImportRow[],
   parishId: string,
   allowedClassIds?: string[] | null,
-): Promise<Map<number, { studentId: string; fullName: string; reason: string; currentClassId?: string; currentClassName?: string }>> {
-  const result = new Map<number, { studentId: string; fullName: string; reason: string; currentClassId?: string; currentClassName?: string }>()
+): Promise<Map<number, ImportDuplicate>> {
+  const result = new Map<number, ImportDuplicate>()
 
   // Multi-key intra-file deduplication (DOB, Phone, HolyName+Class, Name+Class)
   const intraNameDobMap = new Map<string, ImportRow>()
@@ -727,6 +727,7 @@ export async function detectDuplicates(
         studentId: 'intra-file',
         fullName: intraFirst.fullName,
         reason: intraReason,
+        creationBlocked: isSameStudentIdentity(row, intraFirst),
       })
       continue
     }
@@ -942,6 +943,7 @@ export async function detectDuplicates(
         studentId: match.id,
         fullName: match.fullName,
         reason,
+        creationBlocked: isSameStudentIdentity(row, match),
         currentClassId: match.classId || undefined,
         currentClassName: match.className || undefined,
       })
@@ -1447,6 +1449,7 @@ export async function importStudents(
           const targetBranch = activeBranches.get(item.student.classId)
           if (targetBranch && targetBranch !== item.student.branch) throw new Error('Phân ngành học viên không còn khớp lớp tại thời điểm ghi')
         }
+        await assertStudentIdentitiesAvailable(tx, parishId, chunk.map(item => item.student))
         await tx.insert(students).values(chunk.map(item => item.student))
         await tx.insert(auditLogs).values(chunk.map(item => item.audit))
         await recordImportBatchRows(tx, chunk.map(item => item.batchStudent))
@@ -1511,6 +1514,13 @@ export async function importStudents(
           }
         }
 
+        if (dup && dupAction === 'create' && dup.creationBlocked) {
+          await recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }])
+          rowFailureMessage = 'Không thể tạo mới học viên có cùng họ tên và ngày sinh; hãy Bỏ qua hoặc Cập nhật hồ sơ hiện có'
+          rowResult = 'class_error'
+          return
+        }
+
         if (dup && dupAction === 'skip') {
           await recordImportBatchRows(tx, [{
             id: generateId('IBS'), batchId,
@@ -1532,7 +1542,7 @@ export async function importStudents(
           if (dup.studentId === 'intra-file') {
             await recordImportBatchRows(tx, [{ id: generateId('IBS'), batchId, action: 'error', rowIndex: row.rowIndex, parishId }])
             rowResult = 'class_error'
-            rowFailureMessage = 'Không thể cập nhật từ dòng trùng trong cùng file; hãy chọn Bỏ qua hoặc Tạo mới'
+            rowFailureMessage = 'Không thể cập nhật từ dòng trùng trong cùng file; hãy bỏ qua và chỉnh dòng gốc'
             return
           }
           studentId = dup.studentId
@@ -1629,6 +1639,7 @@ export async function importStudents(
         const now = new Date().toISOString()
         const membershipBranch = await resolveMembershipBranch(tx, parishId, classId, row.branch)
 
+        await assertStudentIdentitiesAvailable(tx, parishId, [row])
         const [createdStudent] = await tx.insert(students).values({
           id: studentId, code, holyName: row.holyName, fullName: row.fullName,
           gender: row.gender as any, dateOfBirth: row.dateOfBirth,

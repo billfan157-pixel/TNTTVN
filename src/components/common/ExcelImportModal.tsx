@@ -698,7 +698,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                           >
                             <option value="skip">Giữ nguyên lớp cũ</option>
                             <option value="update">Chuyển sang lớp mới</option>
-                            <option value="create">Đây là người khác — tạo mới</option>
+                            {!r.duplicateOf?.creationBlocked && <option value="create">Đây là người khác — tạo mới</option>}
                           </select>
                         </div>
                       </div>
@@ -757,7 +757,7 @@ export const ExcelImportModal: React.FC<Props> = ({ isOpen, onClose }) => {
                         >
                           <option value="skip">Bỏ qua</option>
                           {r.duplicateOf?.studentId !== 'intra-file' && <option value="update">Cập nhật hồ sơ hiện có</option>}
-                          <option value="create">Đây là người khác — tạo mới</option>
+                          {!r.duplicateOf?.creationBlocked && <option value="create">Đây là người khác — tạo mới</option>}
                         </select>
                       </div>
                     ))}

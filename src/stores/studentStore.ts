@@ -8,6 +8,7 @@ import { requestSync as runSyncFlow } from '../lib/syncTrigger'
 import { api, isAuthenticated } from '../lib/api'
 import { captureTenantScope, getTenantScope, isTenantScopeCurrent } from '../lib/tenantScope'
 import { useClassStore } from './classStore'
+import { normalizeStudentName } from '../utils/studentSearch'
 
 export interface PromotionAction {
   studentId: string
@@ -166,10 +167,20 @@ export const useStudentStore = create<StudentState>()(
       },
 
       addStudent: async (data) => {
-        const submissionKey = `${data.fullName}_${data.dateOfBirth}_${data.classId}`
+        const scope = getTenantScope()
+        const name = normalizeStudentName(data.fullName)
+        const dob = data.dateOfBirth.trim()
+        const duplicateMessage = 'Học viên có cùng họ tên và ngày sinh đã có hồ sơ. Vui lòng kiểm tra hồ sơ hiện có.'
+        // Advisory cache check; the server remains authoritative for unloaded
+        // records, other devices and write races.
+        if (get().students.some(student =>
+          (!student.parishId || student.parishId === scope?.parishId)
+          && normalizeStudentName(student.fullName) === name
+          && student.dateOfBirth.trim() === dob,
+        )) throw new Error(duplicateMessage)
+        const submissionKey = JSON.stringify([scope?.parishId, scope?.userId, name, dob])
         if (activeSubmissions.has(submissionKey)) {
-          console.warn('[studentStore] Blocked duplicate addStudent call in flight:', submissionKey)
-          return
+          throw new Error(duplicateMessage)
         }
         activeSubmissions.add(submissionKey)
 

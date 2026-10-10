@@ -44,7 +44,7 @@ Bulk transfer of students across classes within the same academic year is perfor
 │  Auth: JWT (access 15m, refresh 7d), bcrypt, RBAC enforced       │
 │  Routes: 32 route modules under server/src/routes/                │
 │  Repositories: 6 (2 projection read models + 4 Drizzle write)    │
-│  Services: 59 under server/src/services/                          │
+│  Services: 60 under server/src/services/                          │
 │  Domain: 13 under server/src/domain/                              │
 │  Middleware: 4 (auth, security, logger, metrics)                  │
 │  DB: SQLite/Turso via @libsql/client, Drizzle ORM (76 tables)    │
@@ -54,6 +54,7 @@ Bulk transfer of students across classes within the same academic year is perfor
 
 ### Key Architectural Characteristics
 
+- **Student creation identity boundary** — `studentIdentityPolicy.ts` là chốt chung cho thêm tay/API và cả fast chunk/fallback import. Cùng họ tên chuẩn hóa + ngày sinh trong giáo xứ, kể cả tombstone, không được tạo lại. Kiểm tra và insert nằm trong cùng libSQL write transaction (`BEGIN IMMEDIATE`); request key bảo vệ replay riêng. Cache client chỉ chặn sớm, không thay thế server. Không thêm schema hoặc sửa/gộp dữ liệu cũ.
 - **Modular Monolith / Workspace Platform (ADR-082)** — Một deploy, một auth/backend/database/design system; presentation được chia thành `academic`, `organization`, `parent`. Workspace là information architecture, không phải security boundary. `/dashboard` giữ học vụ, `/parish` là dashboard Xứ đoàn, `/parent` giữ Parent Portal. `RootLayout` nhớ workspace gần nhất theo parish+account; desktop sidebar và mobile control sheet chuyển workspace không logout. Backend `roleMiddleware`/tenant checks vẫn là authority.
 - **Single-Parish Deployment / Tenant-Scoped Persistence (ADR-106)** — Mỗi production deployment được khóa vào đúng một `DEPLOYMENT_PARISH_ID`; login, public recovery, token issue/verify, seed, backup và background workers không cho client/caller chọn giáo xứ khác. Startup quét động mọi bảng có `parish_id` và từ chối bind HTTP nếu gặp row null/khác scope. Schema vẫn giữ `parish_id`, composite key/FK/query predicate và cache namespace `parishId:userId` như defense-in-depth, restore/import boundary và khả năng test cross-tenant; đây không phải shared multi-parish production runtime.
 - **Parish Memory bounded context (ADR-081)** — `/api/parish-profile` sở hữu profile, identity tổ chức, cây đơn vị, nhiệm kỳ, record lịch sử, asset và quan hệ. Cây chuẩn có `BOARD` Ban Điều hành ở root; `BRANCH` Ngành và `COMMITTEE` Ban chuyên môn là hai nhánh song song trực thuộc. Một person có thể có đồng thời nhiều service term; chỉ `position_code` tương thích unit mới tham gia authorization, còn chức danh hiển thị không cấp quyền. Timeline là read model suy ra, không có writer/table riêng. `parish_people.linked_user_id` liên kết account tùy chọn và partial unique index bảo đảm một account không sinh nhiều identity active.

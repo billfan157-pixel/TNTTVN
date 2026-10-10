@@ -77,6 +77,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)
   const selectedBranchId = useFilterStore(s => s.selectedBranchId)
   const searchQuery = useFilterStore(s => s.searchQuery)
+  const showRoster = selectedClassId !== 'all' || searchQuery.trim().length > 0
   const setSearchQuery = useFilterStore(s => s.setSearchQuery)
   const selectedSemester = useFilterStore(s => s.selectedSemester)
 
@@ -320,7 +321,7 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
       </div>
 
       {/* Catalog lớp và roster dùng chung một workspace, không còn tab lặp. */}
-      {selectedClassId === 'all' && (
+      {!showRoster && (
         <section aria-label="Lớp học và phân lớp" className="mt-3.5">
           <DesktopClasses embedded layout="grid" onViewClassStudents={onViewClassStudents} />
         </section>
@@ -406,8 +407,8 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
         </div>
       </div>
 
-      {/* Student List — chỉ hiện khi đã chọn 1 lớp cụ thể, khi đang xem lưới lớp thì ẩn để tập trung */}
-      {selectedClassId !== 'all' && (
+      {/* Searching from the class grid shows matching students directly. */}
+      {showRoster && (
       <>
       <div className="flex flex-col gap-3">
         {pagedStudents.length === 0 ? (

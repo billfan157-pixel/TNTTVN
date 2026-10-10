@@ -207,6 +207,19 @@ describe('syncProcessor', () => {
       expect(result.error).toContain('Xung đột dữ liệu máy chủ')
     })
 
+    it('retains a duplicate-student rejection as permanent failure rather than a create ACK', async () => {
+      const duplicate = new ApiError(409, 'Học viên đã có hồ sơ', '/students')
+      ;(duplicate as any).code = 'STUDENT_ALREADY_EXISTS'
+      vi.mocked(api.createStudent).mockRejectedValue(duplicate)
+      const result = await processOperation({
+        entity: 'student', operation: 'create', entityId: 'ST-TEMP-DUPLICATE',
+        payload: JSON.stringify({ fullName: 'Học viên trùng' }), retryCount: 1,
+      })
+      expect(result).toMatchObject({ ok: false, recoverable: false })
+      expect(result.error).toContain('Học viên đã có hồ sơ')
+      expect(result.data).toBeUndefined()
+    })
+
     it('recovers an idempotency payload mismatch only when CREATE was possibly sent', async () => {
       const mismatch = new ApiError(409, 'Create payload mismatch', '/students')
       ;(mismatch as any).code = 'IDEMPOTENCY_CONFLICT'

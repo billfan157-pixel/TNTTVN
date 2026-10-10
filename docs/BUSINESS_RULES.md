@@ -789,12 +789,15 @@ Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự đ�
   - Cập nhật trạng thái đơn thành `APPROVED` và ghi nhận trạng thái điểm danh `AbsentExcused` (kèm ghi chú `[Đơn online] <lý do>`) **BẮT BUỘC** nằm trong cùng một Database Transaction.
   - Nếu việc ghi nhận điểm danh thất bại, toàn bộ thao tác duyệt đơn bị hủy bỏ (Rollback), đảm bảo trạng thái hiển thị của đơn và sổ điểm danh luôn đồng nhất 100%.
 
-### 23.2 Kiểm Soát Trùng Lặp Nội Bộ Khi Nhập Danh Sách (Intra-File Duplicate Protection)
+### 23.2 Kiểm Soát Trùng Danh Tính Khi Thêm Và Nhập Học Viên
+- Thêm tay, API và import không được tạo hồ sơ có cùng `(họ tên chuẩn hóa, ngày sinh)` đã tồn tại trong giáo xứ, kể cả hồ sơ xóa mềm. Lớp, tên thánh và số điện thoại không làm thay đổi danh tính này; cùng tên nhưng khác ngày sinh vẫn có thể là người khác.
+- Chuẩn hóa tên không phân biệt hoa/thường, dấu tiếng Việt, `đ/d`, khoảng trắng và dấu phân cách. Ngày sinh được trim; giá trị trống và placeholder `Chưa cập nhật` cùng được xem là thiếu ngày sinh khi đối chiếu.
+- Server kiểm tra danh tính trong cùng write transaction với insert, ở cả fast chunk và fallback từng dòng. Không chỉ dựa vào preview, cache client hoặc request key; replay cùng request key vẫn tuân thủ hợp đồng idempotency riêng. Không tự gộp/xóa các hồ sơ trùng đã có từ trước.
 - Trong quá trình Import Excel danh sách học sinh:
   - Hệ thống thực hiện kiểm tra 2 lớp:
     1. **Lớp 1 (Nội bộ file)**: Phát hiện các dòng trùng lặp `(Họ và tên chuẩn hóa, Ngày sinh)` ngay trong cùng một file Excel tải lên, gắn cờ `intra-file` cảnh báo người dùng.
     2. **Lớp 2 (Cơ sở dữ liệu)**: Đối chiếu với CSDL hiện tại để phân biệt anh chị em cùng số điện thoại (IE-01) hoặc học sinh trùng tên khác ngày sinh (IE-02).
-  - Mọi collision mặc định **Bỏ qua** ở cả UI và server. Người dùng phải chọn tường minh **Cập nhật hồ sơ hiện có** hoặc **Đây là người khác — tạo mới**; dòng `intra-file` không được cập nhật bằng ID giả.
+  - Mọi collision mặc định **Bỏ qua** ở cả UI và server. Khi cùng họ tên chuẩn hóa và ngày sinh (`creationBlocked=true`), không có lựa chọn tạo mới; request cố chọn `create` bị từ chối theo từng dòng. **Đây là người khác — tạo mới** chỉ áp dụng cho nghi trùng chưa khớp danh tính và vẫn phải qua chốt server lúc ghi. **Cập nhật hồ sơ hiện có** tuân thủ quyền lớp; dòng `intra-file` không được cập nhật bằng ID giả.
   - Preview và commit đều bắt buộc `academicYearId` active/unlocked. Exact/fuzzy class match chỉ xét lớp của năm đã chọn; tie hoặc lead dưới ngưỡng phải yêu cầu người dùng chọn, không tự gán. Validation không được tạo năm học.
   - CSV/TXT phải parse quote-aware; XLSX giữ cell theo structured rows. Gender/branch trống hoặc không hợp lệ phải ở trạng thái lỗi cần sửa, không được đoán thành `Nam`/`ThieuNhi`. Ngày sinh hợp lệ phải từ năm 1900 và không ở tương lai, đồng nhất manual CRUD.
   - Ô trống/placeholder trong file không được xóa dữ liệu đang có khi update. `fullName` và lớp mục tiêu vẫn bắt buộc hợp lệ.

@@ -57,6 +57,7 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   const selectedBranchId = useFilterStore((s) => s.selectedBranchId);
   const setSelectedBranchId = useFilterStore((s) => s.setSelectedBranchId);
   const searchQuery = useFilterStore((s) => s.searchQuery);
+  const showRoster = selectedClassId !== 'all' || searchQuery.trim().length > 0;
   const setSearchQuery = useFilterStore((s) => s.setSearchQuery);
   const classes = useClassStore((s) => s.classes);
 
@@ -471,8 +472,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       </div>
 
-      {/* Một index duy nhất: catalog/CRUD lớp ở cấp đầu, roster khi drill-down. */}
-      {selectedClassId === 'all' && (
+      {/* Search shows students directly without changing the selected class. */}
+      {!showRoster && (
         <section aria-label="Lớp học và phân lớp">
           <DesktopClasses embedded
             layout="grid"
@@ -497,8 +498,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       )}
 
-      {/* Bulk Action Bar — chỉ hiện khi đã vào danh sách lớp cụ thể hoặc đang xem tất cả qua nút */}
-      {(selectedClassId !== 'all' ? selectedIds.size > 0 : false) && (
+      {/* Bulk Action Bar follows the visible roster. */}
+      {showRoster && selectedIds.size > 0 && (
         <div className="bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl px-6 py-3.5 flex items-center justify-between gap-4 shadow-xl sticky top-4 z-20 animate-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-blue-500 flex items-center justify-center text-white shadow-lg">
@@ -533,8 +534,8 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
         </div>
       )}
 
-      {/* Table Section — chỉ hiện khi đã chọn 1 lớp cụ thể, khi đang xem lưới lớp thì ẩn */}
-      {selectedClassId !== 'all' && (
+      {/* Roster for a selected class or search results from the class grid. */}
+      {showRoster && (
       <div className="app-panel overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-base text-left border-collapse bg-surface-card text-text-main">

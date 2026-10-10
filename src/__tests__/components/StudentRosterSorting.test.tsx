@@ -8,7 +8,7 @@ import { useFilterStore } from '../../stores/filterStore'
 import { useStudentStore } from '../../stores/studentStore'
 import type { Student } from '../../types'
 
-// Class management is a separate workspace; use the real roster, stores and sorters.
+// Keep class CRUD out of roster tests; exercise the real view switch, stores and sorters.
 vi.mock('../../components/desktop/DesktopClasses', () => ({ DesktopClasses: () => null }))
 
 const names = ['An', 'Ân', 'Bình', 'Dũng', 'Đức', 'Hà',
@@ -50,6 +50,36 @@ describe.each(['desktop', 'mobile'] as const)('%s roster alphabetical default', 
 
   const displayedNames = () => screen.queryAllByText(/^(An|Ân|Bình|Dũng|Đức|Hà|Trần \d{2})$/)
     .map(node => node.textContent)
+
+  it('shows matching students while searching from the class grid and restores the grid when cleared', () => {
+    useFilterStore.setState({ selectedClassId: 'all' })
+    useStudentStore.setState({ students: [
+      { ...students[0], fullName: 'Nguyễn Đình Đức', holyName: 'Giuse', classId: 'class-other' },
+      { ...students[1], fullName: 'Trần Văn Bình' },
+    ] })
+    renderRoster()
+    expect(screen.getByRole('region', { name: 'Lớp học và phân lớp' })).toBeInTheDocument()
+    expect(screen.queryByText('Nguyễn Đình Đức')).not.toBeInTheDocument()
+    const search = mode === 'desktop'
+      ? screen.getByPlaceholderText('Tìm theo tên, mã thiếu nhi...')
+      : screen.getByLabelText('Tìm thiếu nhi')
+
+    fireEvent.change(search, { target: { value: 'duc giuse' } })
+    expect(screen.getByText('Nguyễn Đình Đức')).toBeInTheDocument()
+    expect(screen.queryByText('Trần Văn Bình')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Lớp học và phân lớp' })).not.toBeInTheDocument()
+    expect(useFilterStore.getState().selectedClassId).toBe('all')
+
+    fireEvent.change(search, { target: { value: 'khong ton tai' } })
+    expect(screen.queryByText('Nguyễn Đình Đức')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Lớp học và phân lớp' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Xóa tìm kiếm'))
+    expect(screen.getByRole('region', { name: 'Lớp học và phân lớp' })).toBeInTheDocument()
+    expect(screen.queryByText('Nguyễn Đình Đức')).not.toBeInTheDocument()
+    fireEvent.change(search, { target: { value: '   ' } })
+    expect(screen.getByRole('region', { name: 'Lớp học và phân lớp' })).toBeInTheDocument()
+  })
 
   it('orders Vietnamese full names before pagination and restores A–Z after class sorting', () => {
     renderRoster()

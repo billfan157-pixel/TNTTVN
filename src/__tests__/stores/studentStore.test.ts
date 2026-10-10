@@ -49,6 +49,15 @@ beforeEach(() => {
 })
 
 describe('studentStore', () => {
+  it('rejects a known duplicate before optimistic insertion or enqueue, regardless of accents or class', async () => {
+    const existing = makeStudent({ fullName: 'Đặng Văn An', parishId: 'PARISH-TEST' })
+    useStudentStore.setState({ students: [existing] })
+    await expect(useStudentStore.getState().addStudent({ ...existing, fullName: '  DANG   VAN AN ', holyName: 'Maria', classId: 'AU1' }))
+      .rejects.toThrow('cùng họ tên và ngày sinh')
+    expect(useStudentStore.getState().students).toEqual([existing])
+    expect(syncService.syncCreateStudent).not.toHaveBeenCalled()
+  })
+
   it('addStudent creates student with id, code and syncs', async () => {
     await useStudentStore.getState().addStudent({
       holyName: 'Maria', fullName: 'Trần Thị B', gender: 'Nữ',

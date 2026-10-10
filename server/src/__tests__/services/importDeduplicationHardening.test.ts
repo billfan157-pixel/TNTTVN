@@ -386,7 +386,7 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
       expect(details.find((row) => row.rowIndex === 22)?.studentId).toBeNull()
     })
 
-    it('allows an explicit create decision for a real same-name collision', async () => {
+    it('rejects an explicit create decision for the same normalized name and DOB despite a different holy name', async () => {
       const result = await importStudents({
         rows: [{
           rowIndex: 31, holyName: 'Têrêsa', fullName: 'Trần Thị Mai', gender: 'Nữ',
@@ -397,8 +397,9 @@ describe('Import Deduplication Hardening Suite (ADR-054)', () => {
         classMappings: { 'Thiếu Nhi 1': CLASS_ID }, duplicateActions: { '31': 'create' },
       }, ADMIN_ID, PARISH, '127.0.0.1', 'Vitest')
 
-      expect(result.imported).toBe(1)
-      expect(result.errors).toBe(0)
+      expect(result.imported).toBe(0)
+      expect(result.errors).toBe(1)
+      expect((await db.select().from(students).where(eq(students.parishId, PARISH))).filter(student => student.fullName === 'Trần Thị Mai')).toHaveLength(1)
     })
 
     it('preserves blank cells on update and undo restores the exact unredacted PII snapshot', async () => {

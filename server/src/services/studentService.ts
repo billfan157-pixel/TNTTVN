@@ -9,6 +9,7 @@ import { resolveMembershipBranch } from './studentMembershipPolicy.js'
 import { isAcademicYearClosedForWrite } from '../utils/academicYear.js'
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 import { assertCreateReplayMatches, createIntentHash, readCreateIntentHash } from './createIdempotency.js'
+import { assertStudentIdentitiesAvailable } from './studentIdentityPolicy.js'
 
 type StudentInsert = InferInsertModel<typeof students>
 
@@ -279,22 +280,20 @@ export async function createStudent(
 
   // ADR-016 (offline-sync audit #3): nếu request trước bị timeout nhưng thật ra đã
   // insert (client retry cùng key), chỉ trả về student đã tạo khi payload khớp.
-  if (idempotencyKey) {
-    const replay = await runDbTransaction(async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(students)
-        .where(and(
-          eq(students.idempotencyKey, idempotencyKey),
-          eq(students.parishId, parishId),
-          isNull(students.deletedAt),
-        ))
-        .limit(1)
-      return existing
-        ? await assertStudentCreateReplay(tx, existing, data, userId, parishId, expected)
-        : null
-    })
-    if (replay) return replay
+  const replayExistingCreate = async (tx: DbExecutor) => {
+    if (!idempotencyKey) return null
+    const [existing] = await tx
+      .select()
+      .from(students)
+      .where(and(
+        eq(students.idempotencyKey, idempotencyKey),
+        eq(students.parishId, parishId),
+        isNull(students.deletedAt),
+      ))
+      .limit(1)
+    return existing
+      ? await assertStudentCreateReplay(tx, existing, data, userId, parishId, expected)
+      : null
   }
 
   const id = generateId('ST')
@@ -305,10 +304,13 @@ export async function createStudent(
   for (let attempt = 0; attempt < 12; attempt++) {
     try {
       return await runDbTransaction(async (tx) => {
+        const replay = await replayExistingCreate(tx)
+        if (replay) return replay
         if (!(await checkAcademicWriteAccess(userId, parishId, data.classId, tx, expected, ['admin', 'chunhiem']))) {
           throw Object.assign(new Error('Bạn không được phân công lớp này'), { status: 403, code: 'FORBIDDEN' })
         }
         const year = await getAcademicYearPrefix(data.classId, parishId, tx)
+        await assertStudentIdentitiesAvailable(tx, parishId, [data])
         const code = `TN${year}${generateStudentCodeSuffix()}`
         const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
         const requestedIntentHash = createIntentHash(studentCreateIntent(data, membershipBranch))
@@ -381,10 +383,13 @@ export async function createStudent(
   }
   // Last resort: include timestamp fragment (vẫn GIỮ idempotencyKey — IDEM-F3)
   return await runDbTransaction(async (tx) => {
+    const replay = await replayExistingCreate(tx)
+    if (replay) return replay
     if (!(await checkAcademicWriteAccess(userId, parishId, data.classId, tx, expected, ['admin', 'chunhiem']))) {
       throw Object.assign(new Error('Bạn không được phân công lớp này'), { status: 403, code: 'FORBIDDEN' })
     }
     const year = await getAcademicYearPrefix(data.classId, parishId, tx)
+    await assertStudentIdentitiesAvailable(tx, parishId, [data])
     const fallbackNum = Date.now() % 1_000_000
     const code = `TN${year}${String(fallbackNum).padStart(6, '0')}`
     const membershipBranch = await resolveMembershipBranch(tx, parishId, data.classId, data.branch)
