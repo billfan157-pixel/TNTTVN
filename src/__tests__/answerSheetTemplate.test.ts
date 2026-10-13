@@ -187,6 +187,27 @@ describe('Answer Sheet Template & Batch Print Engine', () => {
       expect(html).not.toContain('height: 64px')
     })
 
+    it('prints multipart essay lines safely and keeps rubrics out of the student paper', () => {
+      const options = {
+        subject: 'Tự luận', classLabel: 'Thiếu Nhi 2', academicYear: '2026-2027',
+        questions: [{ index: 1, type: 'essay' as const, points: 4, question: 'Trình bày:\na) <script>Không thực thi</script>\nb) Liên hệ. (3 điểm)', explanation: 'a) Ý đúng.\nb) Có ví dụ.' }],
+      }
+      const studentHtml = buildExamPaperHtml(options)
+      expect(studentHtml).toContain('Trình bày:<br>a) &lt;script&gt;Không thực thi&lt;/script&gt;<br>b) Liên hệ. (3 điểm)')
+      expect(studentHtml).not.toContain('a) Ý đúng.')
+      const teacherHtml = buildExamPaperHtml({ ...options, showAnswerKey: true, includeExplanations: true })
+      expect(teacherHtml).toContain('a) Ý đúng.<br>b) Có ví dụ.')
+    })
+
+    it.each(['a) Ý một.\nb) Ý hai.', '1) Ý một. 2) Ý hai.', 'i) Ý một. ii) Ý hai.', '• Ý một.\n• Ý hai.'])('reserves more writing space for each added subpart: %s', question => {
+      const twoParts = { question, points: 1 }
+      const threeParts = { question: `${question}\nc) Ý ba.`, points: 1 }
+      expect(getEssayAnswerLineCount(twoParts)).toBe(6)
+      expect(getEssayAnswerLineCount(threeParts)).toBe(9)
+      const html = buildExamPaperHtml({ subject: 'Tự luận', classLabel: 'Thiếu Nhi 2', academicYear: '2026-2027', questions: [{ ...threeParts, index: 1, type: 'essay' }] })
+      expect(html.match(/<div class="essay-answer-line"><\/div>/g)).toHaveLength(9)
+    })
+
     it('buildBatchExamPapersHtml tạo HTML in hàng loạt cho toàn bộ học sinh trong lớp', () => {
       const students = [
         { id: 'ST-001', code: 'TN001', name: 'Em 1' },

@@ -9,15 +9,20 @@ const source = readFileSync(
 
 describe('create exam session mobile UI contract', () => {
   it('uses a bottom sheet on mobile with an accessible close action', () => {
-    expect(source).toContain('items-end justify-center p-0 sm:items-center sm:p-4')
-    expect(source).toContain('rounded-t-3xl sm:rounded-2xl')
-    expect(source).toContain('aria-label="Đóng tạo phiên chấm"')
+    expect(source).toContain('<ModalShell isOpen={showCreate}')
+    expect(source).toContain('closeCreateModal()')
+    const shell = readFileSync(resolve(process.cwd(), 'src/components/common/ModalShell.tsx'), 'utf8')
+    expect(shell).toContain('useAccessibleDialog')
+    expect(shell).toContain('mobile-sheet-grabber')
+    expect(shell).toContain('label="Đóng"')
   })
 
   it('keeps creation controls and answer progress visible while content scrolls', () => {
-    expect(source).toContain('sticky top-0 z-10 bg-surface-card')
-    expect(source).toContain('sticky bottom-0 -mx-4 sm:-mx-5')
-    expect(source).toContain('Đáp án: {completedAnswerCount}/{createForm.questionCount} câu')
+    expect(source).toContain('footer={(')
+    expect(source).toContain('Đáp án: ${completedAnswerCount}/${createForm.questionCount} câu')
+    const shell = readFileSync(resolve(process.cwd(), 'src/components/common/ModalShell.tsx'), 'utf8')
+    expect(shell).toContain('modal-content__footer shrink-0')
+    expect(shell).toContain('modal-content__body flex-1 overflow-y-auto')
   })
 
   it('uses touch-sized answer choices and one question row per mobile grid row', () => {
@@ -27,7 +32,7 @@ describe('create exam session mobile UI contract', () => {
   })
 
   it('expands into a structured desktop grid without duplicating the form', () => {
-    expect(source).toContain('max-w-2xl lg:max-w-5xl')
+    expect(source).toContain('maxWidth="1024px"')
     expect(source).toContain('lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4')
     expect(source).toContain("createForm.examType === 'written' ? 'lg:col-span-12' : 'lg:col-span-5'")
     expect(source).toContain('lg:col-span-7')

@@ -17,9 +17,10 @@ import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle, AlertCircle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-  Upload, School, Eye, Zap, Grid3X3, BookOpen, Search, ChevronRight, ArrowLeft,
+  Upload, School, Eye, Zap, Grid3X3, BookOpen, Search, ChevronRight, ArrowLeft, Pencil,
 } from 'lucide-react'
-import type { ExamScoreType, ExamQuestion, ExamType } from '../../types'
+import type { ExamScoreType, ExamQuestion, ExamType, ExamSession } from '../../types'
+import { ModalShell } from '../common/ModalShell'
 import type { ExamImportScope } from '../../utils/examParser'
 import { parseQuickAnswerString } from '../../utils/examQuickKeyParser'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
@@ -156,11 +157,13 @@ export const ExamSessionView: React.FC = () => {
 
   const {
     sessions, results, loading, saving, finalizing, error, lastFinalize,
-    loadClassSessions, loadMySessions, createSession, selectSession, refreshResults, saveScores, removeResult,
+    loadClassSessions, loadMySessions, createSession, getEditContext, updateDefinition, selectSession, refreshResults, saveScores, removeResult,
     completeAndFinalize, reopenSession, deleteSession, clearError,
   } = useExamStore()
 
   const [showCreate, setShowCreate] = useState(false)
+  const [editingExam, setEditingExam] = useState<{ session: ExamSession; definitionHash: string } | null>(null)
+  const [formSaving, setFormSaving] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
   const [showGuidedGrade, setShowGuidedGrade] = useState(false)
   const [fixedScanStudent, setFixedScanStudent] = useState<GuidedGradeStudent | null>(null)
@@ -168,11 +171,11 @@ export const ExamSessionView: React.FC = () => {
   const closeAnswerKeyModal = useCallback(() => setShowAnswerKeyModal(false), [])
   const closeCreateModal = useCallback(() => {
     setShowCreate(false)
+    setEditingExam(null)
     setQuickKeyInput('')
     setReviewViewMode('matrix')
   }, [])
   const { dialogRef: answerKeyTrapRef, titleId: answerKeyTitleId } = useAccessibleDialog(showAnswerKeyModal, closeAnswerKeyModal)
-  const { dialogRef: createTrapRef, titleId: createTitleId } = useAccessibleDialog(showCreate, closeCreateModal)
   const [rescoreLoading, setRescoreLoading] = useState(false)
   const [rescoreResult, setRescoreResult] = useState<{ rescored: number; skipped: number } | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
@@ -328,20 +331,55 @@ export const ExamSessionView: React.FC = () => {
   )
 
   const handleOpenCreate = () => {
+    setEditingExam(null)
+    setMcPart(null)
+    setEssayPart(null)
     if (classCatalog.length === 0) {
       fetchClasses()
     }
     const defaultId = (effectiveClassId && assignedClasses.some(c => c.id === effectiveClassId))
       ? effectiveClassId
       : (assignedClasses[0]?.id || '')
-    setCreateForm(f => ({
-      ...f,
-      classId: defaultId,
-    }))
+    setCreateForm({ classId: defaultId, subject: '', scoreType: '15m', maxScore: 10,
+      examType: 'written', questionCount: 20, answerKey: {}, questions: undefined })
     setCreateError('')
     setQuickKeyInput('')
     setReviewViewMode('matrix')
     setShowCreate(true)
+  }
+
+  const handleOpenEdit = async () => {
+    if (!activeSession) return
+    const context = await getEditContext(activeSession.id)
+    if (!context) return
+    const session = context.session
+    let questions: ExamQuestion[] | undefined
+    try { questions = typeof session.questions === 'string' ? JSON.parse(session.questions) : session.questions }
+    catch { useToastStore.getState().addToast('Đề thi hiện có bị lỗi dữ liệu; không thể mở để sửa.', 'error'); return }
+    const mc = questions?.filter(q => q.type !== 'essay') ?? []
+    const essay = questions?.filter(q => q.type === 'essay') ?? []
+    setMcPart(mc.length ? { questions: mc, totalPoints: mc.reduce((sum, q) => sum + (q.points ?? 1), 0) } : null)
+    setEssayPart(essay.length ? { questions: essay, totalPoints: essay.reduce((sum, q) => sum + (q.points ?? 1), 0) } : null)
+    setCreateForm({ classId: session.classId, subject: session.subject, scoreType: session.scoreType,
+      maxScore: session.maxScore, examType: session.examType ?? 'written', questionCount: session.questionCount ?? 20,
+      answerKey: session.answerKey ?? {}, questions })
+    setEditingExam(context)
+    setCreateError('')
+    setQuickKeyInput('')
+    setReviewViewMode('matrix')
+    setShowCreate(true)
+  }
+
+  const handleQuestionEdit = (index: number, patch: Partial<ExamQuestion>) => {
+    const update = (q: ExamQuestion) => q.index === index ? { ...q, ...patch } : q
+    setCreateForm(f => ({ ...f, questions: f.questions?.map(update) }))
+    const updatePart = (part: ExamPartSummary | null) => {
+      if (!part) return null
+      const questions = part.questions.map(update)
+      return { questions, totalPoints: Math.round(questions.reduce((sum, q) => sum + (q.points ?? 1), 0) * 100) / 100 }
+    }
+    setMcPart(updatePart)
+    setEssayPart(updatePart)
   }
 
   // ─── UI-POLISH 2026-08-25: import theo từng phần ───
@@ -410,7 +448,15 @@ export const ExamSessionView: React.FC = () => {
 
   // UI-POLISH 2026-08-25: đổi hình thức → dọn phần đề không còn phù hợp
   // (import 2 phần TN/TL CHỈ dành cho hình thức Kết hợp; MC chỉ ô TN; written không import).
-  const handleExamTypeChange = (next: ExamType) => {
+  const handleExamTypeChange = async (next: ExamType) => {
+    if (next === createForm.examType) return
+    const discardsContent = next === 'written'
+      ? Boolean(mcPart || essayPart || Object.keys(createForm.answerKey).length)
+      : next === 'multiple_choice' && Boolean(essayPart)
+    if (discardsContent && !await askConfirm({ title: 'Đổi hình thức bài kiểm tra?',
+      message: next === 'written' ? 'Phần đề và đáp án đã nhập sẽ được gỡ khỏi biểu mẫu. Tiếp tục chuyển sang tự luận?'
+        : 'Phần tự luận đã nhập sẽ được gỡ. Giữ phần trắc nghiệm và tiếp tục?',
+      confirmText: 'Đổi hình thức', variant: 'warning' })) return
     setCreateError('')
     if (next === 'written') {
       setMcPart(null)
@@ -427,6 +473,7 @@ export const ExamSessionView: React.FC = () => {
   }
 
   const handleCreate = async () => {
+    if (formSaving) return
     const targetClassId = createForm.classId || effectiveClassId
     if (!targetClassId) {
       setCreateError('Vui lòng chọn lớp học để tạo phiên chấm.')
@@ -454,7 +501,7 @@ export const ExamSessionView: React.FC = () => {
         return
       }
       const bad = Object.keys(createForm.answerKey).find(q => Number(q) > createForm.questionCount)
-      if (bad) setCreateError(`Đáp án câu ${bad} vượt quá ${createForm.questionCount} câu.`)
+      if (bad) { setCreateError(`Đáp án câu ${bad} vượt quá ${createForm.questionCount} câu.`); return }
       if (createForm.examType === 'mixed') {
         const hasEssay = (createForm.questions ?? []).some(q => q.type === 'essay')
         if (!hasEssay) {
@@ -464,7 +511,7 @@ export const ExamSessionView: React.FC = () => {
       }
     }
     // Cảnh báo tạo trùng: đã có phiên draft cùng lớp + môn + loại điểm (cùng học kỳ).
-    const duplicateDraft = sessions.find(s =>
+    const duplicateDraft = !editingExam && sessions.find(s =>
       s.classId === targetClassId &&
       s.status === 'draft' &&
       s.semester === selectedSemester &&
@@ -480,13 +527,13 @@ export const ExamSessionView: React.FC = () => {
       })
       if (!proceed) return
     }
-    const session = await createSession({
+    const payload = {
       classId: targetClassId,
       subject: createForm.subject.trim(),
       scoreType: createForm.scoreType,
       maxScore: createForm.maxScore,
-      academicYear: useAcademicYearStore.getState().resolveActiveYear(),
-      semester: selectedSemester,
+      academicYear: editingExam?.session.academicYear ?? useAcademicYearStore.getState().resolveActiveYear(),
+      semester: editingExam?.session.semester ?? selectedSemester,
       examType: createForm.examType,
       // questionCount = số câu TRẮC NGHIỆM (khớp phiếu OMR 1..N) với mọi hình thức có phần TN.
       questionCount: createForm.examType === 'multiple_choice' || createForm.examType === 'mixed' ? createForm.questionCount : undefined,
@@ -494,9 +541,15 @@ export const ExamSessionView: React.FC = () => {
         ? (JSON.stringify(createForm.answerKey) as any)
         : undefined,
       questions: createForm.questions ? JSON.stringify(createForm.questions) : undefined,
-    })
+    }
+    setFormSaving(true)
+    const session = editingExam
+      ? await updateDefinition(editingExam.session.id, payload, editingExam.definitionHash)
+      : await createSession(payload)
+    setFormSaving(false)
     if (session) {
       setShowCreate(false)
+      setEditingExam(null)
       setCreateError('')
       setQuickKeyInput('')
       setMcPart(null)
@@ -512,6 +565,9 @@ export const ExamSessionView: React.FC = () => {
         questions: undefined,
       })
       selectSession(session.id)
+      if (editingExam) useToastStore.getState().addToast('Đã lưu đề thi. Hãy in lại đề và phiếu trả lời trước khi chấm.', 'success')
+    } else {
+      setCreateError(useExamStore.getState().error || 'Không thể lưu đề thi.')
     }
   }
 
@@ -576,6 +632,15 @@ export const ExamSessionView: React.FC = () => {
     ? Array.from({ length: createForm.questionCount }, (_, index) => index + 1)
         .filter(question => Boolean(createForm.answerKey[question])).length
     : 0
+  const hasExamInfo = Boolean((createForm.classId || effectiveClassId) && createForm.subject.trim())
+  const hasExamParts = createForm.examType !== 'mixed' || Boolean(mcPart && essayPart)
+  const hasAllAnswers = !requiresAnswerKey || completedAnswerCount === createForm.questionCount
+  const formReady = hasExamInfo && hasExamParts && hasAllAnswers
+  const readinessMessage = !(createForm.classId || effectiveClassId) ? 'Chọn lớp học để tiếp tục'
+    : !createForm.subject.trim() ? 'Nhập tên bài kiểm tra để tiếp tục'
+    : !hasExamParts ? 'Nạp đủ phần trắc nghiệm và tự luận'
+    : !hasAllAnswers ? `Điền đáp án cho ${createForm.questionCount - completedAnswerCount} câu còn thiếu`
+    : editingExam ? 'Sẵn sàng lưu thay đổi' : 'Sẵn sàng tạo phiên chấm'
 
   const missingQuestions = useMemo(() => {
     if (!requiresAnswerKey) return []
@@ -975,6 +1040,11 @@ export const ExamSessionView: React.FC = () => {
               <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2">
                 {/* Nhóm Chấm Bài & Quét OMR */}
                 <div className="flex items-center gap-2 flex-wrap">
+                  {canManage && activeSession.status === 'draft' && results.length === 0 && (
+                    <Button size="sm" leadingIcon={<Pencil size={15} />} onClick={handleOpenEdit} disabled={saving || finalizing}>
+                      Sửa đề thi
+                    </Button>
+                  )}
                   {canScan && activeSession.status === 'draft' && (
                     <>
                       <Button
@@ -1227,6 +1297,7 @@ export const ExamSessionView: React.FC = () => {
         <React.Suspense fallback={null}>
         <ExamScanModal
           sessionId={activeSession.id}
+          definitionHash={activeSession.definitionHash}
           maxScore={activeSession.maxScore}
           examType={activeSession.examType}
           questionCount={activeSession.questionCount}
@@ -1347,75 +1418,46 @@ export const ExamSessionView: React.FC = () => {
 
       {/* Create modal */}
       {showCreate && (
-        <ModalPortal>
-        <div role="dialog" aria-modal="true" aria-labelledby={createTitleId} className="app-modal-layer fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end justify-center p-0 sm:items-center sm:p-4" onClick={closeCreateModal}>
-          <div ref={createTrapRef} className="bg-surface-card rounded-t-3xl sm:rounded-2xl w-full max-w-2xl lg:max-w-5xl shadow-2xl max-h-[96dvh] sm:max-h-[92vh] lg:max-h-[88vh] overflow-hidden flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
-            <div className="sticky top-0 z-10 bg-surface-card shrink-0 border-b border-surface-border px-4 pt-2 sm:px-6 sm:pt-4 pb-3">
-              <div className="flex justify-center py-1 sm:hidden" aria-hidden="true">
-                <span className="h-1 w-10 rounded-full bg-surface-border" />
+        <ModalShell isOpen={showCreate} onClose={() => { if (!formSaving) closeCreateModal() }}
+          title={editingExam ? 'Sửa đề thi' : 'Tạo Phiên Chấm'} maxWidth="1024px"
+          icon={<ClipboardList size={20} />}
+          subtitle={`Năm học ${editingExam?.session.academicYear ?? normalizeActiveAY(activeAY)} · Học kỳ ${editingExam?.session.semester ?? selectedSemester}`}
+          footer={(
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0" aria-live="polite">
+                <p className="m-0 text-xs font-semibold text-text-main truncate">
+                  {createForm.subject.trim() || 'Phiên chấm mới'} · {findClassById(createForm.classId || effectiveClassId || '')?.name || 'Chưa chọn lớp'}
+                </p>
+                <p className={`m-0 mt-0.5 text-xs ${formReady ? 'text-parish-success' : 'text-text-muted'}`}>
+                  {requiresAnswerKey ? `Đáp án: ${completedAnswerCount}/${createForm.questionCount} câu · ` : ''}{readinessMessage}
+                </p>
               </div>
-              <div className="flex items-start justify-between gap-3 pt-1">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center shrink-0">
-                    <Layers3 size={20} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 id={createTitleId} className="font-extrabold text-parish-primary text-base sm:text-lg m-0">Tạo Phiên Chấm</h4>
-                      <span className="badge badge-primary font-bold">Mới</span>
-                    </div>
-                    <p className="text-xs text-text-muted m-0 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                      <span>Năm học <strong>{normalizeActiveAY(activeAY)}</strong></span>
-                      <span>·</span>
-                      <span>Học kỳ <strong>{selectedSemester}</strong></span>
-                    </p>
-                  </div>
-                </div>
-                <button type="button" onClick={closeCreateModal} className="mobile-touch-target shrink-0 rounded-xl text-text-muted hover:bg-surface-hover hover:text-text-main flex items-center justify-center" aria-label="Đóng tạo phiên chấm">
-                  <X size={20} />
-                </button>
+              <div className="flex gap-2 shrink-0">
+                <Button variant="secondary" className="flex-1 sm:flex-none" onClick={closeCreateModal} disabled={formSaving}>Hủy</Button>
+                <Button className="flex-1 sm:flex-none" onClick={handleCreate} disabled={!formReady || formSaving}
+                  leadingIcon={formSaving ? <Loader2 size={16} className="animate-spin" /> : editingExam ? <Save size={16} /> : <Plus size={16} />}>
+                  {formSaving ? 'Đang lưu…' : editingExam ? 'Lưu đề thi' : 'Tạo Phiên'}
+                </Button>
               </div>
-
-              {/* Dynamic Progress Indicator */}
-              {(() => {
-                const hasClass = !!(createForm.classId || effectiveClassId)
-                const hasSubject = !!createForm.subject.trim()
-                const hasImport = createForm.examType === 'written' || !!mcPart || !!essayPart
-                const hasAnswers = !requiresAnswerKey || completedAnswerCount === createForm.questionCount
-                const filled = [hasClass, hasSubject, hasImport, hasAnswers].filter(Boolean).length
-                const isComplete = filled === 4
-                return (
-                  <div className="mt-3 pt-2.5 border-t border-surface-border/60 flex items-center justify-between gap-3" aria-live="polite">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-xs font-bold text-text-secondary whitespace-nowrap">Tiến độ:</span>
-                      <span className="text-xs text-text-muted truncate">
-                        {!hasClass
-                          ? 'Chưa chọn lớp học áp dụng'
-                          : !hasSubject
-                          ? 'Chưa nhập tên bài kiểm tra'
-                          : requiresAnswerKey && completedAnswerCount < createForm.questionCount
-                          ? `Đang thiếu ${createForm.questionCount - completedAnswerCount} câu đáp án`
-                          : 'Sẵn sàng khởi tạo phiên chấm'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="w-24 sm:w-32 h-2 rounded-full bg-surface-hover overflow-hidden">
-                        <div
-                          className={`h-full transition-[width] duration-300 ${isComplete ? 'bg-emerald-500' : 'bg-parish-primary'}`}
-                          style={{ width: `${(filled / 4) * 100}%` }}
-                        />
-                      </div>
-                      <span className="text-xs font-bold text-text-muted">{filled}/4</span>
-                    </div>
-                  </div>
-                )
-              })()}
             </div>
-
-            <div className="min-h-0 overflow-y-auto px-4 py-3.5 sm:px-6 sm:py-4 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4">
+          )}>
+            <fieldset disabled={formSaving} className="contents">
+            <div className="mb-3.5 flex items-start gap-2.5 rounded-xl border border-surface-border bg-surface-app px-3 py-2.5" aria-live="polite">
+              {formReady ? <CheckCircle2 size={16} className="text-parish-success shrink-0 mt-0.5" /> : <ClipboardList size={16} className="text-parish-primary shrink-0 mt-0.5" />}
+              <div className="min-w-0">
+                <p className="m-0 text-sm font-bold text-text-main">{readinessMessage}</p>
+                <p className="m-0 mt-0.5 text-xs text-text-muted">
+                  {createForm.examType === 'written' ? 'Chọn thông tin bài kiểm tra, rồi nhập điểm trực tiếp sau khi tạo phiên.'
+                    : createForm.examType === 'mixed' ? 'Nạp hai phần đề. Đáp án trắc nghiệm được điền tự động; tự luận chấm bằng nhập điểm.'
+                    : 'Có thể nhập đáp án trực tiếp hoặc nạp tệp đề để tự điền câu hỏi và đáp án.'}
+                </p>
+              </div>
+            </div>
+            <div className="min-w-0 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4">
               {/* CỘT TRÁI: THIẾT LẬP THÔNG TIN BÀI THI & ĐIỂM */}
-              <div className={`${createForm.examType === 'written' ? 'lg:col-span-12' : 'lg:col-span-5'} flex flex-col gap-3.5 mb-3 lg:mb-0`}>
+              <div className={`${createForm.examType === 'written' ? 'lg:col-span-12' : 'lg:col-span-5'} flex flex-col gap-3.5 mb-3 lg:mb-0 ${createForm.examType === 'written' ? 'lg:grid lg:grid-cols-2' : ''}`}>
                 {/* Lớp học */}
+                <h4 className="m-0 text-sm font-extrabold text-text-main lg:col-span-2">1. Thông tin bài kiểm tra</h4>
                 <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-bold text-text-secondary flex items-center gap-1.5 m-0">
@@ -1444,12 +1486,13 @@ export const ExamSessionView: React.FC = () => {
                   </div>
                   <select
                     aria-label="Lớp học cho phiên chấm"
+                    aria-required="true"
                     value={createForm.classId || ''}
                     onChange={e => {
                       setCreateForm(f => ({ ...f, classId: e.target.value }))
                       setCreateError('')
                     }}
-                    disabled={classLoading}
+                    disabled={classLoading || Boolean(editingExam)}
                     className="w-full px-3 py-2.5 rounded-xl border border-surface-border bg-surface-card text-text-main text-xs font-semibold focus:border-parish-primary focus:outline-none min-h-[44px]"
                   >
                     {classLoading ? (
@@ -1488,6 +1531,58 @@ export const ExamSessionView: React.FC = () => {
                   )}
                 </div>
 
+                <div className="p-3.5 rounded-2xl border border-surface-border bg-surface-card">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-text-secondary mb-1.5">
+                        Tên bài kiểm tra <span className="text-parish-danger">*</span>
+                      </label>
+                      <input
+                        aria-label="Môn hoặc nội dung kiểm tra"
+                        aria-required="true"
+                        maxLength={100}
+                        value={createForm.subject}
+                        onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
+                        placeholder="VD: Kiểm tra chương 3"
+                        enterKeyHint="next"
+                        className="w-full min-h-[44px] px-3 py-2.5 rounded-xl border border-surface-border bg-surface-card focus:border-parish-primary focus:outline-none text-sm font-semibold"
+                      />
+                    </div>
+                    <div className="sm:w-[176px]">
+                      <label className="block text-xs font-bold text-text-secondary mb-1.5">Thang điểm</label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.max(1, f.maxScore - 1) }))}
+                          className="w-11 h-11 rounded-xl border border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover flex items-center justify-center shrink-0 font-bold"
+                          aria-label="Giảm thang điểm"
+                        >
+                          −
+                        </button>
+                        <input
+                          aria-label="Thang điểm phiên chấm"
+                          type="number"
+                          inputMode="decimal"
+                          pattern="[0-9]*"
+                          min={1}
+                          max={10}
+                          value={createForm.maxScore}
+                          onChange={e => setCreateForm(f => ({ ...f, maxScore: Math.min(10, Math.max(1, Number(e.target.value) || 10)) }))}
+                          className="w-0 min-w-0 flex-1 min-h-[44px] px-2 py-2 rounded-xl border border-surface-border bg-surface-card focus:border-parish-primary focus:outline-none text-center font-bold text-sm"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.min(10, f.maxScore + 1) }))}
+                          className="w-11 h-11 rounded-xl border border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover flex items-center justify-center shrink-0 font-bold"
+                          aria-label="Tăng thang điểm"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Hình thức Bài Kiểm Tra */}
                 <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-2.5">
                   <label className="text-xs font-bold text-text-secondary flex items-center gap-1.5 m-0">
@@ -1496,7 +1591,7 @@ export const ExamSessionView: React.FC = () => {
                     </span>
                     Hình thức Bài Kiểm Tra
                   </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="group" aria-label="Hình thức bài kiểm tra">
+                  <div className="grid grid-cols-3 gap-2" role="group" aria-label="Hình thức bài kiểm tra">
                     <button
                       type="button"
                       onClick={() => handleExamTypeChange('written')}
@@ -1508,7 +1603,7 @@ export const ExamSessionView: React.FC = () => {
                       }`}
                     >
                       <span className="block text-xs font-black">Tự luận</span>
-                      <span className="block mt-0.5 text-xs font-normal opacity-85">Nhập điểm trực tiếp 0–10</span>
+                      <span className="block mt-0.5 text-xs font-normal opacity-85">Nhập điểm trực tiếp</span>
                     </button>
                     <button
                       type="button"
@@ -1530,8 +1625,8 @@ export const ExamSessionView: React.FC = () => {
                       aria-pressed={createForm.examType === 'mixed'}
                       className={`min-h-[54px] rounded-xl border px-3 py-2.5 text-left text-xs font-bold transition-colors ${
                         createForm.examType === 'mixed'
-                          ? 'border-violet-600 bg-violet-600 text-white shadow-sm'
-                          : 'border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover hover:border-violet-500/30'
+                          ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
+                          : 'border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover hover:border-parish-primary/30'
                       }`}
                     >
                       <span className="block text-xs font-black">Kết hợp TN + TL</span>
@@ -1549,86 +1644,37 @@ export const ExamSessionView: React.FC = () => {
                       </span>
                       Loại Điểm
                     </label>
-                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 sm:grid sm:grid-cols-5 sm:overflow-visible sm:pb-0 sm:px-0 sm:mx-0 mobile-scroll-row">
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2" role="group" aria-label="Loại điểm ghi vào bảng điểm">
                       {SCORE_TYPES.map(t => (
                         <button
                           key={t.id}
                           type="button"
                           onClick={() => setCreateForm(f => ({ ...f, scoreType: t.id }))}
                           aria-pressed={createForm.scoreType === t.id}
-                          className={`shrink-0 sm:shrink min-w-[110px] sm:min-w-0 min-h-[46px] rounded-xl border px-2.5 py-2 text-xs font-bold transition-colors text-left sm:text-center ${
+                          className={`min-h-[44px] rounded-xl border px-2 py-2 text-xs font-bold transition-colors text-center ${
                             createForm.scoreType === t.id
                               ? 'border-parish-primary bg-parish-primary text-white shadow-sm'
                               : 'border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover hover:border-parish-primary/20'
                           }`}
                         >
                           <span className="block font-black text-xs">{t.label}</span>
-                          <span className="block text-xs font-normal opacity-85">
-                            {t.daily ? 'vào điểm hằng ngày' : 'ghi trực tiếp'}
-                          </span>
                         </button>
                       ))}
                     </div>
+                    <p className="m-0 mt-2 text-xs text-text-muted">{SCORE_TYPES.find(type => type.id === createForm.scoreType)?.daily
+                      ? 'Điểm được tính vào trung bình điểm hằng ngày.' : 'Điểm được ghi trực tiếp vào cột giữa kỳ hoặc cuối kỳ.'}</p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-text-secondary mb-1.5">
-                        Môn / Nội dung kiểm tra <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        aria-label="Môn hoặc nội dung kiểm tra"
-                        value={createForm.subject}
-                        onChange={e => setCreateForm(f => ({ ...f, subject: e.target.value }))}
-                        onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
-                        placeholder="VD: Kiểm tra chương 3"
-                        enterKeyHint="next"
-                        className="w-full min-h-[44px] px-3 py-2.5 rounded-xl border border-surface-border bg-surface-card focus:border-parish-primary focus:outline-none text-sm font-semibold"
-                      />
-                    </div>
-                    <div className="sm:w-[140px]">
-                      <label className="block text-xs font-bold text-text-secondary mb-1.5">Thang điểm</label>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.max(1, f.maxScore - 1) }))}
-                          className="w-10 h-11 rounded-xl border border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover flex items-center justify-center shrink-0 font-bold"
-                          aria-label="Giảm thang điểm"
-                        >
-                          −
-                        </button>
-                        <input
-                          aria-label="Thang điểm phiên chấm"
-                          type="number"
-                          inputMode="decimal"
-                          pattern="[0-9]*"
-                          min={1}
-                          max={10}
-                          value={createForm.maxScore}
-                          onChange={e => setCreateForm(f => ({ ...f, maxScore: Math.min(10, Math.max(1, Number(e.target.value) || 10)) }))}
-                          className="flex-1 min-h-[44px] px-2 py-2 rounded-xl border border-surface-border bg-surface-card focus:border-parish-primary focus:outline-none text-center font-bold text-sm"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setCreateForm(f => ({ ...f, maxScore: Math.min(10, f.maxScore + 1) }))}
-                          className="w-10 h-11 rounded-xl border border-surface-border bg-surface-card text-text-secondary hover:bg-surface-hover flex items-center justify-center shrink-0 font-bold"
-                          aria-label="Tăng thang điểm"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Thông báo chế độ tự luận */}
                 {createForm.examType === 'written' && (
-                  <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-800 dark:text-emerald-200 flex items-start gap-3">
+                  <div className="p-3.5 rounded-2xl bg-parish-info-bg border border-parish-info/20 text-parish-info flex items-start gap-3 lg:col-span-2">
                     <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shrink-0 mt-0.5">
                       <CheckCircle2 size={16} />
                     </div>
                     <div className="text-xs">
-                      <p className="font-black m-0 mb-1">Hình thức Tự Luận — Sẵn sàng tạo phiên</p>
+                      <p className="font-black m-0 mb-1">Chấm bằng nhập điểm trực tiếp</p>
                       <p className="text-text-muted m-0">
                         Phiên tự luận không yêu cầu ma trận đáp án. Sau khi bấm &quot;Tạo Phiên&quot;, bạn có thể nhập điểm trực tiếp từ 0–{createForm.maxScore} cho từng học sinh trên danh sách hoặc qua ô nhập nhanh.
                       </p>
@@ -1640,12 +1686,13 @@ export const ExamSessionView: React.FC = () => {
               {/* CỘT PHẢI: VÙNG LÀM VIỆC IMPORT & MA TRẬN ĐÁP ÁN (Dành cho Trắc nghiệm & Kết hợp) */}
               {createForm.examType !== 'written' && (
                 <div className="lg:col-span-7 flex flex-col gap-3.5">
+                  <h4 className="m-0 text-sm font-extrabold text-text-main">2. Đề thi &amp; đáp án</h4>
                   {/* Smart Import Hub */}
                   <div className="p-3.5 rounded-2xl bg-surface-hover/40 border border-surface-border/70 flex flex-col gap-2.5">
                     <div className="flex items-center gap-1.5">
                       <Sparkles size={14} className="text-amber-500" />
                       <span className="text-xs font-bold text-text-main">
-                        {createForm.examType === 'mixed' ? 'Import Đề Thi (2 phần) — Tự Động Phân Tích:' : 'Import Đề Trắc Nghiệm — Tự Động Phân Tích:'}
+                        {createForm.examType === 'mixed' ? 'Nạp đề trắc nghiệm và tự luận' : 'Có tệp đề? Nạp để tự điền đáp án'}
                       </span>
                     </div>
                     <div className={`grid grid-cols-1 ${createForm.examType === 'mixed' ? 'sm:grid-cols-2' : ''} gap-2`}>
@@ -1680,7 +1727,7 @@ export const ExamSessionView: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => { setImportScope('multiple_choice'); setShowImportModal(true) }}
-                              className="btn btn-primary btn-sm text-[11px] font-bold"
+                              className="btn btn-secondary btn-sm text-xs font-bold"
                             >
                               <Upload size={12} /> Import Trắc Nghiệm
                             </button>
@@ -1731,7 +1778,7 @@ export const ExamSessionView: React.FC = () => {
                     </div>
 
                     {createForm.examType === 'mixed' && (!mcPart || !essayPart) && (
-                      <div className="p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/30 rounded-xl text-[11px] text-amber-700 dark:text-amber-300">
+                      <div className="p-2.5 bg-parish-warning-bg border border-parish-warning/30 rounded-xl text-xs text-parish-warning">
                         Đề Kết hợp cần CẢ HAI phần: {!mcPart && <><strong>Phần Trắc Nghiệm</strong> (bấm Import ở ô bên trái) </>}
                         {!mcPart && !essayPart && 'và '}
                         {!essayPart && <><strong>Phần Tự Luận</strong> (bấm Import ở ô bên phải)</>}
@@ -1786,7 +1833,7 @@ export const ExamSessionView: React.FC = () => {
 
                     {/* Mode 1: Detailed Question List View */}
                     {reviewViewMode === 'details' && Boolean(createForm.questions && createForm.questions.length > 0) ? (
-                      <div className="flex flex-col gap-2.5 max-h-[46dvh] sm:max-h-60 overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
+                      <div className="flex flex-col gap-2.5 sm:max-h-60 sm:overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
                         {createForm.questions?.map((questionItem, idx) => {
                           const qNum = questionItem.index || (idx + 1)
                           const isEssay = questionItem.type === 'essay'
@@ -1821,7 +1868,7 @@ export const ExamSessionView: React.FC = () => {
                                 )}
                               </div>
 
-                              <p className="text-xs text-text-main font-semibold m-0 leading-relaxed">
+                              <p className="text-xs text-text-main font-semibold m-0 leading-relaxed whitespace-pre-line">
                                 {questionItem.question}
                               </p>
 
@@ -1963,7 +2010,7 @@ export const ExamSessionView: React.FC = () => {
                         )}
 
                         {/* Answer Key Matrix Grid (5 Columns on Desktop for spacious touch targets) */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2 max-h-[46dvh] sm:max-h-60 overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2 sm:max-h-60 sm:overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
                           {Array.from({ length: createForm.questionCount }).map((_, i) => {
                             const q = i + 1
                             const current = createForm.answerKey[q]
@@ -2022,6 +2069,42 @@ export const ExamSessionView: React.FC = () => {
                 </div>
               )}
 
+              {editingExam && (
+                <div className="lg:col-span-12 flex flex-col gap-3 mt-3">
+                  <p className="m-0 rounded-xl p-3 text-xs bg-parish-warning-bg text-parish-warning">
+                    Chỉ sửa được khi phiên chưa chấm bài nào. Sau khi lưu, hãy in lại đề và phiếu trả lời.
+                    {editingExam.session.variantManifests ? ' Các mã đề A–H hiện có sẽ được tạo lại đồng bộ khi đổi câu hỏi hoặc đáp án.' : ' Khi đổi cấu trúc đề, các đáp án mã B–H cũ sẽ được bỏ; hãy thiết lập lại nếu cần.'}
+                  </p>
+                  {createForm.questions?.map(q => (
+                    <details key={q.index} className="rounded-xl border border-surface-border bg-surface-card">
+                      <summary className="mobile-touch-target cursor-pointer p-3 text-sm font-bold text-text-main">
+                        Câu {q.index} · {q.question.slice(0, 80) || 'Chưa có nội dung'}
+                      </summary>
+                      <div className="p-3 pt-0 flex flex-col gap-2">
+                      <label className="text-xs font-bold">Câu {q.index} {q.type === 'essay' ? '(Tự luận)' : '(Trắc nghiệm)'}
+                        <textarea className="form-input w-full mt-1" rows={3} maxLength={2000} value={q.question}
+                          onChange={e => handleQuestionEdit(q.index, { question: e.target.value })} />
+                      </label>
+                      {q.type !== 'essay' && q.options && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {(['A', 'B', 'C', 'D'] as const).map(option => (
+                            <label key={option} className="text-xs font-bold">Phương án {option} · Câu {q.index}
+                              <input className="form-input w-full mt-1" maxLength={500} value={q.options?.[option] ?? ''}
+                                onChange={e => handleQuestionEdit(q.index, { options: { ...q.options!, [option]: e.target.value } })} />
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <label className="text-xs font-bold">Điểm câu {q.index}
+                        <input className="form-input w-full mt-1" type="number" min="0.01" max="100" step="0.01" value={q.points ?? ''}
+                          onChange={e => handleQuestionEdit(q.index, { points: e.target.value ? Number(e.target.value) : undefined })} />
+                      </label>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              )}
+
               {/* Thông báo lỗi nếu có */}
               {createError && (
                 <div role="alert" className="mt-3 rounded-xl bg-parish-warning-bg/40 border border-parish-warning/30 px-3 py-2 text-xs font-semibold text-parish-warning lg:col-span-12">
@@ -2029,28 +2112,9 @@ export const ExamSessionView: React.FC = () => {
                 </div>
               )}
 
-              {/* Sticky Footer Actions */}
-              <div className="sticky bottom-0 -mx-4 sm:-mx-5 mt-4 border-t border-surface-border bg-surface-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5 lg:col-span-12 lg:mx-0 lg:rounded-b-2xl">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  {requiresAnswerKey ? (
-                    <p className={`m-0 text-xs font-semibold ${completedAnswerCount === createForm.questionCount ? 'text-emerald-600 dark:text-emerald-300' : 'text-text-muted'}`} aria-live="polite">
-                      Đáp án: {completedAnswerCount}/{createForm.questionCount} câu
-                    </p>
-                  ) : (
-                    <p className="m-0 text-xs text-text-muted">Sẵn sàng nhập điểm trực tiếp sau khi tạo phiên.</p>
-                  )}
-                  <div className="flex gap-2 sm:justify-end">
-                    <button className="btn btn-secondary flex-1 min-h-[44px] sm:flex-none" onClick={closeCreateModal}>Hủy</button>
-                    <button className="btn btn-primary flex-1 min-h-[44px] sm:flex-none" onClick={handleCreate} disabled={!createForm.subject.trim()}>
-                      <Plus size={16} /> Tạo Phiên
-                    </button>
-                  </div>
-                </div>
-              </div>
             </div>
-          </div>
-        </div>
-        </ModalPortal>
+            </fieldset>
+        </ModalShell>
       )}
 
       {/* Smart Exam Import Modal — scope theo ô import đang mở (TN / TL) */}

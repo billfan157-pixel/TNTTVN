@@ -255,6 +255,8 @@ export interface ExamVariantManifestSet {
 export const isMcGradedExamType = (t?: ExamType): boolean => t === 'multiple_choice' || t === 'mixed';
 
 export interface ExamSession {
+  /** Server token binding grading commands to the current exam definition. */
+  definitionHash?: string;
   id: string;
   parishId: string;
   classId: string;

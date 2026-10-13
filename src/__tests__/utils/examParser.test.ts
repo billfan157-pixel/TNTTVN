@@ -245,6 +245,8 @@ B. Đức Giám Mục
     const { detectSectionMode } = await import('../../utils/examParser')
     expect(detectSectionMode('PHẦN I. TRẮC NGHIỆM (3 điểm)')).toBe('multiple_choice')
     expect(detectSectionMode('II. TỰ LUẬN')).toBe('essay')
+    expect(detectSectionMode('I. TỰ LUẬN (4 điểm)')).toBe('essay')
+    expect(detectSectionMode('a) Viết về ý nghĩa.')).toBeNull()
     expect(detectSectionMode('Phần tự luận')).toBe('essay')
     expect(detectSectionMode('BÀI LÀM')).toBeNull()
     expect(detectSectionMode('Câu 5: Kể lại phép tính lòng nhân hậu của Chúa (7 điểm)')).toBeNull()
@@ -357,6 +359,83 @@ Câu 2 (4 điểm): Nêu 4 khẩu hiệu TNTT và ý nghĩa với đời sống 
 })
 
 // ─── UI-POLISH 2026-08-25: 2 ô import riêng (Trắc nghiệm / Tự luận) ───
+describe('multipart essay recognition', () => {
+  it.each([
+    'Câu 1 (4 điểm)\na) Viết về ý nghĩa.\nb) Liên hệ bản thân.',
+    'Câu 1 (4 điểm):\nI) Viết về ý nghĩa.\nII) Liên hệ bản thân.',
+    'Câu 1 (4 điểm):\n• Viết về ý nghĩa.\n• Liên hệ bản thân.',
+    'Câu 1 (4 điểm):\n1.1 Viết về ý nghĩa.\n1.2 Liên hệ bản thân.',
+    'Trình bày:\n1) Viết về ý nghĩa.\n2) Liên hệ bản thân.',
+    'Câu 1 (4 điểm):\nA) Viết về ý nghĩa.\nB) Liên hệ bản thân.',
+  ])('recognizes varied essay layouts without losing writing prompts: %s', text => {
+    const result = scopeExamParseResult(parseExamFromText(text, { intent: 'essay' }), 'essay')
+    expect(result.ok).toBe(true)
+    expect(result.questionCount).toBe(1)
+    expect(result.questions[0].question).toContain('Viết về ý nghĩa.')
+    expect(result.questions[0].question).toContain('Liên hệ bản thân.')
+    expect(result.answerKey).toEqual({})
+  })
+
+  it.each(['a)', 'a.', '(a)', 'a:'])('keeps letter subparts %s inside one headerless essay', marker => {
+    const second = marker.replace('a', 'b')
+    const result = parseExamFromText(`Câu 1 (4 điểm): Trả lời các ý sau:\n${marker} Nêu ý nghĩa. (1 điểm)\n${second} Liên hệ bản thân. (3 điểm)`)
+    expect(result.ok).toBe(true)
+    expect(result.essayQuestionCount).toBe(1)
+    expect(result.mcQuestionCount).toBe(0)
+    expect(result.answerKey).toEqual({})
+    expect(result.questions[0]).toMatchObject({ points: 4, question: `Trả lời các ý sau:\n${marker} Nêu ý nghĩa. (1 điểm)\n${second} Liên hệ bản thân. (3 điểm)` })
+  })
+
+  it('keeps indented numbered subparts with long prompts and bare parent numbering', () => {
+    const longPrompt = 'Giải thích ý nghĩa của Bí tích Thánh Thể đối với đời sống của người Kitô hữu và liên hệ với sinh hoạt trong giáo xứ.'
+    const result = parseExamFromText(`PHẦN TỰ LUẬN\n1. Trình bày:\n  1) ${longPrompt}\n  2) Nêu ví dụ.\n2. Câu hỏi tiếp theo?`)
+    expect(result.questionCount).toBe(2)
+    expect(result.questions[0].question).toContain(`1) ${longPrompt}\n2) Nêu ví dụ.`)
+    expect(result.questions[1].question).toBe('Câu hỏi tiếp theo?')
+  })
+
+  it.each(['a) Nêu ý nghĩa. b) Liên hệ bản thân.', '1) Nêu ý nghĩa. 2) Liên hệ bản thân.', 'i) Nêu ý nghĩa. ii) Liên hệ bản thân.'])('formats sequential inline subparts: %s', parts => {
+    const result = parseExamFromText(`PHẦN TỰ LUẬN\nCâu 1 (4 điểm): Trình bày: ${parts}`)
+    expect(result.questionCount).toBe(1)
+    expect(result.questions[0].points).toBe(4)
+    expect(result.questions[0].question.split('\n')).toHaveLength(3)
+    expect(result.questions[0].question).toContain('Liên hệ bản thân.')
+  })
+
+  it('accepts an unnumbered essay with subparts separated by blank lines', () => {
+    const result = parseExamFromText('PHẦN TỰ LUẬN\nTrình bày ý nghĩa:\n\na) Giải thích khái niệm.\n\nb) Nêu ví dụ.', { intent: 'essay' })
+    expect(result.ok).toBe(true)
+    expect(result.questionCount).toBe(1)
+    expect(result.questions[0].question).toBe('Trình bày ý nghĩa:\na) Giải thích khái niệm.\nb) Nêu ví dụ.')
+  })
+
+  it('does not use subpart points as the parent score or print multiline rubric', () => {
+    const result = parseExamFromText('PHẦN TỰ LUẬN (4 điểm)\nCâu 1: Trả lời:\na) Nêu ý nghĩa. (1 điểm)\nb) Liên hệ. (3 điểm)\nHướng dẫn chấm: Chấm theo các ý\na) Đủ khái niệm.\nb) Có ví dụ.', { intent: 'essay' })
+    expect(result.questions[0].points).toBe(4)
+    expect(result.questions[0].question).toBe('Trả lời:\na) Nêu ý nghĩa. (1 điểm)\nb) Liên hệ. (3 điểm)')
+    expect(result.questions[0].explanation).toBe('Chấm theo các ý\na) Đủ khái niệm.\nb) Có ví dụ.')
+  })
+
+  it('preserves MC answers while scoping a multipart essay at the end of a mixed document', () => {
+    const result = parseExamFromText('Câu 1: Chọn đáp án?\nA. Một\nB. Hai\nC. Ba\nD. Bốn\nĐáp án: B\nCâu 2 (4 điểm): Trả lời:\na) Nêu ý nghĩa.\nb) Nêu ví dụ.', { intent: 'essay' })
+    const scoped = scopeExamParseResult(result, 'essay')
+    expect(result.mcQuestionCount).toBe(1)
+    expect(scoped.ok).toBe(true)
+    expect(scoped.questionCount).toBe(1)
+    expect(scoped.questions[0].question).toBe('Trả lời:\na) Nêu ý nghĩa.\nb) Nêu ví dụ.')
+    expect(scoped.answerKey).toEqual({})
+  })
+  it('keeps numbered subparts under a headerless essay following MC questions', () => {
+    const result = parseExamFromText('Câu 1: Chọn đáp án?\nA. Một\nB. Hai\nC. Ba\nD. Bốn\nĐáp án: B\nCâu 2 (4 điểm): Trả lời:\n1) Nêu ý nghĩa.\n2) Nêu ví dụ.', { intent: 'essay' })
+    const scoped = scopeExamParseResult(result, 'essay')
+    expect(result.mcQuestionCount).toBe(1)
+    expect(result.answerKey).toEqual({ 1: 'B' })
+    expect(scoped.questionCount).toBe(1)
+    expect(scoped.questions[0].question).toBe('Trả lời:\n1) Nêu ý nghĩa.\n2) Nêu ví dụ.')
+    expect(scoped.questions[0].points).toBe(4)
+  })
+})
+
 describe('scopeExamParseResult (import theo phần)', () => {
   const combined = parseExamFromText(generateSampleExamTemplateText()) // 6 TN + 2 TL
 

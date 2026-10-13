@@ -24,6 +24,7 @@ export type ExamSessionStatus = 'draft' | 'completed'
 export type ExamResultSource = 'qr_scan' | 'omr' | 'quick_entry'
 
 export interface ExamResultMutationInput {
+  definitionHash?: string
   studentId: string
   score: number
   essayScore?: number
@@ -71,6 +72,7 @@ function hashExamResultMutation(sessionId: string, input: ExamResultMutationInpu
     capturedAt: input.capturedAt ?? null,
     expectedResultVersion: input.expectedResultVersion ?? null,
     ...(input.afterMutationId ? { afterMutationId: input.afterMutationId } : {}),
+    ...(input.definitionHash ? { definitionHash: input.definitionHash } : {}),
   })).digest('hex')
 }
 
@@ -576,7 +578,7 @@ export async function listExamSessions(parishId: string, classIds: string[] | nu
   if (filters?.scoreType) conditions.push(eq(examSessions.scoreType, filters.scoreType))
   if (filters?.status) conditions.push(eq(examSessions.status, filters.status))
   const rows = await db.select().from(examSessions).where(and(...conditions))
-  return rows.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))
+  return rows.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')).map(session => ({ ...session, definitionHash: examDefinitionHash(session) }))
 }
 
 export async function getExamSession(sessionId: string, parishId: string, executor: DbExecutor = db) {
@@ -585,7 +587,7 @@ export async function getExamSession(sessionId: string, parishId: string, execut
     .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
     .limit(1)
   if (!session) throw new ExamNotFoundError()
-  return session
+  return { ...session, definitionHash: examDefinitionHash(session) }
 }
 
 async function assertSessionAccess(sessionId: string, parishId: string, allowedClassIds: string[] | null, executor: DbExecutor = db) {
@@ -596,6 +598,112 @@ async function assertSessionAccess(sessionId: string, parishId: string, allowedC
     throw new ExamAccessError('Bạn không có quyền thao tác trên phiên chấm của lớp này')
   }
   return session
+}
+
+function examDefinitionHash(session: typeof examSessions.$inferSelect): string {
+  return createHash('sha256').update(JSON.stringify({
+    subject: session.subject, scoreType: session.scoreType, maxScore: session.maxScore,
+    examType: session.examType, questionCount: session.questionCount, answerKey: session.answerKey,
+    answerVariants: session.answerVariants, questions: session.questions, variantManifests: session.variantManifests,
+  })).digest('hex')
+}
+
+async function assertExamNotStarted(tx: DbExecutor, session: typeof examSessions.$inferSelect) {
+  if (session.status !== 'draft') throw new ExamStateError('Phiên đã hoàn tất; không thể sửa đề thi.')
+  const scope = and(eq(examResults.parishId, session.parishId), eq(examResults.examSessionId, session.id))
+  const [result] = await tx.select({ id: examResults.id }).from(examResults).where(scope).limit(1)
+  const [receipt] = await tx.select({ id: examResultMutations.clientMutationId }).from(examResultMutations)
+    .where(and(eq(examResultMutations.parishId, session.parishId), eq(examResultMutations.examSessionId, session.id))).limit(1)
+  const [finalization] = await tx.select({ id: examFinalizations.id }).from(examFinalizations)
+    .where(and(eq(examFinalizations.parishId, session.parishId), eq(examFinalizations.examSessionId, session.id))).limit(1)
+  // Legacy results may not have durable receipts. Retain the historical lock
+  // after deleting all results or reopening a previously finalized session.
+  const [history] = await tx.select({ id: auditLogs.id }).from(auditLogs).where(and(
+    eq(auditLogs.parishId, session.parishId), eq(auditLogs.entityId, session.id),
+    inArray(auditLogs.action, ['EXAM_SAVE_RESULTS', 'EXAM_DELETE_RESULT', 'EXAM_REOPEN']),
+  )).limit(1)
+  if (result || receipt || finalization || history) throw new ExamStateError('Phiên đã có hoạt động chấm bài; không thể sửa đề thi, kể cả khi đã xóa kết quả.')
+  await resolveWritableAcademicYear(session.parishId, session.academicYear, tx, session.classId)
+  if (!await createSemesterLockSpecification(tx).isSatisfiedBy(session.academicYear, session.semester, session.parishId)) {
+    const error = new Error('Học kỳ đã khóa sổ điểm; không thể sửa đề thi.') as Error & { status: number }
+    error.status = 403
+    throw error
+  }
+}
+
+export async function getExamEditContext(sessionId: string, parishId: string, allowedClassIds: string[] | null) {
+  const session = await assertSessionAccess(sessionId, parishId, allowedClassIds)
+  await assertExamNotStarted(db, session)
+  return { session, definitionHash: examDefinitionHash(session) }
+}
+
+export async function updateExamDefinition(params: {
+  sessionId: string; parishId: string; userId: string; allowedClassIds: string[] | null;
+  ip: string; userAgent: string; expected?: AcademicWriteExpectation;
+  data: ExamSessionData & { expectedDefinitionHash: string };
+}) {
+  return withSqliteBusyRetry(() => runDbTransaction(async tx => {
+    // Acquire the same write lock as result saves before reading eligibility.
+    await tx.update(examSessions).set({ status: 'draft' }).where(and(
+      eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId), eq(examSessions.status, 'draft'),
+    ))
+    const session = await assertSessionAccess(params.sessionId, params.parishId, params.allowedClassIds, tx)
+    await assertExamWriter(tx, params.userId, params.parishId, session.classId, params.expected)
+    await assertExamNotStarted(tx, session)
+    const data = params.data
+    if (data.classId !== session.classId || data.semester !== session.semester || data.academicYear !== session.academicYear) {
+      badRequest('Không được thay đổi lớp, học kỳ hoặc năm học khi sửa đề thi.')
+    }
+    if (examDefinitionHash(session) !== data.expectedDefinitionHash) throw new ExamStateError('Đề thi đã thay đổi trên thiết bị khác. Hãy mở lại đề trước khi sửa.')
+    const questionCount = data.examType === 'written' ? null : data.questionCount ?? null
+    let answerKey = data.examType === 'written' ? null : data.answerKey ?? null
+    let answerVariants: string | null = answerKey ? JSON.stringify({ A: JSON.parse(answerKey) }) : null
+    let questions = data.questions ?? null
+    let variantManifests: string | null = null
+    if (questions && answerKey) {
+      const keys = JSON.parse(answerKey) as Record<number, string>
+      questions = JSON.stringify((JSON.parse(questions) as VariantQuestion[]).map(q =>
+        q.type === 'essay' ? q : { ...q, correctOption: keys[q.index] }))
+    }
+    const structureChanged = questions !== session.questions || answerKey !== session.answerKey || questionCount !== session.questionCount || data.examType !== session.examType
+    if (structureChanged && questions) {
+      // The original bank snapshots remain immutable build evidence. Edited
+      // working questions must not claim to be those unchanged bank versions.
+      questions = JSON.stringify((JSON.parse(questions) as VariantQuestion[]).map(q => {
+        const { sourceQuestionId: _questionId, sourceVersionId: _versionId, ...edited } = q
+        return edited
+      }))
+    }
+    if (!structureChanged) {
+      answerVariants = session.answerVariants
+      variantManifests = session.variantManifests
+    } else if (session.variantManifests && questions && questionCount) {
+      const old = JSON.parse(session.variantManifests) as ExamVariantManifestSet
+      let manifest: ExamVariantManifestSet
+      try {
+        manifest = generateExamVariantManifest({ questions: JSON.parse(questions), questionCount,
+          variantCount: Object.keys(old.variants).length, seed: randomUUID() })
+      } catch (error) { badRequest((error as Error).message) }
+      answerKey = JSON.stringify(manifest!.variants.A!.answerKey)
+      answerVariants = JSON.stringify(Object.fromEntries(Object.entries(manifest!.variants).map(([code, entry]) => [code, entry!.answerKey])))
+      variantManifests = JSON.stringify(manifest!)
+    }
+    if (session.sourceType === 'blueprint' && data.examType !== 'written') {
+      const items = questions ? JSON.parse(questions) as VariantQuestion[] : []
+      const total = items.reduce((sum, q) => sum + (q.points ?? 0), 0)
+      if (!items.length || items.some(q => !q.points) || Math.abs(total - (data.maxScore ?? 10)) > 0.005) {
+        badRequest('Đề từ ma trận phải có tổng điểm các câu bằng thang điểm của phiên.')
+      }
+    }
+    const next = { subject: data.subject, scoreType: data.scoreType, maxScore: data.maxScore ?? 10,
+      examType: data.examType ?? 'written', questionCount, answerKey, answerVariants, questions, variantManifests }
+    await tx.update(examSessions).set(next).where(and(eq(examSessions.id, session.id), eq(examSessions.parishId, params.parishId)))
+    await audit(tx, { userId: params.userId, parishId: params.parishId, ip: params.ip, userAgent: params.userAgent,
+      action: 'EXAM_EDIT_DEFINITION', entityType: 'exam_session', entityId: session.id,
+      oldValue: JSON.stringify({ definitionHash: examDefinitionHash(session) }), newValue: JSON.stringify(next) })
+    const updated = { ...session, ...next }
+    return { ...updated, definitionHash: examDefinitionHash(updated) }
+  }))
 }
 
 export async function createImmutableVariantManifests(params: {
@@ -666,7 +774,7 @@ export async function createImmutableVariantManifests(params: {
     })
     const [updated] = await tx.select().from(examSessions)
       .where(and(eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId))).limit(1)
-    return { session: updated, manifests: manifest }
+    return { session: { ...updated!, definitionHash: examDefinitionHash(updated!) }, manifests: manifest }
   })
 }
 
@@ -775,6 +883,9 @@ export async function upsertExamResults(
       badRequest('Phiên mixed thiếu ngân hàng câu hỏi/đáp án TN hợp lệ; không thể tách điểm trắc nghiệm và tự luận.')
     }
     const mcQuestionCount = session.questionCount ?? 0
+    const [definitionEdit] = await tx.select({ id: auditLogs.id }).from(auditLogs).where(and(
+      eq(auditLogs.parishId, parishId), eq(auditLogs.entityId, sessionId), eq(auditLogs.action, 'EXAM_EDIT_DEFINITION'),
+    )).limit(1)
 
     for (const r of results) {
       const requestHash = r.clientMutationId ? hashExamResultMutation(sessionId, r) : null
@@ -801,6 +912,9 @@ export async function upsertExamResults(
         }
       }
 
+      if (definitionEdit && r.definitionHash !== examDefinitionHash(session)) {
+        throw new ExamStateError('Đề thi đã chỉnh sửa. Hãy tải lại phiên và quét hoặc nhập lại bài theo đề mới.')
+      }
       const commandSource = r.source ?? 'qr_scan'
       const incomingExamVersion = normalizeExamVersion(r.examVersion)
       const incomingScanMetadata = sanitizeScanMetadata(r.scanMetadata)
@@ -1702,7 +1816,7 @@ export async function updateAnswerKeyAndRescore(
     })
 
     const [session] = await tx.select().from(examSessions).where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId))).limit(1)
-    return { session, rescored, skipped }
+    return { session: session ? { ...session, definitionHash: examDefinitionHash(session) } : session, rescored, skipped }
   })
 }
 
@@ -1807,6 +1921,6 @@ export async function updateAnswerVariantsAndRescore(
     const [updated] = await tx.select().from(examSessions)
       .where(and(eq(examSessions.id, sessionId), eq(examSessions.parishId, parishId)))
       .limit(1)
-    return { session: updated!, rescored, skipped }
+    return { session: { ...updated!, definitionHash: examDefinitionHash(updated!) }, rescored, skipped }
   })
 }

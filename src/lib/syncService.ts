@@ -4,6 +4,7 @@ type Entity = 'student' | 'grade' | 'attendance' | 'class' | 'notice' | 'exam' |
 type Operation = 'CREATE' | 'UPDATE' | 'DELETE'
 
 export interface ExamResultSyncScore {
+  definitionHash?: string
   studentId: string
   score: number
   essayScore?: number

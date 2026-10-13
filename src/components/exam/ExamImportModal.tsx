@@ -350,7 +350,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                   <div key={q.index} className="p-3 bg-surface-card rounded-lg border border-surface-border text-xs">
                     <div className="font-bold text-text-main mb-1.5 flex items-start gap-1">
                       <span className="text-parish-primary shrink-0">Câu {q.index}:</span>
-                      <span>{q.question}</span>
+                      <span className="whitespace-pre-line">{q.question}</span>
                       {(q.type ?? 'multiple_choice') === 'essay' && (
                         <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-300 text-[10px] font-black border border-violet-500/30">
                           TỰ LUẬN{q.points !== undefined ? ` · ${q.points}đ` : ''}

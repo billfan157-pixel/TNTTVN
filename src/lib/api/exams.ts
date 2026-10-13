@@ -16,6 +16,9 @@ export const examsApi = {
   },
   getMyExamSessions: () => request<any[]>('GET', '/exams/my-classes'),
   getExam: (id: string) => request<any>('GET', `/exams/${id}`),
+  getExamEditContext: (id: string) => request<{ session: any; definitionHash: string }>('GET', `/exams/${id}/definition`),
+  updateExamDefinition: (id: string, data: { classId: string; subject: string; scoreType: string; maxScore?: number; semester: number; academicYear?: string; examType?: string; questionCount?: number; answerKey?: string; questions?: string; expectedDefinitionHash: string }) =>
+    request<any>('PUT', `/exams/${id}/definition`, data),
   decodeBarcode: (barcodeText: string) =>
     request<{ sessionId: string; studentId: string; classId: string; subject: string; examType: string; maxScore: number; questionCount: number; protocolVersion?: 2 | 3; templateMode?: 'integrated' | 'full_page'; examVersion?: string; formChecksum?: string }>('POST', '/exams/barcode/decode', { barcodeText }),
   updateAnswerKey: (id: string, answerKey: string, questionCount: number) =>
@@ -24,7 +27,7 @@ export const examsApi = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
   generateExamVariantManifests: (id: string, variantCount: number) =>
     request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount }),
-  saveExamResults: (id: string, results: { studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string; expectedResultVersion?: number; afterMutationId?: string }[]) => {
+  saveExamResults: (id: string, results: { definitionHash?: string; studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string; expectedResultVersion?: number; afterMutationId?: string }[]) => {
     const capturedAt = new Date().toISOString()
     const withMutationIds = results.map(result => ({
       ...result,

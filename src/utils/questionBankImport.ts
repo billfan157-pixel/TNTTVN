@@ -2,6 +2,7 @@ import type { QuestionBankMutationInput } from '../lib/api'
 import type { ExamParseResult } from './examParser'
 import { parseExamFromExcel, parseExamFromText } from './examParser'
 import type { QuestionDifficulty } from '../types'
+import { extractExamDocxText } from './examDocxText'
 
 export type QuestionBankImportKind = 'excel' | 'word'
 export const MAX_QUESTION_BANK_IMPORT_BYTES = 5 * 1024 * 1024
@@ -34,12 +35,8 @@ export async function parseQuestionBankFile(file: File): Promise<QuestionBankFil
   const buffer = await file.arrayBuffer()
 
   if (extension === 'docx') {
-    // Lazy import keeps the DOCX ZIP/XML parser out of the normal application
-    // path. Only raw text is extracted; images/macros/embedded objects are not
-    // executed or uploaded.
-    const module = await import('mammoth')
-    const mammoth = module.default
-    const result = await mammoth.extractRawText({ arrayBuffer: buffer })
+    // Both authoring flows share plain-text extraction with Word list depth.
+    const result = await extractExamDocxText(buffer)
     return {
       kind: 'word',
       fileName: file.name,
@@ -71,12 +68,12 @@ export function toQuestionBankImportItems(
       questionType: isEssay ? 'essay' : 'multiple_choice',
       stem: question.question,
       answerData: isEssay
-        ? { rubric: null }
+        ? { rubric: question.explanation ?? null }
         : {
             options: (['A', 'B', 'C', 'D'] as const).map(id => ({ id, text: question.options?.[id] ?? '' })),
             correctOptionIds: [question.correctOption ?? 'A'],
           },
-      explanation: null,
+      explanation: question.explanation ?? null,
       branchId: defaults.branchId,
       curriculumLevel: defaults.curriculumLevel,
       lesson: defaults.lesson ?? null,

@@ -335,7 +335,7 @@ export function QuestionBankImportModal({ isOpen, branches, classes, onClose, on
                       className="rounded-xl border border-surface-border bg-surface-card p-2.5 text-xs"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <span className="font-bold text-text-main">
+                        <span className="font-bold text-text-main whitespace-pre-line">
                           Câu {question.index}: {question.question}
                         </span>
                         <span className="shrink-0 font-bold text-parish-primary">

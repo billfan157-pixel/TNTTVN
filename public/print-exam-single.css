@@ -445,6 +445,14 @@
       margin-top: 4px;
       padding-left: 3px;
     }
+    .essay-question-block--long {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .essay-question-block .question-title {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
     .essay-answer-line {
       height: 8.2mm;
       border-bottom: 1px dotted #94a3b8;

@@ -65,6 +65,7 @@ import {
 
 interface ExamScanModalProps {
   sessionId: string
+  definitionHash?: string
   maxScore: number
   /** EXAM-MIXED: phiên mixed quét OMR cho phần TN (questionCount = số câu TN). */
   examType?: ExamType
@@ -77,7 +78,7 @@ interface ExamScanModalProps {
 
 type ScanState =
   | { kind: 'scanning' }
-  | { kind: 'detected'; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; acceptance: ScanAcceptanceDecision; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode; attemptFingerprint: string; attemptDecision: 'new' | 'conflict'; detectedAnswers: Record<string, 'A' | 'B' | 'C' | 'D' | null> }
+  | { kind: 'detected'; definitionHash?: string; studentId: string; omr: OmrResult | OmrMultipleChoiceResult; frame: ImageData; identity: ExamCodeLock; quality: ScanQualityAssessment; acceptance: ScanAcceptanceDecision; templateMode: Exclude<OmrTemplateMode, 'auto'>; examVersion: ExamVersionCode; attemptFingerprint: string; attemptDecision: 'new' | 'conflict'; detectedAnswers: Record<string, 'A' | 'B' | 'C' | 'D' | null> }
   | { kind: 'error'; message: string }
 
 interface ScannedEntry {
@@ -97,6 +98,7 @@ const OMR_CAMERA_NOT_READY_RETRY_MS = 100
  */
 export const ExamScanModal: React.FC<ExamScanModalProps> = ({
   sessionId,
+  definitionHash,
   maxScore,
   examType = 'written',
   questionCount = 20,
@@ -493,6 +495,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
               : 'Đã nhận diện mã QR / Barcode — đang xác nhận phiếu…')
           setPhase({
             kind: 'detected',
+            definitionHash,
             studentId: identity.lock.studentId,
             omr,
             frame,
@@ -542,7 +545,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
     }
 
     return false
-  }, [sessionId, maxScore, examType, questionCount, fixedStudent, mcTemplateMode, selectedExamVersion, normalizedVariants, batchMode, continuousV2Enabled, pauseCameraAnalysis, stopCamera])
+  }, [sessionId, definitionHash, maxScore, examType, questionCount, fixedStudent, mcTemplateMode, selectedExamVersion, normalizedVariants, batchMode, continuousV2Enabled, pauseCameraAnalysis, stopCamera])
 
   // RAF sống lâu hơn một render. Luôn gọi callback mới nhất để mã đề/template/
   // batch mode vừa đổi không bị đóng kín trong closure lúc camera khởi động.
@@ -908,6 +911,7 @@ export const ExamScanModal: React.FC<ExamScanModalProps> = ({
         paperQuality: phase.omr.paperQuality,
       })
       const scoreItem = {
+        definitionHash: phase.definitionHash,
         studentId: phase.studentId,
         score,
         source: fixedStudent ? 'omr' : 'qr_scan',

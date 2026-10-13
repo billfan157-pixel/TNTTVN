@@ -206,6 +206,38 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
     await page.close()
   }, 20_000)
 
+  it('multipart essay print keeps subparts on separate lines and expands writing space', async () => {
+    const page = await browser.newPage()
+    try {
+      await page.emulateMediaType('print')
+      await page.setContent(buildExamPaperHtml({
+        subject: 'Tự luận nhiều ý', classLabel: 'Thiếu Nhi 2', academicYear: '2026-2027', layoutColumns: 2,
+        questions: [{ index: 1, type: 'essay', points: 1, question: 'Trình bày:\na) Nêu ý nghĩa.\nb) Cho ví dụ.\nc) Liên hệ.\nd) Rút ra bài học.' }],
+      }), { waitUntil: 'load' })
+      const measured = await page.evaluate(() => {
+        const block = document.querySelector('.essay-question-block')!
+        const title = block.querySelector('.question-title')!
+        const lines = Array.from(block.querySelectorAll('.essay-answer-line'))
+        return {
+          lineCount: lines.length,
+          lineHeights: lines.map(line => line.getBoundingClientRect().height),
+          breaks: title.querySelectorAll('br').length,
+          breakInside: getComputedStyle(block).breakInside,
+          columns: getComputedStyle(document.querySelector('.questions-wrapper')!).columnCount,
+        }
+      })
+      expect(measured.lineCount).toBe(12)
+      expect(measured.lineHeights.every(height => height > 30)).toBe(true)
+      expect(measured.breaks).toBe(4)
+      expect(measured.breakInside).toBe('auto')
+      expect(measured.columns).toBe('2')
+      const pdf = await page.pdf({ format: 'A4', printBackground: true })
+      expect(pdf.length).toBeGreaterThan(1000)
+    } finally {
+      await page.close()
+    }
+  }, 30_000)
+
   it('teacher answer key becomes machine-invalid even in fixed-student/manual OMR path', async () => {
     const totalQuestions = 20
     const html = prepareExamDocumentForOutput(buildExamPaperHtml({

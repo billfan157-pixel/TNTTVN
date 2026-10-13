@@ -8,6 +8,8 @@ import { getClientIp } from '../utils/ip.js'
 import { parseAcademicYear } from '../utils/academicYear.js'
 import {
   createExamSession,
+  getExamEditContext,
+  updateExamDefinition,
   listExamSessions,
   getExamSession,
   upsertExamResults,
@@ -236,8 +238,41 @@ const createSchema = z.object({
   }
 })
 
+const editDefinitionSchema = createSchema.and(z.object({ expectedDefinitionHash: z.string().regex(/^[a-f0-9]{64}$/) })).superRefine((data, ctx) => {
+  const parsed = parseQuestions(data.questions)
+  if (!parsed.ok || !parsed.questions) return
+  const indexes = parsed.questions.map(q => q.index)
+  if (new Set(indexes).size !== indexes.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: 'Không được trùng số thứ tự câu hỏi.' })
+  if (data.examType === 'written' && parsed.questions.some(q => q.type !== 'essay')) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: 'Đề tự luận chỉ được chứa câu tự luận.' })
+  if (data.examType === 'multiple_choice' && parsed.questions.some(q => q.type === 'essay')) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['questions'], message: 'Đề trắc nghiệm không được chứa câu tự luận.' })
+})
+
+examsRouter.get('/:id/definition', roleMiddleware('admin', 'chunhiem', 'phuta'), async c => {
+  const user = c.get('user') as JwtPayload
+  try {
+    const allowed = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
+    return successResponse(c, await getExamEditContext(c.req.param('id'), user.parishId, allowed))
+  } catch (error) { return handleServiceError(c, error) }
+})
+
+examsRouter.put('/:id/definition', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', editDefinitionSchema), async c => {
+  const user = c.get('user') as JwtPayload
+  try {
+    const data = c.req.valid('json')
+    const variants = parseAnswerVariants(data.answerVariants, data.questionCount)
+    const allowed = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
+    return successResponse(c, await updateExamDefinition({
+      sessionId: c.req.param('id'), parishId: user.parishId, userId: user.userId, allowedClassIds: allowed,
+      ip: getClientIp(c), userAgent: c.req.header('user-agent') || '', expected: { role: user.role, epoch: user.tokenVersion },
+      data: { ...data, semester: data.semester as 1 | 2,
+        answerKey: variants.ok && variants.variants?.A ? JSON.stringify(variants.variants.A) : data.answerKey },
+    }))
+  } catch (error) { return handleServiceError(c, error) }
+})
+
 const resultsSchema = z.object({
   results: z.array(z.object({
+    definitionHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
     studentId: z.string().trim().min(1),
     score: z.coerce.number().min(0).max(10),
     // EXAM-MIXED: điểm phần tự luận (nhập tay). Server cộng vào phần TN tự chấm

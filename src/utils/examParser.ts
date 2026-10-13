@@ -1,5 +1,7 @@
 import { loadXlsx } from '../lib/xlsxLoader'
 import type { ExamQuestion, MultipleChoiceOption } from '../types'
+import { extractExamDocxText } from './examDocxText'
+import { formatEssaySubparts, SUBPART_START_REGEX } from './essayStructure'
 
 export interface ExamParseResult {
   ok: boolean
@@ -43,6 +45,8 @@ export const MAX_EXAM_QUESTIONS = 50
 export function detectSectionMode(line: string): 'multiple_choice' | 'essay' | null {
   const trimmed = line.trim()
   if (!trimmed || trimmed.length > 120) return null
+  if (/^(?:\(?[a-z]\)|[a-z][.:]|[-•])\s+/i.test(trimmed)
+    && !/^[a-z][.):]\s*(?:trắc\s*nghiệm|tự\s*luận|tn|tl)(?:\s*\([^)]*\))?$/i.test(trimmed)) return null
   const hasPartPrefix = /^(?:phần|phan|part)\b/i.test(trimmed) || /^(?:[IVX]{1,5}|\d{1,2})\s*[.:)\-–]/i.test(trimmed)
   // Bỏ tiền tố "PHẦN I." để soi từ khóa phần.
   const content = trimmed
@@ -51,7 +55,7 @@ export function detectSectionMode(line: string): 'multiple_choice' | 'essay' | n
     .trim()
   if (!content) return null
   const isMc = /trắc\s*nghiệm|trắc nghiệm|multiple[\s-]*choice|lựa chọn|objective/i.test(content) || /^\s*tn\s*$/i.test(content)
-  const isEssay = /tự luận|tu\s*luan|essay|free[\s-]*response|open[\s-]*question|thuyết trình|viết\b/i.test(content) || /^\s*tl\s*$/i.test(content)
+  const isEssay = /tự luận|tu\s*luan|essay|free[\s-]*response|open[\s-]*question/i.test(content) || /^(?:tl|thuyết trình|viết)$/i.test(content)
   // Phải có tiền tố phần HOẶC là nhãn ngắn không kết thúc câu → tránh bắt nhầm nội dung câu hỏi.
   const isLabelOnly = content.length <= 40 && !/[?.!]$/.test(content)
   if (!hasPartPrefix && !isLabelOnly) return null
@@ -126,7 +130,7 @@ export function normalizeExamText(raw: string): string {
 const QUESTION_START_REGEX = /^(?:(?:câu\s*hỏi|câu|bài|question)\s*(\d+)|(\d+))(?:\s*\([^)]*\))?\s*[:.)\-/–—]\s*(.*)$/i
 
 /** Mốc TỰ LUẬN nới lỏng: "Câu 1 (2 điểm) Trình bày..." (thiếu dấu phân cách). */
-const ESSAY_LOOSE_START_REGEX = /^(?:câu\s*hỏi|câu|bài|question)\s*(\d+)(?:\s*\([^)]*\))?\s*[-–—:.]?\s*(\S.*)$/i
+const ESSAY_LOOSE_START_REGEX = /^(?:câu\s*hỏi|câu|bài|question)\s*(\d+)(?:\s*\([^)]*\))?\s*[-–—:.]?\s*(\S.*)?$/i
 
 /** Mốc số trần (không có chữ "Câu"): "1. Nêu 4 khẩu hiệu TNTT." */
 const BARE_NUMBER_START_REGEX = /^(\d{1,2})(?:\s*\([^)]*\))?\s*[:.)\-/–—]\s*(\S.*)$/
@@ -171,21 +175,24 @@ interface QuestionEvidence {
   optionMarkers: number
   /** Số dòng đáp án inline A–D. */
   answerLines: number
+  markedOption: boolean
 }
 
 function collectEvidence(lines: string[]): QuestionEvidence {
-  const evidence: QuestionEvidence = { optionMarkers: 0, answerLines: 0 }
+  const evidence: QuestionEvidence = { optionMarkers: 0, answerLines: 0, markedOption: false }
   for (const line of lines) {
-    evidence.optionMarkers += Array.from(line.matchAll(MULTI_OPTION_REGEX)).length
+    // Lowercase a/b/c are essay subparts, not sufficient evidence of MC.
+    evidence.optionMarkers += Array.from(line.matchAll(new RegExp(MULTI_OPTION_REGEX.source, 'g'))).length
     if (INLINE_ANSWER_REGEX.test(line)) evidence.answerLines += 1
+    if (/(?:^|\s)(?:\*[A-D][.)\s]|\[[A-D]\])/i.test(line)) evidence.markedOption = true
   }
   return evidence
 }
 
 /** Bằng chứng trắc nghiệm của một khối/câu hỏi (>= 2 phương án hoặc có dòng đáp án). */
-function hasMultipleChoiceEvidence(lines: string[]): boolean {
+function hasMultipleChoiceEvidence(lines: string[], essayIntent = false): boolean {
   const evidence = collectEvidence(lines)
-  return evidence.optionMarkers >= 2 || evidence.answerLines > 0
+  return evidence.optionMarkers >= (essayIntent ? 4 : 2) || evidence.answerLines > 0 || evidence.markedOption
 }
 
 /** Ký tự mở đầu "đủ tin" để coi là mốc câu tự luận khi thiếu dấu phân cách. */
@@ -426,7 +433,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
   for (const range of ranges) {
     if (range.mode !== 'auto') continue
     const evidence = collectEvidence(parseLines.slice(range.startLine, range.endLine))
-    const sectionHasEvidence = evidence.optionMarkers >= 2 || evidence.answerLines > 0
+    const sectionHasEvidence = evidence.optionMarkers >= (intent === 'essay' ? 4 : 2) || evidence.answerLines > 0 || evidence.markedOption
     // Ô import Tự Luận: câu không có bằng chứng trắc nghiệm là câu tự luận (kể cả
     // khi phần còn lại của đề là trắc nghiệm).
     if (intent === 'essay' && !sectionHasEvidence) {
@@ -444,15 +451,19 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
   for (const range of ranges) {
     const mode: QuestionMode = range.mode === 'auto' ? 'multiple_choice' : range.mode
     sectionHints.push({ mode, fromBlockIndex: questionBlocks.length, points: range.points })
-    const sectionLines = parseLines.slice(range.startLine, range.endLine).map(line => line.trim())
-    const nonEmpty = sectionLines.filter(line => line.length > 0)
+    const sectionLines = parseLines.slice(range.startLine, range.endLine)
+    const nonEmpty = sectionLines.map(line => line.trim()).filter(line => line.length > 0)
+    const bareIndent = Math.min(...sectionLines.filter(line => BARE_NUMBER_START_REGEX.test(line.trim())).map(line => line.search(/\S/)))
     // Phần tự luận KHÔNG có mốc câu nào (giáo viên chỉ ngăn cách bằng dòng trống)
     // → mỗi đoạn văn được coi là 1 câu hỏi.
     const hasMarker = nonEmpty.some(line =>
       QUESTION_START_REGEX.test(line) ||
       (mode === 'essay' && (ESSAY_LOOSE_START_REGEX.test(line) || BARE_NUMBER_START_REGEX.test(line))),
     )
-    const paragraphMode = mode === 'essay' && !hasMarker
+    // Ignore document titles before the first labelled section.
+    if (hasExplicitSection && range.startLine === 0 && !hasMarker) continue
+    const unnumberedLead = nonEmpty[0]?.endsWith(':') && !QUESTION_START_REGEX.test(nonEmpty[0]) && !nonEmpty.some(line => /^(?:câu|bài|question)\s*\d/i.test(line))
+    const paragraphMode = mode === 'essay' && (!hasMarker || unnumberedLead)
     if (paragraphMode) {
       warnings.push('Phần tự luận không có mốc "Câu 1:" — hệ thống tách câu theo đoạn (mỗi đoạn cách nhau bởi dòng trống là 1 câu). Kiểm tra lại số câu trong xem trước.')
     }
@@ -469,10 +480,13 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
       currentBlock = []
     }
 
-    for (const line of sectionLines) {
+    for (let lineIndex = 0; lineIndex < sectionLines.length; lineIndex++) {
+      const rawLine = sectionLines[lineIndex]
+      const line = rawLine.trim()
       if (!line) {
-        // Chế độ đoạn văn: dòng trống kết thúc câu.
-        if (paragraphMode) flushBlock()
+        // Blank lines between subparts do not end the parent question.
+        const nextLine = sectionLines.slice(lineIndex + 1).find(value => value.trim())?.trim() ?? ''
+        if (paragraphMode && !SUBPART_START_REGEX.test(nextLine) && !prevLine.endsWith(':')) flushBlock()
         continue
       }
       let isNewQuestion = false
@@ -487,11 +501,11 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
       } else if (mode === 'essay') {
         // ESSAY-DECODE: mốc tự luận nới lỏng ("Câu 1 (2 điểm) Trình bày...").
         const looseMatch = line.match(ESSAY_LOOSE_START_REGEX)
-        if (looseMatch && startsLikePrompt(looseMatch[2])) {
+        if (looseMatch && (!looseMatch[2] || startsLikePrompt(looseMatch[2]) || SUBPART_START_REGEX.test(looseMatch[2]))) {
           isNewQuestion = true
           explicitSeen = true
           expectedBare = parseInt(looseMatch[1], 10) + 1
-        } else if (!explicitSeen) {
+        } else if (!explicitSeen && !paragraphMode) {
           // Phần tự luận đánh số trần: "1. ...", "2. ..." — chỉ cắt khi số TIẾP NỐI
           // đúng thứ tự, để câu hỏi con ("1. Ý nghĩa...") trong câu "Câu 1:" không
           // bị tách thành câu mới (lỗi chia điểm 2 câu/10đ → 4 câu/20đ).
@@ -500,7 +514,8 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
             const num = parseInt(bareMatch[1], 10)
             const isSequential = num >= expectedBare && num <= expectedBare + 2
             const isSubItemAfterPrompt = prevLine.endsWith(':') && bareMatch[2].length <= 80 && !/[?!:]$/.test(bareMatch[2])
-            if (isSequential && !isSubItemAfterPrompt) {
+            const isNested = rawLine.search(/\S/) > bareIndent || /^\d+\.\d+/.test(line)
+            if (isSequential && !isSubItemAfterPrompt && !isNested) {
               isNewQuestion = true
               expectedBare = num + 1
             }
@@ -508,15 +523,19 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
         }
       } else if (startMatch) {
         // Đề trắc nghiệm: số trần vẫn là mốc câu mới (giữ nguyên hành vi cũ).
-        isNewQuestion = true
-        explicitSeen = true
-        const markerNumber = parseInt(startMatch[2], 10)
-        if (Number.isFinite(markerNumber)) expectedBare = markerNumber + 1
+        const isEssaySubpart = intent === 'essay' && explicitSeen && currentBlock.length > 0
+          && !hasMultipleChoiceEvidence(currentBlock, true)
+        if (!isEssaySubpart) {
+          isNewQuestion = true
+          explicitSeen = true
+          const markerNumber = parseInt(startMatch[2], 10)
+          if (Number.isFinite(markerNumber)) expectedBare = markerNumber + 1
+        }
       }
       if (isNewQuestion) {
         flushBlock()
         currentBlock = [line]
-      } else if (currentBlock.length > 0) {
+      } else if (currentBlock.length > 0 || paragraphMode) {
         currentBlock.push(line)
       }
       prevLine = line
@@ -532,7 +551,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
     for (let b = questionBlocks.length - 1; b >= 0; b--) {
       if (blockMetas[b].mode === 'essay') break
       const block = questionBlocks[b]
-      if (hasMultipleChoiceEvidence(block)) break
+      if (hasMultipleChoiceEvidence(block, true)) break
       const joined = block.join(' ')
       const looksEssay = extractPointsHint(joined) !== undefined || joined.length >= 40
       if (!looksEssay) break
@@ -616,26 +635,35 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
       // bị dính thành một đoạn.
       const contentLines: string[] = []
       const rubricLines: string[] = []
-      const essayLines = [questionText, ...block.slice(1).map(line => line.trim())]
+      const essayLines = [questionText, ...block.slice(1)]
+      let inRubric = false
       for (const line of essayLines) {
         if (!line) continue
         // Dòng "Đáp án: ..."/"Hướng dẫn chấm: ..." trong đề → chuyển sang Lời giải
         // của giáo viên (không in lẫn vào đề phát cho học sinh).
         const rubric = line.match(RUBRIC_LINE_REGEX)
         if (rubric) {
-          const rubricText = rubric[1].trim()
+          inRubric = true
+          const rubricText = formatEssaySubparts(rubric[1].trim())
           if (rubricText) {
             rubricLines.push(rubricText)
             detachedRubricLines++
           }
           continue
         }
-        contentLines.push(line.replace(POINTS_ANNOTATION_REGEX, '').trim())
+        if (inRubric) rubricLines.push(formatEssaySubparts(line))
+        else {
+          for (const contentLine of formatEssaySubparts(line).split('\n')) {
+            contentLines.push((contentLines.length === 0 && !SUBPART_START_REGEX.test(contentLine)
+              ? contentLine.replace(POINTS_ANNOTATION_REGEX, '') : contentLine).trim())
+          }
+        }
       }
       // Điểm riêng của câu "(3 điểm)" nếu có; phần còn lại được phân bổ từ
       // tiêu đề phần ở pass sau. Chú ý: marker có thể nằm ở PREFIX dòng
       // ("Câu 4 (5 điểm): ...") nên soi cả dòng đầu đầy đủ.
-      const ownPoints = extractPointsHint(firstLine) ?? extractPointsHint(block.join(' '))
+      const subpart = new RegExp(SUBPART_START_REGEX.source.replace('^', '(?:^|\\s+)')).exec(firstLine)
+      const ownPoints = extractPointsHint(subpart ? firstLine.slice(0, subpart.index) : firstLine)
       const cleanedText = contentLines.filter(line => line.length > 0).join('\n').trim()
       const essayQuestion: ExamQuestion = {
         index: questionIndex,
@@ -1088,7 +1116,7 @@ export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array, optio
 
 /**
  * ESSAY-DECODE (2026-09-23): đọc đề từ file Word (.docx) — định dạng giáo viên
- * thực tế hay dùng cho đề tự luận. Chỉ trích RAW TEXT (mammoth, lazy-load):
+ * thực tế hay dùng cho đề tự luận. Trích văn bản và cấp danh sách (lazy Mammoth):
  * ảnh/macro/đối tượng nhúng không được thực thi hay tải lên server.
  */
 export async function parseExamFromDocx(
@@ -1097,14 +1125,7 @@ export async function parseExamFromDocx(
 ): Promise<ExamParseResult> {
   const intent = options.intent ?? 'both'
   try {
-    const module = await import('mammoth')
-    const mammoth = module.default ?? module
-    // Mammoth's browser entry accepts ArrayBuffer. Copy typed-array inputs so
-    // this API never depends on Node Buffer or on the caller's backing store.
-    const arrayBuffer = buffer instanceof Uint8Array
-      ? Uint8Array.from(buffer).buffer as ArrayBuffer
-      : buffer
-    const extraction = await mammoth.extractRawText({ arrayBuffer })
+    const extraction = await extractExamDocxText(buffer)
     const parsed = parseExamFromText(extraction.value ?? '', options)
     const extractorWarnings = (extraction.messages ?? [])
       .map(message => message.message)

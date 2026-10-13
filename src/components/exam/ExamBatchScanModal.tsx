@@ -11,6 +11,7 @@ import { ModalPortal } from '../common/ModalPortal'
 import { StudentName } from '../common/StudentName'
 
 interface BatchItem extends BatchScanAnalysis {
+  definitionHash?: string
   id: string
   fileName: string
   studentName?: string
@@ -104,6 +105,7 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
         }
         const student = analysis.studentId ? studentById.get(analysis.studentId) : undefined
         next.push({
+          definitionHash: session.definitionHash,
           ...analysis,
           id: `${file.name}-${file.lastModified}-${index}`,
           fileName: file.webkitRelativePath || file.name,
@@ -138,6 +140,7 @@ export const ExamBatchScanModal: React.FC<ExamBatchScanModalProps> = ({ session,
 
   const saveAccepted = async () => {
     const payload = accepted.map(item => ({
+      definitionHash: item.definitionHash,
       studentId: item.studentId!,
       score: item.score!,
       source: 'qr_scan',

@@ -73,6 +73,7 @@ export const SCORE_TYPE_LABELS: Record<string, string> = {
 
 /** Một dòng điểm khi lưu — hỗ trợ cả written (score) lẫn multiple_choice (answers JSON) */
 export interface ExamScoreItem {
+  definitionHash?: string
   studentId: string
   score: number
   /** EXAM-MIXED: điểm phần tự luận; server tự cộng phần TN đã quét. */
@@ -169,11 +170,15 @@ function attachExpectedResultVersions(
   scores: ExamScoreItem[],
   results: ExamResult[],
   sessionId: string,
+  definitionHash?: string,
 ): ExamScoreItem[] {
   const byStudent = new Map(results
     .filter(result => result.examSessionId === sessionId)
     .map(result => [result.studentId, result]))
   return scores.map(score => {
+    // Scan commands deliberately capture even an unknown legacy definition;
+    // never bind that old scan to a newer definition after a background refresh.
+    score = { ...score, definitionHash: 'definitionHash' in score ? score.definitionHash : definitionHash }
     if (score.expectedResultVersion !== undefined) return score
     const current = byStudent.get(score.studentId)
     return current ? { ...score, expectedResultVersion: current.resultVersion ?? 1 } : score
@@ -202,6 +207,7 @@ interface ExamState {
   loading: boolean
   saving: boolean
   finalizing: boolean
+  editingDefinition: boolean
   error: string | null
   lastFinalize: ExamFinalizeResult | null
   queuedResultMutations: Record<string, QueuedExamResultMutationState>
@@ -209,6 +215,8 @@ interface ExamState {
   loadMySessions: () => Promise<void>
   loadClassSessions: (classId: string, filters?: { subject?: string; scoreType?: string; status?: string }) => Promise<void>
   createSession: (data: CreateExamInput) => Promise<ExamSession | null>
+  getEditContext: (id: string) => Promise<{ session: ExamSession; definitionHash: string } | null>
+  updateDefinition: (id: string, data: CreateExamInput, definitionHash: string) => Promise<ExamSession | null>
   selectSession: (id: string | null) => Promise<void>
   refreshResults: () => Promise<void>
   saveScores: (scores: ExamScoreItem[]) => Promise<{
@@ -249,6 +257,7 @@ export const useExamStore = create<ExamState>()(
   loading: false,
   saving: false,
   finalizing: false,
+  editingDefinition: false,
   error: null,
   lastFinalize: null,
   queuedResultMutations: {},
@@ -332,6 +341,49 @@ export const useExamStore = create<ExamState>()(
     }
   },
 
+  getEditContext: async id => {
+    set({ error: null })
+    const owner = captureTenantScope()
+    try {
+      if (!owner) throw new Error('Không xác định được tài khoản sửa đề thi.')
+      if (isOffline() || id.startsWith('EXS-tmp-')) throw new Error('Cần kết nối mạng và đồng bộ phiên trước khi sửa đề thi.')
+      if (get().saving || get().finalizing) throw new Error('Đang lưu bài chấm; hãy đợi trước khi sửa đề.')
+      const queued = Object.values(get().queuedResultMutations).some(item => item.sessionId === id)
+      const durable = (await getOwnUnsettledSyncOperations()).some(item => item.entity === 'exam_result' && item.entityId.startsWith(`${id}::result::`))
+      if (queued || durable) throw new Error('Phiên có bài chấm đang chờ đồng bộ; không thể sửa đề thi.')
+      const context = await api.getExamEditContext(id)
+      if (!isTenantScopeCurrent(owner)) throw new Error('Tài khoản đã thay đổi khi tải đề thi.')
+      return { ...context, session: normalizeExamSessions([context.session])[0] }
+    } catch (error) {
+      set({ error: (error as Error).message })
+      return null
+    }
+  },
+
+  updateDefinition: async (id, data, definitionHash) => {
+    if (get().editingDefinition) return null
+    if (get().saving || get().finalizing) {
+      set({ error: 'Đang lưu bài chấm; hãy đợi trước khi sửa đề.' })
+      return null
+    }
+    set({ editingDefinition: true, error: null })
+    const owner = captureTenantScope()
+    try {
+      const context = await get().getEditContext(id)
+      if (!context) return null
+      if (!owner || !isTenantScopeCurrent(owner)) throw new Error('Tài khoản đã thay đổi khi lưu đề thi.')
+      set({ saving: true })
+      const row = await api.updateExamDefinition(id, { ...data, expectedDefinitionHash: definitionHash })
+      if (!owner || !isTenantScopeCurrent(owner)) throw new Error('Tài khoản đã thay đổi khi lưu đề thi.')
+      const session = normalizeExamSessions([row])[0]
+      set(state => ({ sessions: state.sessions.map(item => item.id === id ? session : item) }))
+      return session
+    } catch (error) {
+      set({ error: (error as Error).message })
+      return null
+    } finally { set({ saving: false, editingDefinition: false }) }
+  },
+
   selectSession: async (id) => {
     set(state => {
       const cache = { ...state.cachedResultsBySession }
@@ -343,9 +395,10 @@ export const useExamStore = create<ExamState>()(
       if (isOffline()) {
         return
       }
-      const { results } = await api.getExamResults(id)
+      const { session, results } = await api.getExamResults(id)
       const normalized = normalizeExamResults(results)
       set(state => ({
+        sessions: session ? state.sessions.map(item => item.id === id ? normalizeExamSessions([session])[0] : item) : state.sessions,
         cachedResultsBySession: { ...state.cachedResultsBySession, [id]: normalized },
         ...(state.selectedSessionId === id ? { results: normalized } : {}),
       }))
@@ -375,13 +428,14 @@ export const useExamStore = create<ExamState>()(
   saveScores: async (scores) => {
     const id = get().selectedSessionId
     if (!id || scores.length === 0) return null
+    if (get().editingDefinition) { set({ error: 'Đang lưu đề thi; chưa thể chấm bài.' }); return null }
     if (get().finalizing) {
       set({ error: 'Phiên đang được hoàn tất; không thể nhận thêm kết quả.' })
       return null
     }
     set({ saving: true, error: null })
     try {
-      const versionedScores = attachExpectedResultVersions(scores, get().results, id)
+      const versionedScores = attachExpectedResultVersions(scores, get().results, id, get().sessions.find(s => s.id === id)?.definitionHash)
       if (isOffline()) {
         // Phase 3 offline: enqueue UPDATE (save_results) — sync engine gửi khi online.
         // Nếu session là temp (chưa tạo server), remapExamSessionIdInPendingOps sẽ
@@ -420,13 +474,14 @@ export const useExamStore = create<ExamState>()(
   queueScores: async (scores) => {
     const id = get().selectedSessionId
     if (!id || scores.length === 0) return null
+    if (get().editingDefinition) { set({ error: 'Đang lưu đề thi; chưa thể chấm bài.' }); return null }
     if (get().finalizing) {
       set({ error: 'Phiên đang được hoàn tất; không thể nhận thêm kết quả.' })
       return null
     }
     set({ saving: true, error: null })
     try {
-      const versionedScores = attachExpectedResultVersions(scores, get().results, id)
+      const versionedScores = attachExpectedResultVersions(scores, get().results, id, get().sessions.find(s => s.id === id)?.definitionHash)
       const queued = await syncSaveExamResults(id, versionedScores)
       const now = new Date().toISOString()
       const mutations = queued.map((item, index): QueuedExamResultMutationState => ({
@@ -503,6 +558,7 @@ export const useExamStore = create<ExamState>()(
   removeResult: async (studentId) => {
     const id = get().selectedSessionId
     if (!id) return false
+    if (get().editingDefinition) { set({ error: 'Đang lưu đề thi; chưa thể xóa bài chấm.' }); return false }
     if (get().finalizing) {
       set({ error: 'Phiên đang được hoàn tất; không thể xóa kết quả.' })
       return false
@@ -553,6 +609,7 @@ export const useExamStore = create<ExamState>()(
   },
 
   completeAndFinalize: async () => {
+    if (get().editingDefinition) { set({ error: 'Đang lưu đề thi; chưa thể hoàn tất phiên.' }); return null }
     const id = get().selectedSessionId
     if (!id) return null
     const session = get().sessions.find(s => s.id === id)

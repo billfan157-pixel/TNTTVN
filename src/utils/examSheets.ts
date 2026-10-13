@@ -32,6 +32,7 @@ import { useToastStore } from '../stores/toastStore'
 import { ReportExportService } from '../services/reportExportService'
 import { isMcGradedExamType } from '../types'
 import type { ExamQuestion, ExamType } from '../types'
+import { countEssaySubparts, formatEssaySubparts } from './essayStructure'
 
 /**
  * A01 Phase 2 + A-NEW-03 (2026-08-10): builder tách để test — KHÔNG dùng document.write;
@@ -822,6 +823,14 @@ export function getExamPaperStyles(): string {
       margin-top: 4px;
       padding-left: 3px;
     }
+    .essay-question-block--long {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
+    .essay-question-block .question-title {
+      break-after: avoid;
+      page-break-after: avoid;
+    }
     .essay-answer-line {
       height: 8.2mm;
       border-bottom: 1px dotted #94a3b8;
@@ -897,12 +906,13 @@ export function getExamPaperStyles(): string {
  *
  * 1 điểm đủ 3 dòng cho một ý ngắn; mỗi điểm tăng thêm một dòng. Đề bài dài
  * thường cần nhắc lại/giải thích nhiều hơn nên mỗi 120 ký tự tăng thêm một
- * dòng. Giới hạn 3..8 dòng giữ đề gọn, nhưng vẫn cho nét viết cách nhau 8.2mm.
+ * dòng. Mỗi ý thêm sau ý đầu được chừa thêm 3 dòng, kể cả vượt 8 dòng.
  */
 export function getEssayAnswerLineCount(question: Pick<ExamQuestion, 'question' | 'points'>): number {
   const pointLines = Math.ceil(question.points ?? 1) + 2
   const contentLines = Math.floor((question.question?.trim().length ?? 0) / 120)
-  return Math.min(8, Math.max(3, pointLines + contentLines))
+  const extraParts = Math.max(0, countEssaySubparts(question.question) - 1)
+  return Math.min(8, Math.max(3, pointLines + contentLines)) + extraParts * 3
 }
 
 /**
@@ -941,9 +951,9 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
       const isFirstEssay = questionPosition === mcQuestions.length
       return `
       ${isFirstEssay ? `<div class="essay-section-title">PHẦN ${mcQuestions.length > 0 ? 'II' : 'I'}. TỰ LUẬN</div>` : ''}
-      <div class="question-block essay-question-block" data-essay-answer-lines="${lineCount}">
+      <div class="question-block essay-question-block${lineCount > 8 ? ' essay-question-block--long' : ''}" data-essay-answer-lines="${lineCount}">
         <div class="question-title">
-          <strong>Câu ${q.index}:</strong> ${escapeHtml(q.question)}${q.points !== undefined ? ` <em>(${q.points} điểm)</em>` : ''}
+          <strong>Câu ${q.index}:</strong> ${escapeHtml(formatEssaySubparts(q.question)).replace(/\r?\n/g, '<br>')}${q.points !== undefined ? ` <em>(${q.points} điểm)</em>` : ''}
         </div>
         <div class="essay-answer-lines" aria-label="${lineCount} dòng trả lời cho câu ${q.index}">
           ${Array.from({ length: lineCount }, () => '<div class="essay-answer-line"></div>').join('')}
@@ -1072,7 +1082,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
             <div style="font-weight: bold; color: #1e3a8a; font-size: 10pt; margin-bottom: 4px;">💡 HƯỚNG DẪN GIẢI CHI TIẾT:</div>
             ${effectiveQuestions.filter(q => Boolean(q.explanation)).map(q => `
               <div style="font-size: 9.5pt; margin-bottom: 3px; line-height: 1.3;">
-                <strong>Câu ${q.index}${q.correctOption ? ` (${q.correctOption})` : ''}:</strong> <em>${escapeHtml(q.explanation || '')}</em>
+                <strong>Câu ${q.index}${q.correctOption ? ` (${q.correctOption})` : ''}:</strong> <em>${escapeHtml(q.explanation || '').replace(/\r?\n/g, '<br>')}</em>
               </div>
             `).join('')}
           </div>
