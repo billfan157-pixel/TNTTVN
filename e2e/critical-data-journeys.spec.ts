@@ -94,14 +94,27 @@ test.describe('Critical persisted business outcomes', () => {
     await expect(page.getByText(fullName, { exact: true })).toBeVisible({ timeout: 15_000 })
   })
 
-  test('@critical grade entry is saved by the backend and survives reload', async ({ page }) => {
+  test('@critical grade entry is saved by the backend and survives reload', async ({ page }, testInfo) => {
+    // WebKit must hydrate the current grade, persist an edit, then boot the
+    // page again. Keep both persistence assertions within one journey budget.
+    if (testInfo.project.name === 'webkit') test.setTimeout(120_000)
     const session = await getAdminSession(page.request)
+    const initialGradesResponse = await authorizedRequest(page.request, session, 'GET', '/api/grades')
+    expect(initialGradesResponse.status()).toBe(200)
+    const initialGrades = (await initialGradesResponse.json()).data as Array<Record<string, unknown>>
+    const initialGrade = initialGrades.find(grade => (
+      grade.studentId === 'student-e2e-001' && grade.academicYear === '2026-2027' && grade.semester === 1
+    ))
+    const initialScore = initialGrade?.scoreOral == null ? '' : String(initialGrade.scoreOral)
     await injectSession(page, session)
     await page.goto('/grades')
 
     await page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' }).selectOption('CLS-TN-1')
     const scoreInput = page.getByRole('textbox', { name: 'Nhập điểm miệng cho Maria Thiếu Nhi E2E' })
-    await expect(scoreInput).toBeVisible()
+    // The row can render before its grades hydrate. Choose a genuinely new
+    // value only after the input reflects the persisted score, or the test can
+    // enter the existing value and wait forever for a correctly omitted write.
+    await expect(scoreInput).toHaveValue(initialScore)
 
     const currentScore = await scoreInput.inputValue()
     const nextScoreNumber = currentScore === '8.5' ? 9 : 8.5

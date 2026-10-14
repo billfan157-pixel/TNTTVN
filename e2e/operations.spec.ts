@@ -645,16 +645,23 @@ test('@critical Operations P3 reschedules with OCC and recipient cancellation pe
 })
 
 test('@critical Operations P2 persists three task phases and enforces start/closure gates', async ({ page, browser }, testInfo) => {
-  // This journey includes group creation/membership and two authenticated users.
-  // WebKit needs ~114s locally (2.3m measured solo) vs 26s on Chromium, so
-  // the journey budget is 180s; tighter budgets flake on WebKit only.
-  test.setTimeout(180_000)
+  // This journey includes group creation, three invitations, two authenticated
+  // users and the full manual lifecycle. Cold WebKit runs need more room for
+  // those real UI operations; assertions and retry policy remain unchanged.
+  test.setTimeout(testInfo.project.name === 'webkit' ? 300_000 : 180_000)
   const admin = await getAdminSession(page.request)
   const key = testKey(testInfo, 'OPS')
   const eventTitle = `Vận hành ${key}`
   const preparationTitle = `Chuẩn bị nghi thức ${key}`
   const executionTitle = `Phục vụ nghi thức ${key}`
   const followUpTitle = `Đúc kết sau sự kiện ${key}`
+  // This journey owns the manual transitions. An expired event lets the real
+  // 30-second lifecycle scheduler complete it (and cancel invitations) mid-test.
+  const scheduleBase = Date.now()
+  const futureDay = (days: number) => new Date(scheduleBase + days * 86_400_000).toISOString().slice(0, 10)
+  const eventDay = futureDay(7)
+  const preparationDueAt = `${futureDay(6)}T20:00`
+  const acknowledgeBy = `${futureDay(5)}T12:00`
 
   const snapshotResponse = await page.request.get('/api/parish-profile', { headers: authHeaders(admin) })
   expect(snapshotResponse.status()).toBe(200)
@@ -675,8 +682,8 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
   await page.getByRole('menuitem', { name: /Tạo sự kiện Xứ đoàn/ }).click()
   await page.getByLabel('Tên sự kiện').fill(eventTitle)
   await page.getByRole('button', { name: 'Tiếp tục: Thời gian & Địa điểm' }).click()
-  await page.getByLabel('Bắt đầu', { exact: true }).fill('2026-10-12T08:00')
-  await page.getByLabel('Kết thúc', { exact: true }).fill('2026-10-12T12:00')
+  await page.getByLabel('Bắt đầu', { exact: true }).fill(`${eventDay}T08:00`)
+  await page.getByLabel('Kết thúc', { exact: true }).fill(`${eventDay}T12:00`)
   const eventResponsePromise = page.waitForResponse(response => response.url().endsWith('/api/operations/events') && response.request().method() === 'POST')
   await page.getByRole('button', { name: 'Lưu bản nháp' }).click()
   const eventResponse = await eventResponsePromise
@@ -746,13 +753,13 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
     await page.getByLabel('Task cần phân công').selectOption(created.id)
     await page.getByLabel('Vai trò phân công').selectOption('OWNER')
     await page.getByLabel('Người thực hiện chính').selectOption(`person:${assigneePersonId}`)
-    await page.getByLabel('Hạn nhận nhiệm vụ').fill('2035-01-01T12:00')
+    await page.getByLabel('Hạn nhận nhiệm vụ').fill(acknowledgeBy)
     const dispatchResponsePromise = page.waitForResponse(response => response.url().endsWith(`/api/operations/tasks/${created.id}/dispatch`) && response.request().method() === 'POST')
     await page.getByRole('button', { name: 'Gửi lời mời phụ trách' }).click()
     expect((await dispatchResponsePromise).status()).toBe(201)
     return created
   }
-  const task = await createAndInvite(preparationTitle, 'PREPARATION', '2026-10-11T20:00')
+  const task = await createAndInvite(preparationTitle, 'PREPARATION', preparationDueAt)
   const executionTask = await createAndInvite(executionTitle, 'EXECUTION')
   const followUpTask = await createAndInvite(followUpTitle, 'FOLLOW_UP')
 
@@ -848,7 +855,8 @@ test('@critical Operations P2 persists three task phases and enforces start/clos
     await expect(page.getByRole('button', { name: 'Hoàn tất sự kiện' })).toBeEnabled()
     const finalResponse = page.waitForResponse(value => value.url().endsWith(`/api/operations/events/${operationEvent.id}/transition`) && value.request().method() === 'POST')
     await page.getByRole('button', { name: 'Hoàn tất sự kiện' }).click()
-    expect((await finalResponse).status()).toBe(200)
+    const completedResponse = await finalResponse
+    expect(completedResponse.status(), await completedResponse.text()).toBe(200)
     const eventReadBack = await page.request.get(`/api/operations/events/${operationEvent.id}`, { headers: authHeaders(admin) })
     expect((await eventReadBack.json()).data).toMatchObject({ event: { status: 'COMPLETED' }, readiness: { percent: 100, blockers: [] } })
     for (const expected of [executionTask, followUpTask]) {
