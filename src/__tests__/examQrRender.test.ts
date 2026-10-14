@@ -89,8 +89,11 @@ async function cameraFrameFromPage(page: Page, blurPx = 0): Promise<ImageData> {
 
 describe('QR render thật — printer → Chromium bitmap → jsQR', () => {
   beforeAll(async () => {
-    browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] })
-  })
+    // Cold Chromium startup on a loaded coverage runner can exceed the shared
+    // 30s hook budget. Let launch report its own bounded failure before the
+    // hook expires; QR, pixel geometry and decoding assertions stay unchanged.
+    browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'], timeout: 60_000 })
+  }, 90_000)
 
   afterAll(async () => {
     await browser?.close()
