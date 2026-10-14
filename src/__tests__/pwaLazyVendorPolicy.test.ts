@@ -7,10 +7,15 @@ describe('PWA lazy vendor policy', () => {
     const config = readFileSync(resolve(process.cwd(), 'vite.config.ts'), 'utf8')
     const loader = readFileSync(resolve(process.cwd(), 'src/lib/xlsxLoader.ts'), 'utf8')
     const questionBankImporter = readFileSync(resolve(process.cwd(), 'src/utils/questionBankImport.ts'), 'utf8')
+    const examParser = readFileSync(resolve(process.cwd(), 'src/utils/examParser.ts'), 'utf8')
+    const docxExtractor = readFileSync(resolve(process.cwd(), 'src/utils/examDocxText.ts'), 'utf8')
 
     expect(config).toContain("globIgnores: ['**/xlsx-*.js', '**/mammoth-*.js', '**/vendor-scanner-*.js']")
     expect(config).toContain("return 'mammoth'")
     expect(loader).toMatch(/import\(['"]xlsx['"]\)/)
-    expect(questionBankImporter).toMatch(/import\(['"]mammoth['"]\)/)
+    expect(docxExtractor).toMatch(/import\(['"]mammoth['"]\)/)
+    for (const source of [questionBankImporter, examParser, docxExtractor]) {
+      expect(source).not.toMatch(/\b(?:from|import)\s*['"]mammoth['"]/)
+    }
   })
 })
