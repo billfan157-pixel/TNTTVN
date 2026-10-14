@@ -207,10 +207,8 @@ jobs:
           OPS_TOKEN: ${{ secrets.OPS_TOKEN }}
         run: |
           set -euo pipefail
-          # curl retries an intentional closed-state 503. Keep only the final
-          # response body instead of concatenating every attempt on stdout.
-          probe_body="$RUNNER_TEMP/catevia-worker-probe-body"
           if [ "$CATEVIA_BACKEND_TARGET" != "worker" ]; then
+            probe_body="$RUNNER_TEMP/catevia-worker-probe-body"
             status="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
               --output "$probe_body" --write-out '%{http_code}' https://catevia-api.billfan157.workers.dev/api/auth/me)"
             body="$(cat "$probe_body")"
@@ -221,22 +219,50 @@ jobs:
             exit 0
           fi
           test -n "${OPS_TOKEN:-}"
-          # The open Worker serves ops health only to the operator token, so this
-          # proves the deployed release without opening direct public API traffic.
-          status="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 5 \
-            --header "Authorization: Bearer ${OPS_TOKEN}" \
-            --output "$probe_body" --write-out '%{http_code}' https://catevia-api.billfan157.workers.dev/health)"
-          body="$(cat "$probe_body")"
-          if [ "$status" != "200" ]; then
-            echo "Open Worker health failed (HTTP $status)." >&2
-            exit 1
-          fi
-          worker_release="$(jq -r '.releaseId // empty' <<<"$body")"
-          worker_database="$(jq -r '.database // empty' <<<"$body")"
-          if [ "$worker_release" != "$VERIFIED_SHA" ] || [ "$worker_database" != "connected" ]; then
-            echo "Worker release mismatch: expected $VERIFIED_SHA, got ${worker_release:-missing} (database ${worker_database:-unknown})." >&2
-            exit 1
-          fi
+          # A newly deployed Worker may take several minutes to reach the POP
+          # serving this probe. Keep the exact-SHA and connected-database gate,
+          # but allow bounded propagation time before declaring the release bad.
+          probe_body="$RUNNER_TEMP/catevia-worker-probe-body"
+          timeout_seconds=600
+          deadline=$((SECONDS + timeout_seconds))
+          attempt=0
+          worker_release=missing
+          worker_database=unknown
+          while (( SECONDS < deadline )); do
+            attempt=$((attempt + 1))
+            status="$(curl --silent --show-error --max-time 20 \
+              --header "Authorization: Bearer ${OPS_TOKEN}" \
+              --output "$probe_body" --write-out '%{http_code}' \
+              https://catevia-api.billfan157.workers.dev/health || true)"
+
+            if [ "$status" = "000" ]; then
+              echo "Worker health probe has no response yet (attempt $attempt); retrying in 5s."
+            elif [ "$status" != "200" ]; then
+              echo "Open Worker health failed (HTTP $status)." >&2
+              exit 1
+            else
+              body="$(cat "$probe_body")"
+              worker_release="$(jq -r '.releaseId // empty' <<<"$body")"
+              worker_database="$(jq -r '.database // empty' <<<"$body")"
+              if [ "$worker_database" != "connected" ]; then
+                echo "Worker database is not connected (database ${worker_database:-unknown})." >&2
+                exit 1
+              fi
+              if [ "$worker_release" = "$VERIFIED_SHA" ]; then
+                echo "Verified Worker release $VERIFIED_SHA with database connected."
+                exit 0
+              fi
+              echo "Worker release is still ${worker_release:-missing}; expected $VERIFIED_SHA (attempt $attempt). Retrying in 5s."
+            fi
+
+            if (( SECONDS + 5 >= deadline )); then
+              break
+            fi
+            sleep 5
+          done
+
+          echo "Worker release mismatch after ${timeout_seconds}s: expected $VERIFIED_SHA, got ${worker_release:-missing} (database ${worker_database:-unknown})." >&2
+          exit 1
 
       - name: Deploy exact SHA to Vercel production
         id: vercel
