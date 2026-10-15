@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { supportsNativeRouteMotion } from '../../utils/routeMotion'
 
 interface PageTransitionProps {
   routeKey: string
@@ -13,8 +14,7 @@ interface PageTransitionProps {
  */
 export function PageTransition({ routeKey, children }: PageTransitionProps) {
   const frameRef = useRef<HTMLDivElement>(null)
-  const supportsNativeViewTransition = typeof document !== 'undefined'
-    && 'startViewTransition' in document
+  const supportsNativeViewTransition = supportsNativeRouteMotion()
 
   useEffect(() => {
     const frame = frameRef.current

@@ -14,7 +14,8 @@ export type DesktopTab = DesktopRouteTab;
 
 interface DesktopSidebarProps {
   activeTab: DesktopTab;
-  setActiveTab: (tab: DesktopTab) => void;
+  setActiveTab: (tab: DesktopTab) => void | Promise<void>;
+  preloadTab?: (tab: DesktopTab) => void;
   selectedBranchId: string;
   setSelectedBranchId: (branch: string) => void;
   selectedClassId: string;
@@ -41,6 +42,7 @@ interface SidebarSection {
 export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   activeTab,
   setActiveTab,
+  preloadTab,
   selectedBranchId,
   setSelectedBranchId,
   selectedClassId,
@@ -51,6 +53,12 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   onWorkspaceChange,
 }) => {
   const { role } = useAuth();
+  const [pendingTab, setPendingTab] = React.useState<DesktopTab | null>(null);
+  const navigationId = React.useRef(0);
+
+  React.useEffect(() => {
+    setPendingTab(current => current === activeTab ? null : current);
+  }, [activeTab]);
   const pendingCount = useLeaveRequestStore((s) => s.pendingCount);
   const fetchPendingCount = useLeaveRequestStore((s) => s.fetchPendingCount);
 
@@ -126,15 +134,30 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({
   const renderItem = (item: SidebarItem) => {
     const Icon = item.icon;
     const isActive = activeTab === item.id;
+    const isVisuallyActive = (pendingTab ?? activeTab) === item.id;
+    const isPending = pendingTab === item.id && !isActive;
     return (
       <button
         key={item.id}
-        onClick={() => setActiveTab(item.id)}
-        className={`sidebar-nav-item ${isActive ? 'sidebar-nav-item-active' : ''}`}
+        onPointerEnter={() => preloadTab?.(item.id)}
+        onPointerDown={() => preloadTab?.(item.id)}
+        onFocus={() => preloadTab?.(item.id)}
+        onClick={() => {
+          if (isActive && pendingTab === null) return;
+          const id = ++navigationId.current;
+          setPendingTab(item.id);
+          void Promise.resolve(setActiveTab(item.id)).then(() => {
+            if (navigationId.current === id) setPendingTab(null);
+          }, () => {
+            if (navigationId.current === id) setPendingTab(null);
+          });
+        }}
+        className={`sidebar-nav-item ${isVisuallyActive ? 'sidebar-nav-item-active' : ''}`}
         title={item.label}
         aria-current={isActive ? 'page' : undefined}
+        aria-busy={isPending || undefined}
       >
-        <Icon size={18} className={isActive ? 'text-parish-primary' : 'text-text-muted'} />
+        <Icon size={18} className={isVisuallyActive ? 'text-parish-primary' : 'text-text-muted'} />
         <span className="sidebar-nav-label">{item.label}</span>
         {item.badge != null && (
           <span className="badge badge-warning text-[10px] min-h-0 h-[18px] min-w-[18px] px-1.5 font-extrabold rounded-full">

@@ -7,6 +7,7 @@ import {
   type MobileRouteTab,
 } from '../constants/routePolicy'
 import type { Role } from '../types'
+import { preloadRouteCode } from '../utils/preloadRouteCode'
 
 type EffectiveMode = 'desktop' | 'mobile'
 
@@ -22,7 +23,7 @@ export function useMobileRoutePreload(mode: EffectiveMode, role: Role | null | u
   const preloadTab = useCallback((tab: MobileRouteTab) => {
     const path = MOBILE_TAB_PATHS[tab]
     if (!role || !canRoleAccessRoute(path, role)) return
-    void router.preloadRoute({ to: path }).catch(() => {})
+    void preloadRouteCode(router, path).catch(() => {})
   }, [role, router])
 
   useEffect(() => {
@@ -41,7 +42,7 @@ export function useMobileRoutePreload(mode: EffectiveMode, role: Role | null | u
       const run = () => {
         if (cancelled) return
         const path = targets[nextIndex++]
-        void router.preloadRoute({ to: path })
+        void preloadRouteCode(router, path)
           .catch(() => {})
           .finally(scheduleNext)
       }

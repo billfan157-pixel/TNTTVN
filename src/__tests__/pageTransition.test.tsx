@@ -57,6 +57,21 @@ describe('App-wide page transition contract', () => {
     expect(router).not.toContain('observeInterruption(transition.updateCallbackDone)')
   })
 
+  it('uses the lightweight fallback for a mobile viewport even when native snapshots are available', () => {
+    const width = Object.getOwnPropertyDescriptor(window, 'innerWidth')!
+    const nativeTransition = Object.getOwnPropertyDescriptor(document, 'startViewTransition')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+    Object.defineProperty(document, 'startViewTransition', { configurable: true, value: vi.fn() })
+    try {
+      const { container } = render(<PageTransition routeKey="/students">Thiếu nhi</PageTransition>)
+      expect(container.firstElementChild).toHaveClass('route-transition-frame--fallback')
+    } finally {
+      Object.defineProperty(window, 'innerWidth', width)
+      if (nativeTransition) Object.defineProperty(document, 'startViewTransition', nativeTransition)
+      else Reflect.deleteProperty(document, 'startViewTransition')
+    }
+  })
+
   it('reveals only below-fold overview content as it enters, including content loaded later', async () => {
     let onIntersect!: IntersectionObserverCallback
     const observe = vi.fn()

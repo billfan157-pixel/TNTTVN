@@ -1,5 +1,5 @@
 import React, { Suspense } from 'react'
-import { Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Outlet, useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import appLogo from '../../assets/app-logo-192.png'
 import { HeaderBar } from './HeaderBar'
@@ -7,6 +7,7 @@ import { DesktopSidebar, type DesktopTab } from '../desktop/DesktopSidebar'
 import { MobileAppShell } from '../mobile/MobileAppShell'
 import { InstallPrompt } from './InstallPrompt'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
+import { preloadRouteCode } from '../../utils/preloadRouteCode'
 
 const StudentModal = lazyWithRetry(() => import('./StudentModal'), 'StudentModal')
 const StudentReportModal = lazyWithRetry(() => import('./StudentReportModal'), 'StudentReportModal')
@@ -40,6 +41,7 @@ import {
   WORKSPACE_DEFINITIONS,
   getAccessibleWorkspaces,
   getRoutePolicy,
+  canRoleAccessRoute,
   resolveActiveWorkspace,
   type WorkspaceId,
 } from '../../constants/routePolicy'
@@ -70,10 +72,30 @@ export const PageSuspense = ({ children }: { children: React.ReactNode }) => (
   </ErrorBoundary>
 )
 
+/** Keep first-load feedback visible while Router awaits a cold page chunk. */
+export function RouteBootBoundary({ children }: { children: React.ReactNode }): React.ReactElement {
+  const initialLoad: boolean = useRouterState({ select: state => state.matches.length === 0 })
+  return (
+    <>
+      {initialLoad && (
+        <div className="min-h-screen bg-surface-app p-5" role="status" aria-busy="true" aria-label="Đang chuẩn bị nội dung">
+          <PageSkeleton />
+        </div>
+      )}
+      {children}
+    </>
+  )
+}
+
 export function RootLayout() {
   const navigate = useNavigate()
-  const routerState = useRouterState()
-  const pathname = routerState.location.pathname
+  const router = useRouter()
+  // location moves as soon as navigation starts; matches move only when the
+  // destination is ready. Keep the visible page and its shell together while
+  // a cold chunk loads instead of remounting the outgoing page prematurely.
+  const pathname = useRouterState({
+    select: state => state.matches.at(-1)?.pathname ?? state.location.pathname,
+  })
   const currentUser = useAuthStore(s => s.user)
   const workspaceStorageKey = currentUser ? `catevia:last-workspace:${currentUser.parishId}:${currentUser.id}` : null
   const accessibleWorkspaces = React.useMemo(() => getAccessibleWorkspaces(currentUser?.role), [currentUser?.role])
@@ -166,6 +188,11 @@ export function RootLayout() {
   const mode = useEffectiveMode()
   useScrollRestoration(pathname, mode)
   const preloadMobileTab = useMobileRoutePreload(mode, currentUser?.role)
+  const preloadDesktopTab = React.useCallback((tab: DesktopTab) => {
+    const path = DESKTOP_TAB_PATHS[tab]
+    if (!canRoleAccessRoute(path, currentUser?.role)) return
+    void preloadRouteCode(router, path).catch(() => {})
+  }, [currentUser?.role, router])
   // W2.10: "Công Việc" badge on the org bottom-nav — read-only, org workspace only.
   const operationsPendingCount = useOperationsPendingCount(mode === 'mobile' && activeWorkspace === 'organization')
   const rawClasses = useClassStore(s => s.classes)
@@ -305,6 +332,7 @@ export function RootLayout() {
         <DesktopSidebar
           activeTab={activeTab}
           setActiveTab={(tab) => navigate({ to: DESKTOP_TAB_PATHS[tab] })}
+          preloadTab={preloadDesktopTab}
           selectedBranchId={selectedBranchId}
           setSelectedBranchId={setSelectedBranchId}
           selectedClassId={selectedClassId}

@@ -53,4 +53,18 @@ describe('mobile navigation responsiveness', () => {
     expect(screen.getByRole('button', { name: /Báo cáo/i })).not.toHaveClass('is-pending')
     expect(screen.getByRole('button', { name: /Báo cáo/i })).toHaveAttribute('aria-current', 'page')
   })
+
+  it('lets a tap on the current tab supersede a slow pending destination', () => {
+    useAuthStore.setState({
+      user: { id: 'admin-1', username: 'admin', fullName: 'Admin', role: 'admin', status: 'ACTIVE', parishId: 'parish-1' },
+    })
+    const setActiveTab = vi.fn((_tab: string) => new Promise<void>(() => {}))
+    render(<MobileBottomNav activeTab="home" setActiveTab={setActiveTab} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Điểm danh/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Trang chủ/i }))
+
+    expect(setActiveTab.mock.calls.map(([tab]) => tab)).toEqual(['attendance', 'home'])
+    expect(screen.getByRole('button', { name: /Điểm danh/i })).not.toHaveClass('is-pending')
+  })
 })

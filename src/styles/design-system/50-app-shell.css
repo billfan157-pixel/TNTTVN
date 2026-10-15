@@ -460,12 +460,13 @@
   transform: none;
 }
 
-/* Mobile: thumb-driven tab navigation must not wobble vertically. Redefining
-   the shared keyframes inside this media scope switches BOTH the native View
-   Transition path (::view-transition-*) and the legacy fallback below to a
-   pure opacity cross-fade — no translate, no containing-block side effects,
-   so fixed FABs and bottom action bars stay viewport-anchored. */
-@media (max-width: 768px) {
+/* Mobile/tablet use a short content fade without document snapshots or a
+   translated containing block, keeping fixed controls and navigation usable. */
+@media (max-width: 1023px) {
+  .route-transition-frame--fallback {
+    animation-duration: var(--motion-standard);
+  }
+
   @keyframes routePageEnter {
     from { opacity: 0; }
     to { opacity: 1; }

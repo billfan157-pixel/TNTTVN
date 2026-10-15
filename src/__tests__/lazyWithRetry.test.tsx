@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { lazyWithRetry } from '../utils/lazyWithRetry'
+import { suspensePage } from '../components/common/suspensePage'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from '@tanstack/react-router'
 
 describe('lazyWithRetry preload contract', () => {
   it('deduplicates concurrent preloads and renders synchronously after preload', async () => {
@@ -53,5 +55,28 @@ describe('lazyWithRetry preload contract', () => {
 
     expect(factory).toHaveBeenCalledTimes(2)
     expect(screen.getByText('Recovered route')).toBeInTheDocument()
+  })
+
+  it('recovers on navigation when a speculative page import failed through Router', async () => {
+    const factory = vi.fn()
+      .mockRejectedValueOnce(new Error('Temporary chunk failure'))
+      .mockResolvedValueOnce({ default: () => <div>Recovered destination</div> })
+    const root = createRootRoute({ component: Outlet })
+    const route = createRoute({
+      getParentRoute: () => root,
+      path: '/destination',
+      component: suspensePage(lazyWithRetry(factory, 'default', 0, 0)),
+    })
+    const router = createRouter({
+      routeTree: root.addChildren([route]),
+      history: createMemoryHistory({ initialEntries: ['/destination'] }),
+    })
+
+    await router.preloadRoute({ to: '/destination' })
+    expect(factory).toHaveBeenCalledTimes(1)
+    render(<RouterProvider router={router} />)
+
+    expect(await screen.findByText('Recovered destination')).toBeInTheDocument()
+    expect(factory).toHaveBeenCalledTimes(2)
   })
 })

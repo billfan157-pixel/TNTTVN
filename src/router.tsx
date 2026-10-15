@@ -1,8 +1,10 @@
 import { createRootRoute, createRoute, createRouter,  redirect } from '@tanstack/react-router'
 import { useAuthStore } from './stores/authStore'
-import { RootLayout, PageSuspense } from './components/common/RootLayout'
+import { RootLayout, RouteBootBoundary } from './components/common/RootLayout'
+import { suspensePage } from './components/common/suspensePage'
 import { setNavigateToLogin } from './lib/api'
 import { lazyWithRetry } from './utils/lazyWithRetry'
+import { supportsNativeRouteMotion } from './utils/routeMotion'
 import { ROUTE_POLICIES, type ProtectedRoutePath } from './constants/routePolicy'
 import { z } from 'zod'
 
@@ -75,14 +77,12 @@ export function installSafeViewTransitionHandling(doc: Document) {
   patchedViewTransitionDocuments.add(doc)
 }
 
-const userPrefersReducedMotion = typeof window !== 'undefined'
-  && typeof window.matchMedia === 'function'
-  && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-const nativeRouteMotionEnabled = typeof document !== 'undefined'
-  && 'startViewTransition' in document
-  && !userPrefersReducedMotion
+function getRouteViewTransition() {
+  if (!supportsNativeRouteMotion() || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return false
+  return { types: ({ pathChanged }: { pathChanged: boolean }): string[] | false => pathChanged ? ['app-page-change'] : false }
+}
 
-if (nativeRouteMotionEnabled) installSafeViewTransitionHandling(document)
+if (getRouteViewTransition()) installSafeViewTransitionHandling(document)
 
 // SECURITY (2026-08-11) — A-NEW-10 hardening: access token memory-only.
 // Router guard KHÔNG còn dựa vào access token (sau reload memory rỗng) — dựa vào
@@ -127,22 +127,14 @@ const indexRoute = createRoute({
   path: '/',
   // Trang đầu tiên của webapp LUÔN là Pre-login Landing Page — kể cả khi
   // còn session sống (CTA "Vào hệ thống" đưa user vào đúng không gian).
-  component: () => (
-    <PageSuspense>
-      <LandingPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(LandingPage),
 })
 
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dashboard',
   beforeLoad: requireRouteAccess('/dashboard'),
-  component: () => (
-    <PageSuspense>
-      <DashboardPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(DashboardPage),
 })
 
 const studentsRoute = createRoute({
@@ -156,11 +148,7 @@ const studentsRoute = createRoute({
     search: z.string().optional(),
   }),
   beforeLoad: requireRouteAccess('/students'),
-  component: () => (
-    <PageSuspense>
-      <StudentsPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(StudentsPage),
 })
 
 const gradesRoute = createRoute({
@@ -172,11 +160,7 @@ const gradesRoute = createRoute({
     semester: z.enum(['1', '2']).optional().catch(undefined),
   }),
   beforeLoad: requireRouteAccess('/grades'),
-  component: () => (
-    <PageSuspense>
-      <GradesPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(GradesPage),
 })
 
 const attendanceRoute = createRoute({
@@ -189,143 +173,91 @@ const attendanceRoute = createRoute({
     classId: z.string().optional(),
   }),
   beforeLoad: requireRouteAccess('/attendance'),
-  component: () => (
-    <PageSuspense>
-      <AttendancePage />
-    </PageSuspense>
-  ),
+  component: suspensePage(AttendancePage),
 })
 
 const reportsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/reports',
   beforeLoad: requireRouteAccess('/reports'),
-  component: () => (
-    <PageSuspense>
-      <ReportsPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(ReportsPage),
 })
 
 const noticesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/notices',
   beforeLoad: requireRouteAccess('/notices'),
-  component: () => (
-    <PageSuspense>
-      <NoticesPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(NoticesPage),
 })
 
 const usersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/users',
   beforeLoad: requireRouteAccess('/users'),
-  component: () => (
-    <PageSuspense>
-      <UsersPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(UsersPage),
 })
 
 const classesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/classes',
   beforeLoad: requireRouteAccess('/classes'),
-  component: () => (
-    <PageSuspense>
-      <ClassesPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(ClassesPage),
 })
 
 const academicYearRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/academic-years',
   beforeLoad: requireRouteAccess('/academic-years'),
-  component: () => (
-    <PageSuspense>
-      <AcademicYearPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(AcademicYearPage),
 })
 
 const catechistRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/catechists',
   beforeLoad: requireRouteAccess('/catechists'),
-  component: () => (
-    <PageSuspense>
-      <CatechistPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(CatechistPage),
 })
 
 const auditLogRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/audit-logs',
   beforeLoad: requireRouteAccess('/audit-logs'),
-  component: () => (
-    <PageSuspense>
-      <AuditLogPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(AuditLogPage),
 })
 
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/settings',
   beforeLoad: requireRouteAccess('/settings'),
-  component: () => (
-    <PageSuspense>
-      <SettingsPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(SettingsPage),
 })
 
 const managementRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/management',
   beforeLoad: requireRouteAccess('/management'),
-  component: () => (
-    <PageSuspense>
-      <ManagementPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(ManagementPage),
 })
 
 const parentRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/parent',
   beforeLoad: requireRouteAccess('/parent'),
-  component: () => (
-    <PageSuspense>
-      <ParentPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(ParentPage),
 })
 
 const leaveRequestsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/leave-requests',
   beforeLoad: requireRouteAccess('/leave-requests'),
-  component: () => (
-    <PageSuspense>
-      <LeaveRequestsPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(LeaveRequestsPage),
 })
 
 const calendarRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/calendar',
   beforeLoad: requireRouteAccess('/calendar'),
-  component: () => (
-    <PageSuspense>
-      <CalendarPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(CalendarPage),
 })
 
 const operationsRoute = createRoute({
@@ -340,11 +272,7 @@ const operationsRoute = createRoute({
     tab: z.enum(['tasks', 'workstreams', 'participants', 'reminders', 'templates', 'retrospective']).optional(),
   }),
   beforeLoad: requireRouteAccess('/operations'),
-  component: () => (
-    <PageSuspense>
-      <OperationsPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(OperationsPage),
 })
 
 const parishProfileRoute = createRoute({
@@ -354,62 +282,38 @@ const parishProfileRoute = createRoute({
     tab: z.enum(['history', 'organization', 'people', 'archive', 'achievements', 'timeline']).optional(),
   }),
   beforeLoad: requireRouteAccess('/parish-profile'),
-  component: () => (
-    <PageSuspense>
-      <ParishProfilePage />
-    </PageSuspense>
-  ),
+  component: suspensePage(ParishProfilePage),
 })
 
 const organizationDashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/parish',
   beforeLoad: requireRouteAccess('/parish'),
-  component: () => (
-    <PageSuspense>
-      <OrganizationDashboardPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(OrganizationDashboardPage),
 })
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
-  component: () => (
-    <PageSuspense>
-      <LoginPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(LoginPage),
 })
 
 const staffLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login/nhan-su',
-  component: () => (
-    <PageSuspense>
-      <StaffLoginPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(StaffLoginPage),
 })
 
 const parentLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login/phuhuynh',
-  component: () => (
-    <PageSuspense>
-      <ParentLoginPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(ParentLoginPage),
 })
 
 const verifyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/verify',
-  component: () => (
-    <PageSuspense>
-      <VerificationPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(VerificationPage),
 })
 
 const financeRoute = createRoute({
@@ -421,32 +325,20 @@ const financeRoute = createRoute({
     search: z.string().optional(),
   }),
   beforeLoad: requireRouteAccess('/finances'),
-  component: () => (
-    <PageSuspense>
-      <FinancePage />
-    </PageSuspense>
-  ),
+  component: suspensePage(FinancePage),
 })
 
 const feedbackRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/feedback',
   beforeLoad: requireRouteAccess('/feedback'),
-  component: () => (
-    <PageSuspense>
-      <FeedbackPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(FeedbackPage),
 })
 
 const aboutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/about',
-  component: () => (
-    <PageSuspense>
-      <LandingPage />
-    </PageSuspense>
-  ),
+  component: suspensePage(LandingPage),
 })
 
 const routeTree = rootRoute.addChildren([
@@ -481,6 +373,7 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
   routeTree,
+  InnerWrap: RouteBootBoundary,
   // Links can request viewport/intent preload. Mobile button navigation additionally
   // uses useMobileRoutePreload so role-visible chunks warm sequentially during idle.
   defaultPreload: 'viewport',
@@ -489,12 +382,24 @@ export const router = createRouter({
   // time — when the route is ready it renders immediately.
   defaultPendingMs: 250,
   defaultPendingMinMs: 0,
-  // Native View Transition when supported; CSS fallback owns older browsers.
+  // Desktop can use native snapshots. Mobile/tablet keep a content-only CSS
+  // fade so rapid tab switches do not freeze behind document-wide snapshots.
   // Search/filter-only updates stay motionless to preserve workspace continuity.
-  defaultViewTransition: nativeRouteMotionEnabled
-    ? { types: ({ pathChanged }) => pathChanged ? ['app-page-change'] : false }
-    : false,
+  defaultViewTransition: getRouteViewTransition(),
 })
+
+if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  const queries = [window.matchMedia('(min-width: 1024px)'), window.matchMedia('(prefers-reduced-motion: reduce)')]
+  const updateRouteMotion = () => {
+    const defaultViewTransition = getRouteViewTransition()
+    if (defaultViewTransition) installSafeViewTransitionHandling(document)
+    router.update({ defaultViewTransition })
+  }
+  for (const query of queries) query.addEventListener?.('change', updateRouteMotion)
+  import.meta.hot?.dispose(() => {
+    for (const query of queries) query.removeEventListener?.('change', updateRouteMotion)
+  })
+}
 
 declare module '@tanstack/react-router' {
   interface Register {

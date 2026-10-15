@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Home,
   CheckSquare,
@@ -34,6 +34,7 @@ interface MobileNavItem {
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, setActiveTab, preloadTab, activeWorkspace, operationsBadge }) => {
   const { role } = useAuth()
   const [pendingTab, setPendingTab] = useState<MobileTab | null>(null)
+  const navigationId = useRef(0)
 
   useEffect(() => {
     setPendingTab(current => current === activeTab ? null : current)
@@ -86,10 +87,13 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ activeTab, set
               onFocus={() => preloadTab?.(tab.id)}
               onClick={() => {
                 if ('vibrate' in navigator) try { navigator.vibrate(8) } catch {}
-                if (isActive) return
+                if (isActive && pendingTab === null) return
+                const id = ++navigationId.current
                 setPendingTab(tab.id)
-                void Promise.resolve(setActiveTab(tab.id)).catch(() => {
-                  setPendingTab(current => current === tab.id ? null : current)
+                void Promise.resolve(setActiveTab(tab.id)).then(() => {
+                  if (navigationId.current === id) setPendingTab(null)
+                }, () => {
+                  if (navigationId.current === id) setPendingTab(null)
                 })
               }}
               aria-current={isActive ? 'page' : undefined}
