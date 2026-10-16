@@ -1,12 +1,13 @@
 import React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { DesktopGradeMatrix } from '../../components/desktop/DesktopGradeMatrix'
 import { useStudentStore } from '../../stores/studentStore'
 import { useGradeStore } from '../../stores/gradeStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useAuth } from '../../hooks/useAuth'
 import { useSyncStore } from '../../stores/syncStore'
+import { useAcademicYearStore } from '../../stores/academicYearStore'
 
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: vi.fn(),
@@ -44,12 +45,25 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
       selectedClassId: 'cl-01',
       selectedSemester: 1,
     })
+    useAcademicYearStore.setState({ currentYear: '2025-2026' })
   })
+
+  function seedLargeMatrix() {
+    const students = Array.from({ length: 121 }, (_, index) => ({
+      ...mockStudents[0], id: `large-${index}`, fullName: `Học sinh ${String(index).padStart(3, '0')}`,
+    }))
+    useStudentStore.setState({ students: students as any })
+    useGradeStore.setState({ grades: students.flatMap(student => [
+      { id: `old-${student.id}`, studentId: student.id, academicYear: '2024-2025', semester: 1, scoreOral: 2 },
+      { id: `hk2-${student.id}`, studentId: student.id, academicYear: '2025-2026', semester: 2, scoreOral: 3 },
+      { id: `current-${student.id}`, studentId: student.id, academicYear: '2025 - 2026', semester: 1, scoreOral: 8, scoreFinal: 7, version: 4 },
+    ]) as any })
+  }
 
   it('renders matrix input cells with data-matrix-row and data-matrix-col coordinates', () => {
     render(<DesktopGradeMatrix />)
 
-    const inputs = screen.getAllByRole('textbox', { name: /Nhập điểm/i })
+    const inputs = screen.getAllByLabelText(/Nhập điểm/i)
     expect(inputs.length).toBeGreaterThanOrEqual(12) // 2 students x 6 score fields
 
     const firstCell = inputs[0]
@@ -116,6 +130,23 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
     expect(liveRegion).toHaveClass('sr-only')
   })
 
+  it('merges hydrated grades without replacing a locally edited score', () => {
+    useGradeStore.setState({ grades: [] })
+    render(<DesktopGradeMatrix />)
+    const cell = screen.getByLabelText('Nhập điểm miệng cho Giuse Nguyễn Văn A')
+    expect(cell).toHaveValue('')
+    act(() => {
+      useGradeStore.setState({ grades: [{ id: 'hydrated', studentId: 'st-01', academicYear: '2025 - 2026', semester: 1, scoreOral: 8 }] as any })
+    })
+    expect(cell).toHaveValue('8')
+    fireEvent.input(cell, { target: { value: '9.4' } })
+    fireEvent.blur(cell)
+    act(() => {
+      useGradeStore.setState({ grades: [{ id: 'hydrated', studentId: 'st-01', academicYear: '2025-2026', semester: 1, scoreOral: 7 }] as any })
+    })
+    expect(cell).toHaveValue('9.4')
+  })
+
   it('preserves the focused unblurred cell across an unrelated background-store rerender', () => {
     render(<DesktopGradeMatrix />)
     const cell = document.querySelector<HTMLInputElement>(
@@ -124,7 +155,7 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
 
     cell.focus()
     fireEvent.input(cell, { target: { value: '9.7' } })
-    useSyncStore.setState({ pendingCount: 4 })
+    act(() => { useSyncStore.setState({ pendingCount: 4 }) })
 
     const currentCell = document.querySelector<HTMLInputElement>(
       'input[data-matrix-row="0"][data-matrix-col="0"]'
@@ -163,4 +194,92 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
     expect(saved).toMatchObject({ studentId: 'st-01', scoreOral: 9.4, scoreOral_source: 'manual' })
     expect(saved).not.toHaveProperty('score15m')
   })
+
+  it('uses the acknowledged score when switching from all classes into the edited student class', async () => {
+    useFilterStore.setState({ selectedClassId: 'all' })
+    useGradeStore.setState({ batchSaveGrades: vi.fn(async (records: Parameters<ReturnType<typeof useGradeStore.getState>['batchSaveGrades']>[0]) => {
+      const grades = useGradeStore.getState().grades
+      useGradeStore.setState({ grades: grades.map(grade => ({ ...grade, ...records.find(record => record.studentId === grade.studentId) })) })
+    }) })
+    render(<DesktopGradeMatrix />)
+    const cell = screen.getByLabelText('Nhập điểm miệng cho Giuse Nguyễn Văn A')
+    fireEvent.input(cell, { target: { value: '9.4' } })
+    fireEvent.blur(cell)
+    act(() => { useFilterStore.getState().setSelectedClassId('cl-01') })
+    await waitFor(() => expect(within(cell.closest('tr')!).getByText('9.2')).toBeInTheDocument())
+  })
+
+  it('bounds mounted inputs for a large roster while every student remains reachable with the correct year and semester', () => {
+    seedLargeMatrix()
+    const { container } = render(<DesktopGradeMatrix />)
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(50)
+    expect(container.querySelectorAll('[data-matrix-cell]')).toHaveLength(300)
+    const pager = within(screen.getByLabelText('Phân trang bảng điểm'))
+    expect(screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 000')).toHaveValue('8')
+    expect(pager.getByRole('button', { name: 'Trang trước' })).toBeDisabled()
+
+    fireEvent.click(pager.getByRole('button', { name: 'Trang sau' }))
+    expect(screen.queryByLabelText('Nhập điểm miệng cho Giuse Học sinh 000')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 050')).toHaveValue('8')
+    fireEvent.click(pager.getByRole('button', { name: 'Trang sau' }))
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(21)
+    expect(screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 120')).toHaveValue('8')
+    expect(pager.getByRole('button', { name: 'Trang sau' })).toBeDisabled()
+  }, 15_000)
+
+  it('commits an unblurred score and carries ArrowDown/ArrowUp focus across page boundaries', async () => {
+    seedLargeMatrix()
+    render(<DesktopGradeMatrix />)
+    const lastCell = screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 049')
+    lastCell.focus()
+    fireEvent.input(lastCell, { target: { value: '9.4' } })
+    fireEvent.keyDown(lastCell, { key: 'ArrowDown' })
+
+    const nextCell = await screen.findByLabelText('Nhập điểm miệng cho Giuse Học sinh 050')
+    await waitFor(() => expect(document.activeElement).toBe(nextCell))
+    fireEvent.keyDown(nextCell, { key: 'ArrowUp' })
+    const restoredCell = await screen.findByLabelText('Nhập điểm miệng cho Giuse Học sinh 049')
+    await waitFor(() => expect(document.activeElement).toBe(restoredCell))
+    expect(restoredCell).toHaveValue('9.4')
+  }, 15_000)
+
+  it('keeps drafts from multiple pages and flushes only those edited fields on unmount', async () => {
+    seedLargeMatrix()
+    const batchSaveGrades = vi.fn().mockResolvedValue(undefined)
+    useGradeStore.setState({ batchSaveGrades })
+    const { unmount } = render(<DesktopGradeMatrix />)
+    const first = screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 000')
+    fireEvent.input(first, { target: { value: '9.4' } })
+    fireEvent.blur(first)
+    fireEvent.click(within(screen.getByLabelText('Phân trang bảng điểm')).getByRole('button', { name: 'Trang sau' }))
+    const next = screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 050')
+    fireEvent.input(next, { target: { value: '9.1' } })
+    fireEvent.blur(next)
+    unmount()
+
+    await waitFor(() => expect(batchSaveGrades).toHaveBeenCalled())
+    const saved = batchSaveGrades.mock.calls.flatMap(call => call[0])
+    expect(saved).toEqual(expect.arrayContaining([
+      expect.objectContaining({ studentId: 'large-0', scoreOral: 9.4, scoreOral_source: 'manual', version: 4 }),
+      expect.objectContaining({ studentId: 'large-50', scoreOral: 9.1, scoreOral_source: 'manual', version: 4 }),
+    ]))
+    expect(new Set(saved.map(row => row.studentId))).toEqual(new Set(['large-0', 'large-50']))
+    expect(saved.every(row => !Object.hasOwn(row, 'scoreFinal'))).toBe(true)
+  }, 15_000)
+
+  it('keeps the current page and focused input through background sync and clamps a smaller roster', () => {
+    seedLargeMatrix()
+    const { container } = render(<DesktopGradeMatrix />)
+    fireEvent.click(within(screen.getByLabelText('Phân trang bảng điểm')).getByRole('button', { name: 'Trang sau' }))
+    const cell = screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 050')
+    cell.focus()
+    fireEvent.input(cell, { target: { value: '9.7' } })
+    act(() => { useSyncStore.setState({ pendingCount: 4 }) })
+    expect(document.activeElement).toBe(cell)
+    expect(cell).toHaveValue('9.7')
+
+    act(() => { useStudentStore.setState({ students: useStudentStore.getState().students.slice(0, 10) }) })
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(10)
+    expect(screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 000')).toHaveValue('8')
+  }, 15_000)
 })

@@ -3,9 +3,19 @@ import { Eye, Search, Trash2, X } from 'lucide-react'
 import { deleteScanReviewSnapshot, loadScanReviewSnapshot, purgeExpiredScanReviewSnapshots, type ScanReviewSnapshot } from '../../lib/scanReviewStorage'
 import type { ExamResult } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
+import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { ModalPortal } from '../common/ModalPortal'
 import { StudentName } from '../common/StudentName'
 import { Badge } from '../common/ui/Badge'
+
+/** Nhãn nguồn điểm dùng chung cho bảng desktop và thẻ mobile. */
+function sourceLabel(source: ExamResult['source']): string {
+  return source === 'qr_scan' ? 'QR' : source === 'omr' ? 'OMR' : 'Nhập tay'
+}
+
+function sourceTone(source: ExamResult['source']): 'primary' | 'success' | 'neutral' {
+  return source === 'qr_scan' ? 'primary' : source === 'omr' ? 'success' : 'neutral'
+}
 
 interface ExamResultsTableProps {
   results: ExamResult[]
@@ -25,6 +35,9 @@ export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onR
   const [reviewMessage, setReviewMessage] = useState('')
   const [search, setSearch] = useState('')
   const [sourceFilter, setSourceFilter] = useState<'all' | 'qr_scan' | 'omr' | 'quick_entry' | 'manual'>('all')
+  // MOBILE-UX: < 1024px dùng danh sách thẻ thay bảng 1312px (Mã đề / Nguồn /
+  // Thao tác từng bị trôi ngoài màn hình). jsdom không có matchMedia → bảng.
+  const isMobile = useMediaQuery('(max-width: 1023.9px)')
 
   React.useEffect(() => { void purgeExpiredScanReviewSnapshots() }, [])
 
@@ -130,73 +143,133 @@ export const ExamResultsTable: React.FC<ExamResultsTableProps> = ({ results, onR
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-surface-border">
-        <table className="w-full text-sm bg-surface-card text-text-main">
-          <thead>
-            <tr className="text-left text-xs font-bold text-text-muted border-b border-surface-border bg-surface-app">
-              <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">#</th>
-              <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Mã Số</th>
-              <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Thiếu Nhi</th>
-              {essayMode && <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Điểm TL</th>}
-              <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Điểm</th>
-              <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Mã đề</th>
-              <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Nguồn</th>
-              <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-right" scope="col" aria-label="Thao tác">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-surface-border/60 bg-surface-card">
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={essayMode ? 8 : 7} className="text-center py-6 text-xs text-text-muted">
-                  Không tìm thấy kết quả phù hợp với bộ lọc tìm kiếm.
-                </td>
-              </tr>
-            ) : (
-              filtered.map((r, i) => (
-                <tr key={r.id} className="bg-surface-card hover:bg-surface-app/70 transition-colors">
-                  <td className="px-3 py-2.5 text-text-muted text-xs">{i + 1}</td>
-                  <td className="px-3 py-2.5 font-mono text-xs font-semibold">{r.studentCode}</td>
-                  <td className="px-3 py-2.5">
+      {isMobile ? (
+        /* MOBILE-UX: mỗi kết quả một thẻ — điểm, mã đề, nguồn và thao tác đều
+           thấy trong màn hình; nút thao tác đạt chuẩn chạm 44px. */
+        <div className="flex flex-col gap-2">
+          {filtered.length === 0 ? (
+            <div className="rounded-xl border border-surface-border bg-surface-card py-6 text-center text-xs text-text-muted">
+              Không tìm thấy kết quả phù hợp với bộ lọc tìm kiếm.
+            </div>
+          ) : (
+            filtered.map((r, i) => (
+              <div key={r.id} className="flex flex-col gap-2.5 rounded-xl border border-surface-border bg-surface-card p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0 text-xs text-text-muted">{i + 1}.</span>
                     <StudentName holyName={r.holyName} fullName={r.studentName} size="base" />
-                  </td>
+                  </div>
+                  <span className="shrink-0 font-mono text-xs font-semibold text-text-muted">{r.studentCode}</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+                  <span className="text-base font-extrabold text-parish-primary">
+                    {r.score}<span className="ml-0.5 text-xs font-medium text-text-muted">điểm</span>
+                  </span>
+                  <Badge tone={sourceTone(r.source)}>{sourceLabel(r.source)}</Badge>
+                  <span className="text-text-muted">
+                    Mã đề <b className="text-text-main">{r.examVersion ?? 'A'}</b>
+                  </span>
                   {essayMode && (
-                    <td className="px-3 py-2.5 font-semibold text-xs">
-                      {typeof r.essayScore === 'number' ? r.essayScore : <span className="text-text-muted">—</span>}
-                    </td>
+                    <span className="text-text-muted">
+                      Điểm TL <b className="text-text-main">{typeof r.essayScore === 'number' ? r.essayScore : '—'}</b>
+                    </span>
                   )}
-                  <td className="px-3 py-2.5 font-extrabold text-parish-primary text-sm">{r.score}</td>
-                  <td className="px-3 py-2.5 font-black text-xs">{r.examVersion ?? 'A'}</td>
-                  <td className="px-3 py-2.5">
-                    <Badge tone={r.source === 'qr_scan' ? 'primary' : r.source === 'omr' ? 'success' : 'neutral'}>
-                      {r.source === 'qr_scan' ? 'QR' : r.source === 'omr' ? 'OMR' : 'Nhập tay'}
-                    </Badge>
-                  </td>
-                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                    {sessionId && (r.source === 'omr' || r.source === 'qr_scan') && (
-                      <button
-                        type="button"
-                        onClick={() => void openReview(r.studentId)}
-                        className="mr-2 inline-flex items-center gap-1 text-xs text-parish-primary hover:underline font-semibold"
-                        title="Xem ảnh rà soát được giữ trên thiết bị này"
-                      >
-                        <Eye size={13} /> Ảnh
-                      </button>
-                    )}
+                </div>
+
+                <div className="flex items-center gap-2 border-t border-surface-border/60 pt-2">
+                  {sessionId && (r.source === 'omr' || r.source === 'qr_scan') && (
                     <button
                       type="button"
-                      onClick={() => onRemove(r.id)}
-                      className="inline-flex items-center gap-0.5 text-xs text-parish-danger hover:underline font-semibold"
-                      title="Xóa kết quả (để quét lại hoặc nhập lại)"
+                      onClick={() => void openReview(r.studentId)}
+                      className="btn btn-secondary btn-sm min-h-11 flex-1"
+                      title="Xem ảnh rà soát được giữ trên thiết bị này"
                     >
-                      <Trash2 size={12} /> Xóa
+                      <Eye size={14} /> Ảnh rà soát
                     </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemove(r.id)}
+                    className="btn btn-danger btn-sm min-h-11 flex-1"
+                    title="Xóa kết quả (để quét lại hoặc nhập lại)"
+                  >
+                    <Trash2 size={14} /> Xóa
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-surface-border">
+          <table className="w-full text-sm bg-surface-card text-text-main">
+            <thead>
+              <tr className="text-left text-xs font-bold text-text-muted border-b border-surface-border bg-surface-app">
+                <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">#</th>
+                <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Mã Số</th>
+                <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Thiếu Nhi</th>
+                {essayMode && <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Điểm TL</th>}
+                <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Điểm</th>
+                <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Mã đề</th>
+                <th className="px-3 py-2.5 font-bold uppercase tracking-wider" scope="col">Nguồn</th>
+                <th className="px-3 py-2.5 font-bold uppercase tracking-wider text-right" scope="col" aria-label="Thao tác">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface-border/60 bg-surface-card">
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={essayMode ? 8 : 7} className="text-center py-6 text-xs text-text-muted">
+                    Không tìm thấy kết quả phù hợp với bộ lọc tìm kiếm.
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                filtered.map((r, i) => (
+                  <tr key={r.id} className="bg-surface-card hover:bg-surface-app/70 transition-colors">
+                    <td className="px-3 py-2.5 text-text-muted text-xs">{i + 1}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs font-semibold">{r.studentCode}</td>
+                    <td className="px-3 py-2.5">
+                      <StudentName holyName={r.holyName} fullName={r.studentName} size="base" />
+                    </td>
+                    {essayMode && (
+                      <td className="px-3 py-2.5 font-semibold text-xs">
+                        {typeof r.essayScore === 'number' ? r.essayScore : <span className="text-text-muted">—</span>}
+                      </td>
+                    )}
+                    <td className="px-3 py-2.5 font-extrabold text-parish-primary text-sm">{r.score}</td>
+                    <td className="px-3 py-2.5 font-black text-xs">{r.examVersion ?? 'A'}</td>
+                    <td className="px-3 py-2.5">
+                      <Badge tone={sourceTone(r.source)}>
+                        {sourceLabel(r.source)}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                      {sessionId && (r.source === 'omr' || r.source === 'qr_scan') && (
+                        <button
+                          type="button"
+                          onClick={() => void openReview(r.studentId)}
+                          className="mr-2 inline-flex items-center gap-1 text-xs text-parish-primary hover:underline font-semibold"
+                          title="Xem ảnh rà soát được giữ trên thiết bị này"
+                        >
+                          <Eye size={13} /> Ảnh
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onRemove(r.id)}
+                        className="inline-flex items-center gap-0.5 text-xs text-parish-danger hover:underline font-semibold"
+                        title="Xóa kết quả (để quét lại hoặc nhập lại)"
+                      >
+                        <Trash2 size={12} /> Xóa
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {snapshot && (
         <ModalPortal>

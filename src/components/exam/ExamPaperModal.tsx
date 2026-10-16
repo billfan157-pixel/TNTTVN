@@ -5,7 +5,7 @@ import {
   Columns, FileText, CheckSquare,
   Square, Users, User, FileSpreadsheet, Layers3, Globe,
   QrCode, ClipboardList, SlidersHorizontal, ChevronDown, Download,
-  ZoomIn, ZoomOut, CheckCircle2, BookOpen
+  ZoomIn, ZoomOut, CheckCircle2, BookOpen, ListChecks
 } from 'lucide-react'
 import {
   buildExamPaperHtml,
@@ -55,6 +55,8 @@ interface ExamPaperModalProps {
   questionCount?: number
   scoreTypeLabel?: string
   initialDocType?: 'exam_paper' | 'answer_sheet' | 'qr_sheet'
+  /** Mobile: đáp án chuẩn và thao tác chấm lại của phiên, bên trong trình xem đề. */
+  answerKeyContent?: React.ReactNode
 }
 
 export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
@@ -74,6 +76,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   questionCount = 20,
   scoreTypeLabel = 'Kiểm Tra',
   initialDocType = 'exam_paper',
+  answerKeyContent,
 }) => {
   const effectiveMode = useEffectiveMode()
   const isMobile = effectiveMode === 'mobile'
@@ -82,6 +85,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     initialDocType === 'exam_paper' && isMobile ? 'question_reader' : initialDocType
   )
   const [showAnswerKey, setShowAnswerKey] = useState(false)
+  const [viewAnswerKey, setViewAnswerKey] = useState(false)
   const [includeExplanations, setIncludeExplanations] = useState(true)
   const [layoutColumns, setLayoutColumns] = useState<1 | 2>(2)
   const [includeAnswerGrid, setIncludeAnswerGrid] = useState(true)
@@ -499,7 +503,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
           </div>
           
           <div className="flex items-center gap-1.5 shrink-0">
-            {isMobile && (
+            {isMobile && !viewAnswerKey && (
               <button
                 type="button"
                 onClick={handleDownloadPdf}
@@ -521,12 +525,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
         {/* Document Type Selector Tabs */}
         {isMobile ? (
-          <div className="grid grid-cols-4 gap-1 p-1 bg-surface-app rounded-xl border border-surface-border mb-2 shrink-0 text-[11px]">
+          <div className={`grid ${answerKeyContent ? 'grid-cols-5' : 'grid-cols-4'} gap-1 p-1 bg-surface-app rounded-xl border border-surface-border mb-2 shrink-0 text-[11px]`}>
             <button
               type="button"
-              onClick={() => setDocType('question_reader')}
-              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex items-center justify-center gap-1 truncate ${
-                docType === 'question_reader'
+              onClick={() => { setViewAnswerKey(false); setDocType('question_reader') }}
+              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex min-w-0 flex-col items-center justify-center gap-1 truncate ${
+                !viewAnswerKey && docType === 'question_reader'
                   ? 'bg-parish-primary text-white shadow-xs'
                   : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
               }`}
@@ -536,9 +540,9 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setDocType('exam_paper')}
-              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex items-center justify-center gap-1 truncate ${
-                docType === 'exam_paper'
+              onClick={() => { setViewAnswerKey(false); setDocType('exam_paper') }}
+              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex min-w-0 flex-col items-center justify-center gap-1 truncate ${
+                !viewAnswerKey && docType === 'exam_paper'
                   ? 'bg-parish-primary text-white shadow-xs'
                   : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
               }`}
@@ -548,9 +552,9 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setDocType('answer_sheet')}
-              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex items-center justify-center gap-1 truncate ${
-                docType === 'answer_sheet'
+              onClick={() => { setViewAnswerKey(false); setDocType('answer_sheet') }}
+              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex min-w-0 flex-col items-center justify-center gap-1 truncate ${
+                !viewAnswerKey && docType === 'answer_sheet'
                   ? 'bg-parish-primary text-white shadow-xs'
                   : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
               }`}
@@ -560,9 +564,9 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setDocType('qr_sheet')}
-              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex items-center justify-center gap-1 truncate ${
-                docType === 'qr_sheet'
+              onClick={() => { setViewAnswerKey(false); setDocType('qr_sheet') }}
+              className={`py-1.5 px-1 rounded-lg font-bold transition-all flex min-w-0 flex-col items-center justify-center gap-1 truncate ${
+                !viewAnswerKey && docType === 'qr_sheet'
                   ? 'bg-parish-primary text-white shadow-xs'
                   : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
               }`}
@@ -570,6 +574,19 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               <QrCode size={12} className="shrink-0" />
               <span className="truncate">Thẻ QR</span>
             </button>
+            {answerKeyContent && (
+              <button
+                type="button"
+                onClick={() => setViewAnswerKey(true)}
+                aria-pressed={viewAnswerKey}
+                className={`py-1.5 px-1 rounded-lg font-bold transition-colors flex min-w-0 flex-col items-center justify-center gap-1 ${
+                  viewAnswerKey ? 'bg-parish-primary text-white shadow-xs' : 'text-text-secondary hover:text-text-main hover:bg-surface-hover'
+                }`}
+              >
+                <ListChecks size={12} className="shrink-0" />
+                <span className="truncate">Đáp án</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="flex items-center gap-1.5 p-1 bg-surface-app rounded-xl border border-surface-border mb-3 shrink-0">
@@ -610,7 +627,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
         )}
 
         {/* Toolbar Controls */}
-        {isMobile ? (
+        {isMobile ? (viewAnswerKey ? null : (
           /* ================= MOBILE CONTROLS (TỐI GIẢN 1 HÀNG, KHÔNG IN ẤN) ================= */
           <div className="flex flex-col gap-1.5 mb-2 shrink-0">
             <div className="flex items-center justify-between gap-1.5 p-1.5 bg-surface-app rounded-xl border border-surface-border overflow-x-auto">
@@ -783,7 +800,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
               </div>
             )}
           </div>
-        ) : (
+        )) : (
           /* ================= DESKTOP CONTROLS (TRUNG TÂM IN ẤN ĐẦY ĐỦ) ================= */
           <div className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 sm:p-3 bg-surface-app rounded-xl border border-surface-border mb-3 shrink-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -1027,7 +1044,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
         <div ref={containerRef} className="flex-1 min-h-0 bg-slate-200 dark:bg-slate-900 rounded-xl overflow-hidden border border-surface-border flex flex-col p-1 sm:p-3">
           
           {/* Mobile Question Reader View */}
-          {isMobile && docType === 'question_reader' ? (
+          {isMobile && viewAnswerKey ? (
+            <div className="flex-1 min-h-0 overflow-y-auto bg-surface-card rounded-lg p-3">
+              <h4 className="m-0 mb-3 font-bold text-parish-primary">Đáp án chuẩn</h4>
+              {answerKeyContent}
+            </div>
+          ) : isMobile && docType === 'question_reader' ? (
             <div className="flex-1 min-h-0 overflow-y-auto bg-surface-card rounded-lg p-3 space-y-3">
               {effectiveQuestions.length === 0 ? (
                 <div className="text-center py-10 text-text-muted">

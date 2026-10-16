@@ -1,11 +1,13 @@
-import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
   getSortedRowModel,
+  getPaginationRowModel,
   flexRender,
   createColumnHelper,
   type SortingState,
+  type PaginationState,
 } from '@tanstack/react-table';
 import { useStudentStore } from '../../stores/studentStore';
 import { useGradeStore } from '../../stores/gradeStore';
@@ -20,10 +22,9 @@ import { FileSpreadsheet, CheckCircle, Calculator, Download, Upload, RefreshCw, 
 import { useAuth } from '../../hooks/useAuth';
 import { useSemesterAccess } from '../../hooks/useSemesterAccess';
 import { useSyncStore } from '../../stores/syncStore';
-import { GradeFormulaConfigModal } from './GradeFormulaConfigModal';
 import { exportOfficialGradebook } from '../../services/reportExporter';
 import { useToastStore } from '../../stores/toastStore';
-import { ExcelGradeImportModal } from '../common/ExcelGradeImportModal';
+import { lazyWithRetry } from '../../utils/lazyWithRetry';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { Button, IconButton, SegmentedControl } from '../common/ui';
 
@@ -34,6 +35,18 @@ interface RowData {
 }
 
 const columnHelper = createColumnHelper<RowData>();
+const MATRIX_PAGE_SIZE = 50;
+const GradeFormulaConfigModal = lazyWithRetry(() => import('./GradeFormulaConfigModal'), 'GradeFormulaConfigModal');
+const ExcelGradeImportModal = lazyWithRetry(() => import('../common/ExcelGradeImportModal'), 'ExcelGradeImportModal');
+
+function indexSemesterGrades(grades: GradeRecord[], semester: 1 | 2, academicYear: string) {
+  const index = new Map<string, GradeRecord>();
+  for (const grade of grades) {
+    if (grade.semester !== semester || normalizeAcademicYear(grade.academicYear) !== academicYear) continue;
+    if (!index.has(grade.studentId)) index.set(grade.studentId, grade);
+  }
+  return index;
+}
 
 const SCORE_MATRIX_FIELDS = [
   { id: 'scoreOral', header: 'Miệng', label: 'điểm miệng' },
@@ -60,7 +73,6 @@ export const DesktopGradeMatrix: React.FC = () => {
   const setSelectedSemester = useFilterStore(s => s.setSelectedSemester);
   const { restricted: _semesterRestricted, openSemester: _openSemester } = useSemesterAccess();
 
-  const [matrixData, setMatrixData] = useState<Record<string, Partial<GradeRecord>>>({});
   const [isOverrideModeEnabled, setIsOverrideModeEnabled] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
@@ -69,8 +81,15 @@ export const DesktopGradeMatrix: React.FC = () => {
   const [lastSavedTime, setLastSavedTime] = useState<string>('');
   const [isExporting, setIsExporting] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
-  const [showFormulaModal, setShowFormulaModal] = useState(false);
-  const [showImportModal, setShowImportModal] = useState(false);
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: MATRIX_PAGE_SIZE });
+  const matrixTableRef = useRef<HTMLTableElement>(null);
+  const rowPositionsRef = useRef(new Map<string, number>());
+  const rowCountRef = useRef(0);
+  const pendingFocusRef = useRef<{ row: number; col: number } | null>(null);
+  // null means never opened: defer the import, then retain the modal's draft
+  // and in-flight progress across close/reopen just as the mounted form did.
+  const [showFormulaModal, setShowFormulaModal] = useState<boolean | null>(null);
+  const [showImportModal, setShowImportModal] = useState<boolean | null>(null);
   const [srAnnouncement, setSrAnnouncement] = useState<string>('');
   const syncPendingCount = useSyncStore(s => s.pendingCount);
   const formulaWeights = useSettingsStore(s => s.settings.gradeWeights);
@@ -81,6 +100,19 @@ export const DesktopGradeMatrix: React.FC = () => {
     if (selectedClassId === 'all') return students;
     return students.filter(s => s.classId === selectedClassId);
   }, [students, selectedClassId]);
+
+  // Build one index for the current semester/year, instead of scanning every
+  // grade for every student when the route mounts or its context changes.
+  const gradeByStudent = useMemo(() => indexSemesterGrades(grades, selectedSemester, matrixAcademicYear), [grades, selectedSemester, matrixAcademicYear]);
+
+  const [matrixData, setMatrixData] = useState<Record<string, Partial<GradeRecord>>>(() => {
+    const initialData: Record<string, Partial<GradeRecord>> = {};
+    for (const student of filteredStudents) {
+      const grade = gradeByStudent.get(student.id);
+      if (grade) initialData[student.id] = grade;
+    }
+    return initialData;
+  });
 
   const matrixDataRef = useRef(matrixData);
   useEffect(() => {
@@ -157,7 +189,12 @@ export const DesktopGradeMatrix: React.FC = () => {
     classId: string
     semester: 1 | 2
     academicYear: string
-  } | null>(null);
+  }>({
+    key: currentInitKey,
+    classId: selectedClassId,
+    semester: selectedSemester,
+    academicYear: academicYear || matrixAcademicYear,
+  });
   const contextTransitionRef = useRef(0);
   
   // REACT-185 (2026-08-14): tách rebuild theo init-key (class/học kỳ) khỏi merge theo
@@ -178,23 +215,18 @@ export const DesktopGradeMatrix: React.FC = () => {
       dirtyIdsRef.current.clear();
       dirtyFieldsRef.current.clear();
       const initialData: Record<string, Partial<GradeRecord>> = {};
-      students.forEach(s => {
-        const g = grades.find(gr => gr.studentId === s.id && gr.semester === selectedSemester && normalizeAcademicYear(gr.academicYear) === matrixAcademicYear);
-        if (g) initialData[s.id] = { ...g };
+      // Saving can update the store while the context transition awaits durable
+      // acknowledgement. Read that acknowledged snapshot, not the old closure.
+      const nextGrades = indexSemesterGrades(useGradeStore.getState().grades, selectedSemester, matrixAcademicYear);
+      filteredStudents.forEach(s => {
+        const g = nextGrades.get(s.id);
+        if (g) initialData[s.id] = g;
       });
 
       activeContextRef.current = nextContext;
       setMatrixData(initialData);
       setIsDirty(false);
     };
-
-    // The initial render has no previous draft to flush. Establishing this
-    // synchronously closes the window where an immediate edit/context switch
-    // would otherwise have no known context to restore.
-    if (!previousContext) {
-      activateNextContext();
-      return;
-    }
 
     const transitionId = ++contextTransitionRef.current;
 
@@ -226,23 +258,28 @@ export const DesktopGradeMatrix: React.FC = () => {
   // chỉnh sửa dở giữ nguyên) và chỉ trong class/học kỳ hiện tại — không rebuild toàn
   // bộ matrix, không mất dữ liệu chưa lưu.
   useEffect(() => {
-    const normAY = matrixAcademicYear;
-    const studentIds = new Set(filteredStudents.map(s => s.id));
+    if (activeContextRef.current.key !== currentInitKey) return;
     setMatrixData(prev => {
-      let changed = false;
-      const next: Record<string, Partial<GradeRecord>> = { ...prev };
-      for (const g of grades) {
-        if (!studentIds.has(g.studentId)) continue;
-        if (g.semester !== selectedSemester) continue;
-        if (normalizeAcademicYear(g.academicYear) !== normAY) continue;
-        if (dirtyIdsRef.current.has(g.studentId)) continue;
-        if (next[g.studentId] === g) continue;
-        next[g.studentId] = { ...g };
-        changed = true;
+      let next = prev;
+      for (const student of filteredStudents) {
+        const grade = gradeByStudent.get(student.id);
+        if (!grade || dirtyIdsRef.current.has(student.id) || prev[student.id] === grade) continue;
+        if (next === prev) next = { ...prev };
+        next[student.id] = grade;
       }
-      return changed ? next : prev;
+      return next;
     });
-  }, [grades, filteredStudents, selectedSemester, matrixAcademicYear]);
+  }, [gradeByStudent, filteredStudents, currentInitKey]);
+
+  useEffect(() => {
+    pendingFocusRef.current = null;
+    setPagination(previous => previous.pageIndex === 0 ? previous : { ...previous, pageIndex: 0 });
+  }, [currentInitKey, sorting]);
+
+  useEffect(() => {
+    const lastPage = Math.max(0, Math.ceil(filteredStudents.length / MATRIX_PAGE_SIZE) - 1);
+    setPagination(previous => previous.pageIndex <= lastPage ? previous : { ...previous, pageIndex: lastPage });
+  }, [filteredStudents.length]);
 
   const updateField = useCallback((studentId: string, field: keyof GradeRecord, val: any) => {
     dirtyIdsRef.current.add(studentId);
@@ -268,8 +305,10 @@ export const DesktopGradeMatrix: React.FC = () => {
   }, [selectedSemester, matrixAcademicYear]);
 
   const focusMatrixCell = useCallback((rowIdx: number, colIdx: number): boolean => {
-    if (rowIdx < 0 || colIdx < 0 || colIdx >= SCORE_MATRIX_FIELDS.length) return false;
-    const target = document.querySelector<HTMLInputElement>(
+    if (rowIdx < 0 || rowIdx >= rowCountRef.current || colIdx < 0 || colIdx >= SCORE_MATRIX_FIELDS.length) return false;
+    const field = SCORE_MATRIX_FIELDS[colIdx].id;
+    if (!canEditGrades || ((!isAdmin || !isOverrideModeEnabled) && field !== 'scoreDaoDuc' && field !== 'scoreOral')) return false;
+    const target = matrixTableRef.current?.querySelector<HTMLInputElement>(
       `input[data-matrix-cell="true"][data-matrix-row="${rowIdx}"][data-matrix-col="${colIdx}"]`
     );
     if (target && !target.disabled) {
@@ -277,8 +316,18 @@ export const DesktopGradeMatrix: React.FC = () => {
       target.select();
       return true;
     }
+    const pageIndex = Math.floor(rowIdx / MATRIX_PAGE_SIZE);
+    if (pageIndex !== pagination.pageIndex) {
+      // Removing a focused row does not reliably emit blur. Commit its input
+      // to the existing draft owner before pagination unmounts that row.
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement && matrixTableRef.current?.contains(active)) active.blur();
+      pendingFocusRef.current = { row: rowIdx, col: colIdx };
+      setPagination(previous => ({ ...previous, pageIndex }));
+      return true;
+    }
     return false;
-  }, []);
+  }, [pagination.pageIndex, canEditGrades, isAdmin, isOverrideModeEnabled]);
 
   const handleScoreBlur = useCallback((
     e: React.FocusEvent<HTMLInputElement>,
@@ -446,6 +495,7 @@ export const DesktopGradeMatrix: React.FC = () => {
         cell: info => {
           const val = info.getValue();
           const { student } = info.row.original;
+          const rowIndex = rowPositionsRef.current.get(info.row.id) ?? info.row.index;
           const scoreLabel = scoreDef.label;
           const studentLabel = `${student.holyName ? `${student.holyName} ` : ''}${student.fullName}`;
           return (
@@ -454,14 +504,14 @@ export const DesktopGradeMatrix: React.FC = () => {
               inputMode="decimal"
               aria-label={`Nhập ${scoreLabel} cho ${studentLabel}`}
               data-matrix-cell="true"
-              data-matrix-row={info.row.index}
+              data-matrix-row={rowIndex}
               data-matrix-col={colIdx}
               disabled={!canEditGrades || ((!isAdmin || !isOverrideModeEnabled) && scoreDef.id !== 'scoreDaoDuc' && scoreDef.id !== 'scoreOral')}
               key={`${student.id}:${matrixAcademicYear}:${selectedSemester}:${scoreDef.id}`}
               defaultValue={val === null || val === undefined ? '' : String(val)}
               onFocus={e => e.currentTarget.select()}
               onBlur={e => handleScoreBlur(e, student.id, studentLabel, scoreDef.id, scoreLabel)}
-              onKeyDown={e => handleScoreKeyDown(e, info.row.index, colIdx, student.id, scoreDef.id)}
+              onKeyDown={e => handleScoreKeyDown(e, rowIndex, colIdx, student.id, scoreDef.id)}
               className="form-input w-14 h-9 text-center text-base font-black bg-surface-card text-text-main border border-surface-border rounded-xl focus:border-parish-primary focus:ring-2 focus:ring-parish-primary/20 outline-none transition-all disabled:bg-surface-app disabled:text-text-placeholder shadow-xs"
             />
           );
@@ -518,11 +568,33 @@ export const DesktopGradeMatrix: React.FC = () => {
   const table = useReactTable({
     data: tableData,
     columns,
-    state: { sorting },
+    getRowId: row => row.student.id,
+    state: { sorting, pagination },
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
+    // Edits and background sync must keep the current page and focused draft.
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
   });
+
+  const sortedRows = table.getPrePaginationRowModel().rows;
+  rowPositionsRef.current = useMemo(() => new Map(sortedRows.map((row, index) => [row.id, index])), [sortedRows]);
+  rowCountRef.current = sortedRows.length;
+
+  useEffect(() => {
+    const requested = pendingFocusRef.current;
+    if (!requested) return;
+    const target = matrixTableRef.current?.querySelector<HTMLInputElement>(
+      `input[data-matrix-row="${requested.row}"][data-matrix-col="${requested.col}"]`
+    );
+    if (target && !target.disabled) {
+      pendingFocusRef.current = null;
+      target.focus();
+      target.select();
+    }
+  }, [pagination, tableData]);
 
   const currentClassName = classList.find(c => c.id === selectedClassId)?.name || 'Tất cả lớp';
 
@@ -659,7 +731,7 @@ export const DesktopGradeMatrix: React.FC = () => {
       {/* Matrix Table */}
       <div className="table-wrapper">
         <div className="table-scroll" role="region" aria-label="Bảng điểm học kỳ" tabIndex={0}>
-          <table className="w-full text-sm text-left border-collapse table-fixed">
+          <table ref={matrixTableRef} className="w-full text-sm text-left border-collapse table-fixed">
             <thead>
               <tr className="bg-surface-app border-b-2 border-surface-border">
                 {table.getHeaderGroups().map(headerGroup => (
@@ -702,14 +774,21 @@ export const DesktopGradeMatrix: React.FC = () => {
             </tbody>
           </table>
         </div>
+        {table.getPageCount() > 1 && (
+          <nav aria-label="Phân trang bảng điểm" className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-surface-border bg-surface-app">
+            <p className="text-xs font-bold text-text-secondary" aria-live="polite">
+              Hiển thị {pagination.pageIndex * MATRIX_PAGE_SIZE + 1}–{Math.min((pagination.pageIndex + 1) * MATRIX_PAGE_SIZE, sortedRows.length)} / {sortedRows.length} em · Trang {pagination.pageIndex + 1} / {table.getPageCount()}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="secondary" disabled={!table.getCanPreviousPage()} onClick={() => table.previousPage()}>Trang trước</Button>
+              <Button variant="secondary" disabled={!table.getCanNextPage()} onClick={() => table.nextPage()}>Trang sau</Button>
+            </div>
+          </nav>
+        )}
       </div>
 
-      {isAdmin && <GradeFormulaConfigModal isOpen={showFormulaModal} onClose={() => setShowFormulaModal(false)} />}
-      <ExcelGradeImportModal
-        isOpen={showImportModal}
-        onClose={() => setShowImportModal(false)}
-        semester={selectedSemester as 1 | 2}
-      />
+      {isAdmin && showFormulaModal !== null && <Suspense fallback={null}><GradeFormulaConfigModal isOpen={showFormulaModal} onClose={() => setShowFormulaModal(false)} /></Suspense>}
+      {showImportModal !== null && <Suspense fallback={null}><ExcelGradeImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} semester={selectedSemester} /></Suspense>}
     </div>
   );
 };

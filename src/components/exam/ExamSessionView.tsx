@@ -17,7 +17,7 @@ import {
   ClipboardList, Plus, Printer, CheckCircle2, AlertTriangle, AlertCircle,
   RotateCcw, Loader2, Save, QrCode, ScanLine, Trash2,
   ListChecks, X, Sparkles, FileText, RefreshCw, Images, BarChart3, Layers3,
-  Upload, School, Eye, Zap, Grid3X3, BookOpen, Search, ChevronRight, ArrowLeft, Pencil,
+  Upload, School, Eye, Zap, Grid3X3, BookOpen, Search, ChevronRight, ChevronDown, ArrowLeft, Pencil, Check,
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType, ExamSession } from '../../types'
 import { ModalShell } from '../common/ModalShell'
@@ -165,6 +165,7 @@ export const ExamSessionView: React.FC = () => {
   const [editingExam, setEditingExam] = useState<{ session: ExamSession; definitionHash: string } | null>(null)
   const [formSaving, setFormSaving] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
+  const [showGradingOptions, setShowGradingOptions] = useState(false)
   const [showGuidedGrade, setShowGuidedGrade] = useState(false)
   const [fixedScanStudent, setFixedScanStudent] = useState<GuidedGradeStudent | null>(null)
   const [showAnswerKeyModal, setShowAnswerKeyModal] = useState(false)
@@ -187,6 +188,8 @@ export const ExamSessionView: React.FC = () => {
   const [showBatchScan, setShowBatchScan] = useState(false)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [showVariants, setShowVariants] = useState(false)
+  // MOBILE-UX: bottom sheet chuyển phiên nhanh (thay select form-field trên mobile).
+  const [showSessionSwitcher, setShowSessionSwitcher] = useState(false)
   const { askConfirm, dialog: confirmDialog } = useConfirmDialog()
   const activeAY = useAcademicYearStore(s => s.currentYear)
   const [createForm, setCreateForm] = useState<{
@@ -257,6 +260,16 @@ export const ExamSessionView: React.FC = () => {
 
   const activeSession = sessions.find(s => s.id === useExamStore.getState().selectedSessionId) || null
   const activeSessionClassId = activeSession?.classId || effectiveClassId
+
+  // MOBILE-UX: trước đây mở phiên từ danh sách giữ nguyên vị trí cuộn nên đầu
+  // workspace (quay lại, chọn phiên, tiến độ) nằm trên màn hình. Mobile cuộn về
+  // đầu khi vào/thoát workspace; desktop giữ nguyên hành vi.
+  const activeSessionId = activeSession?.id ?? null
+  useEffect(() => {
+    if (effectiveMode !== 'mobile') return
+    if (typeof window === 'undefined' || typeof window.scrollTo !== 'function') return
+    window.scrollTo({ top: 0 })
+  }, [effectiveMode, activeSessionId])
 
   const displayedSessions = useMemo(() => {
     return sessions.filter(s => {
@@ -672,6 +685,75 @@ export const ExamSessionView: React.FC = () => {
     setCreateError('')
   }
 
+  const answerKeyContent = activeSession && (showAnswerKeyModal || (effectiveMode === 'mobile' && showPaperModal)) ? (
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-text-muted mt-0.5 m-0 font-medium">
+        {activeSession.questionCount || 20} câu hỏi trắc nghiệm{activeIsMixed ? ` · ${activeEssayMaxPoints}đ tự luận` : ''} · Thang điểm {activeSession.maxScore}
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[60vh] overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
+        {(() => {
+          const parsedKey = parseAnswerKeySafe(activeSession.answerKey) || {}
+          const total = activeSession.questionCount || 20
+
+          return Array.from({ length: total }).map((_, i) => {
+            const q = i + 1
+            const ans = parsedKey[q] || '—'
+            return (
+              <div key={q} className="flex items-center justify-between p-2 bg-surface-card rounded-xl border border-surface-border shadow-2xs">
+                <span className="text-xs font-bold text-text-muted">Câu {q}:</span>
+                <span className="w-6 h-6 rounded-lg bg-parish-primary text-white font-black text-xs flex items-center justify-center shadow-xs">
+                  {ans}
+                </span>
+              </div>
+            )
+          })
+        })()}
+      </div>
+
+      {/* Re-score button for draft MC sessions */}
+      {activeSession.status === 'draft' && (activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
+        <div className="flex items-center gap-2 pt-2 border-t border-surface-border">
+          <button
+            onClick={async () => {
+              if (!activeSession.answerKey) return
+              const ok = await askConfirm({
+                title: 'Chấm lại điểm?',
+                message: `Cập nhật answer key và chấm lại điểm cho ${results.length} kết quả OMR hiện có. Kết quả nhập tay sẽ không bị thay đổi.`,
+                confirmText: 'Chấm lại',
+                variant: 'warning',
+              })
+              if (!ok) return
+              setRescoreLoading(true)
+              setRescoreResult(null)
+              try {
+                const answerKeyStr = typeof activeSession.answerKey === 'string'
+                  ? activeSession.answerKey
+                  : JSON.stringify(activeSession.answerKey)
+                const res = await api.updateAnswerKey(activeSession.id, answerKeyStr, activeSession.questionCount || 20)
+                setRescoreResult({ rescored: res.rescored, skipped: res.skipped })
+                await refreshResults()
+              } catch (err: any) {
+                useToastStore.getState().addToast(err?.message || 'Lỗi khi chấm lại', 'error')
+              } finally {
+                setRescoreLoading(false)
+              }
+            }}
+            disabled={rescoreLoading}
+            className="btn btn-secondary btn-sm rounded-xl gap-1.5 font-bold disabled:opacity-50"
+          >
+            {rescoreLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Chấm Lại Điểm
+          </button>
+          {rescoreResult && (
+            <span className="text-xs font-bold text-parish-success">
+              Đã chấm lại {rescoreResult.rescored} kết quả · giữ nguyên {rescoreResult.skipped} kết quả nhập tay
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  ) : undefined
+
   return (
     <div className="flex flex-col gap-4">
       {error && (
@@ -686,7 +768,7 @@ export const ExamSessionView: React.FC = () => {
         /* ========================================================================= */
         /* 1. CATALOG VIEW: DANH SÁCH & LƯỚI PHIÊN CHẤM (FULL-WIDTH 3 CỘT DESKTOP)   */
         /* ========================================================================= */
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-3.5 sm:gap-5">
           {/* Header */}
           {effectiveMode === 'mobile' ? (
             <SubpageHeader
@@ -745,40 +827,60 @@ export const ExamSessionView: React.FC = () => {
             </div>
           )}
 
-          {/* 4 Thẻ KPI Metrics Tổng Quan */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Surface variant="card" className="p-3.5 flex flex-col justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Tổng số phiên</span>
-              <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-2xl font-black text-text-main">{totalSessionsCount}</span>
-                <span className="text-xs text-text-muted">Học kỳ {selectedSemester}</span>
-              </div>
-            </Surface>
+          {/* KPI Metrics Tổng Quan */}
+          {effectiveMode === 'mobile' ? (
+            /* MOBILE-UX: dải 3 chỉ số gọn — trước đây 4 thẻ to đẩy thẻ phiên đầu
+               tiên xuống dưới nếp gấp (y≈724 trên màn 844px). Thẻ "Phiên đang
+               chọn" luôn hiện "—" nên bỏ trên mobile. */
+            <div className="grid grid-cols-3 gap-2">
+              <Surface variant="card" className="flex flex-col items-center gap-0.5 p-2.5 text-center">
+                <span className="text-xl font-black text-text-main">{totalSessionsCount}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Tổng phiên</span>
+              </Surface>
+              <Surface variant="card" className="flex flex-col items-center gap-0.5 p-2.5 text-center">
+                <span className="text-xl font-black text-parish-primary">{draftSessionsCount}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Đang chấm</span>
+              </Surface>
+              <Surface variant="card" className="flex flex-col items-center gap-0.5 p-2.5 text-center">
+                <span className="text-xl font-black text-parish-success">{completedSessionsCount}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wide text-text-muted">Hoàn tất</span>
+              </Surface>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Tổng số phiên</span>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-text-main">{totalSessionsCount}</span>
+                  <span className="text-xs text-text-muted">Học kỳ {selectedSemester}</span>
+                </div>
+              </Surface>
 
-            <Surface variant="card" className="p-3.5 flex flex-col justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Đang chấm (Draft)</span>
-              <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-2xl font-black text-parish-primary">{draftSessionsCount}</span>
-                <Badge tone="primary">Đang mở</Badge>
-              </div>
-            </Surface>
+              <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Đang chấm (Draft)</span>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-parish-primary">{draftSessionsCount}</span>
+                  <Badge tone="primary">Đang mở</Badge>
+                </div>
+              </Surface>
 
-            <Surface variant="card" className="p-3.5 flex flex-col justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Đã hoàn tất</span>
-              <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-2xl font-black text-parish-success">{completedSessionsCount}</span>
-                <Badge tone="success">Khóa sổ</Badge>
-              </div>
-            </Surface>
+              <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Đã hoàn tất</span>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-parish-success">{completedSessionsCount}</span>
+                  <Badge tone="success">Khóa sổ</Badge>
+                </div>
+              </Surface>
 
-            <Surface variant="card" className="p-3.5 flex flex-col justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Phiên đang chọn</span>
-              <div className="mt-1 flex items-baseline justify-between">
-                <span className="text-2xl font-black text-text-muted">—</span>
-                <span className="text-xs text-text-muted">Chưa mở phiên</span>
-              </div>
-            </Surface>
-          </div>
+              <Surface variant="card" className="p-3.5 flex flex-col justify-between">
+                <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Phiên đang chọn</span>
+                <div className="mt-1 flex items-baseline justify-between">
+                  <span className="text-2xl font-black text-text-muted">—</span>
+                  <span className="text-xs text-text-muted">Chưa mở phiên</span>
+                </div>
+              </Surface>
+            </div>
+          )}
 
           {/* Class chips cho GLV */}
           {!isAdmin && assignedClasses.length > 0 && (
@@ -944,45 +1046,72 @@ export const ExamSessionView: React.FC = () => {
         /* ========================================================================= */
         <div className="flex flex-col gap-4">
           {/* Workspace Navigation Bar: Quay lại + Chọn phiên nhanh */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface-card p-3 sm:px-4 rounded-xl border border-surface-border shadow-xs">
-            <div className="flex items-center gap-3">
+          {effectiveMode === 'mobile' ? (
+            /* MOBILE-UX: thanh 1 hàng gọn thay khối 3 tầng trước đây (nút quay
+               lại / select full-width 44px / hàng badge trạng thái). Tên phiên
+               đã hiện ngay dưới trong thẻ phiên; chuyển phiên mở bottom sheet
+               có đủ ngữ cảnh lớp, loại điểm và trạng thái. */
+            <div className="flex min-w-0 items-center justify-between gap-2 rounded-xl border border-surface-border bg-surface-card p-2.5 shadow-xs">
               <Button
                 variant="ghost"
                 size="sm"
                 leadingIcon={<ArrowLeft size={16} />}
                 onClick={() => selectSession(null as any)}
-                className="font-bold text-text-secondary hover:text-text-main"
+                className="min-w-0 font-bold text-text-secondary hover:text-text-main"
               >
                 Danh sách phiên
               </Button>
-              <div className="h-4 w-px bg-surface-border hidden sm:block" />
-              <span className="text-xs text-text-muted hidden sm:inline">Chuyển phiên:</span>
-              <div className="relative">
-                <select
-                  aria-label="Chọn phiên chấm hiện tại"
-                  value={activeSession.id}
-                  onChange={e => selectSession(e.target.value)}
-                  className="form-input text-xs font-bold py-1 px-2.5 pr-7 rounded-lg min-h-8 bg-surface-app border border-surface-border cursor-pointer"
+              <Button
+                variant="secondary"
+                size="sm"
+                trailingIcon={<ChevronDown size={15} />}
+                onClick={() => setShowSessionSwitcher(true)}
+                className="shrink-0 font-bold"
+              >
+                Đổi phiên
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-surface-border bg-surface-card p-3 px-4 shadow-xs">
+              <div className="flex min-w-0 items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leadingIcon={<ArrowLeft size={16} />}
+                  onClick={() => selectSession(null as any)}
+                  className="font-bold text-text-secondary hover:text-text-main"
                 >
-                  {displayedSessions.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.subject} ({findClassById(s.classId)?.name || 'Lớp'} - {SCORE_TYPE_LABELS[s.scoreType]})
-                    </option>
-                  ))}
-                </select>
+                  Danh sách phiên
+                </Button>
+                <div className="h-4 w-px bg-surface-border" />
+                <span className="text-xs text-text-muted">Chuyển phiên:</span>
+                <div className="relative min-w-0">
+                  <select
+                    aria-label="Chọn phiên chấm hiện tại"
+                    value={activeSession.id}
+                    onChange={e => selectSession(e.target.value)}
+                    className="form-input min-h-8 min-w-0 max-w-72 rounded-lg border border-surface-border bg-surface-app py-1 px-2.5 pr-7 text-xs font-bold cursor-pointer"
+                  >
+                    {displayedSessions.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.subject} ({findClassById(s.classId)?.name || 'Lớp'} - {SCORE_TYPE_LABELS[s.scoreType]})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Quick info badges */}
+              <div className="flex items-center gap-2">
+                <Badge tone={activeSession.status === 'draft' ? 'primary' : 'success'}>
+                  {activeSession.status === 'draft' ? 'Phiên đang mở' : 'Phiên đã khóa'}
+                </Badge>
+                <span className="text-xs font-bold text-text-muted">
+                  Học kỳ {activeSession.semester === 2 ? 'II' : 'I'} · {activeSession.academicYear}
+                </span>
               </div>
             </div>
-
-            {/* Quick info badges */}
-            <div className="flex items-center gap-2 self-end sm:self-auto">
-              <Badge tone={activeSession.status === 'draft' ? 'primary' : 'success'}>
-                {activeSession.status === 'draft' ? 'Phiên đang mở' : 'Phiên đã khóa'}
-              </Badge>
-              <span className="text-xs font-bold text-text-muted">
-                Học kỳ {activeSession.semester === 2 ? 'II' : 'I'} · {activeSession.academicYear}
-              </span>
-            </div>
-          </div>
+          )}
 
           {/* Active Session Card (Full Width) */}
           <Surface variant="card" className="p-4 sm:p-5 flex flex-col gap-4">
@@ -1036,54 +1165,37 @@ export const ExamSessionView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Primary Action Clusters Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2">
+              {/* Primary Action Clusters Toolbar — MOBILE-UX: mỗi nhóm là một
+                  hàng cuộn ngang thay vì wrap ~3 hàng đẩy ô nhập điểm xuống thấp. */}
+              <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2.5">
                 {/* Nhóm Chấm Bài & Quét OMR */}
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="mobile-scroll-row sm:flex-wrap sm:overflow-x-visible">
                   {canManage && activeSession.status === 'draft' && results.length === 0 && (
-                    <Button size="sm" leadingIcon={<Pencil size={15} />} onClick={handleOpenEdit} disabled={saving || finalizing}>
+                    <Button size="sm" className="shrink-0" leadingIcon={<Pencil size={15} />} onClick={handleOpenEdit} disabled={saving || finalizing}>
                       Sửa đề thi
                     </Button>
                   )}
                   {canScan && activeSession.status === 'draft' && (
-                    <>
-                      <Button
-                        size="sm"
-                        leadingIcon={<ListChecks size={15} />}
-                        onClick={() => setShowGuidedGrade(true)}
-                        disabled={classStudents.length === 0}
-                      >
-                        Chấm Ổn Định
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        leadingIcon={<ScanLine size={15} />}
-                        onClick={() => { setFixedScanStudent(null); setShowScanner(true) }}
-                      >
-                        Quét QR + OMR
-                      </Button>
-                      {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          leadingIcon={<Images size={14} />}
-                          onClick={() => setShowBatchScan(true)}
-                          title="Chấm nhiều ảnh cùng lúc"
-                        >
-                          Chấm Nhiều Ảnh
-                        </Button>
-                      )}
-                    </>
+                    <Button
+                      size="sm"
+                      className="shrink-0"
+                      leadingIcon={<ScanLine size={15} />}
+                      trailingIcon={<ChevronDown size={14} />}
+                      aria-haspopup="dialog"
+                      aria-expanded={showGradingOptions}
+                      onClick={event => { event.currentTarget.focus(); setShowGradingOptions(true) }}
+                    >
+                      Quét / Chấm bài
+                    </Button>
                   )}
                 </div>
 
                 {/* Nhóm Tiện Ích & Quản Trị */}
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="mobile-scroll-row sm:flex-wrap sm:overflow-x-visible">
                   {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && canManage && activeSession.status === 'draft' && (
                     <button
                       type="button"
-                      className="btn btn-secondary btn-sm min-h-9 text-xs"
+                      className="btn btn-secondary btn-sm min-h-9 shrink-0 text-xs"
                       onClick={() => setShowVariants(true)}
                       title="Quản lý các mã đề hoán vị"
                     >
@@ -1092,7 +1204,7 @@ export const ExamSessionView: React.FC = () => {
                   )}
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm min-h-9 text-xs"
+                    className="btn btn-secondary btn-sm min-h-9 shrink-0 text-xs"
                     onClick={() => setShowAnalytics(true)}
                     disabled={results.length === 0}
                     title="Xem phân tích phổ điểm"
@@ -1101,17 +1213,17 @@ export const ExamSessionView: React.FC = () => {
                   </button>
                   <button
                     type="button"
-                    className="btn btn-secondary btn-sm min-h-9 text-xs"
+                    className="btn btn-secondary btn-sm min-h-9 shrink-0 text-xs"
                     onClick={() => setShowPaperModal(true)}
                     title={effectiveMode === 'mobile' ? 'Xem trước nội dung đề thi' : 'In đề thi & phiếu trả lời OMR'}
                   >
                     {effectiveMode === 'mobile' ? <Eye size={13} /> : <Printer size={13} />}
                     {effectiveMode === 'mobile' ? 'Xem Đề Thi' : 'In Đề & Phiếu'}
                   </button>
-                  {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
+                  {effectiveMode !== 'mobile' && (activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
                     <button
                       type="button"
-                      className="btn btn-secondary btn-sm min-h-9 text-xs"
+                      className="btn btn-secondary btn-sm min-h-9 shrink-0 text-xs"
                       onClick={() => setShowAnswerKeyModal(true)}
                       title="Xem đáp án chuẩn của bài kiểm tra"
                     >
@@ -1122,7 +1234,7 @@ export const ExamSessionView: React.FC = () => {
                   {canManage && activeSession.status === 'completed' && can('admin') && (
                     <button
                       type="button"
-                      className="btn btn-secondary btn-sm min-h-9 text-xs text-parish-warning"
+                      className="btn btn-secondary btn-sm min-h-9 shrink-0 text-xs text-parish-warning"
                       onClick={async () => {
                         const ok = await askConfirm({
                           title: 'Mở lại phiên chấm',
@@ -1140,7 +1252,7 @@ export const ExamSessionView: React.FC = () => {
                   {canManage && activeSession.status === 'draft' && (
                     <button
                       type="button"
-                      className="btn btn-danger btn-sm min-h-9 text-xs"
+                      className="btn btn-danger btn-sm min-h-9 shrink-0 text-xs"
                       onClick={handleDeleteSession}
                       title="Xóa phiên chấm này"
                     >
@@ -1330,6 +1442,107 @@ export const ExamSessionView: React.FC = () => {
         </React.Suspense>
       )}
 
+      {/* MOBILE-UX: bottom sheet chuyển phiên nhanh — thay select form-field
+          cỡ lớn trên mobile; mỗi phiên hiển thị đủ lớp, loại điểm, trạng thái. */}
+      <ModalShell
+        isOpen={showSessionSwitcher}
+        onClose={() => setShowSessionSwitcher(false)}
+        title="Chuyển phiên chấm"
+        subtitle={`${displayedSessions.length} phiên trong học kỳ ${selectedSemester}`}
+        icon={<ClipboardList size={20} />}
+        maxWidth="520px"
+      >
+        {displayedSessions.length === 0 ? (
+          <p className="m-0 text-sm text-text-muted">Không có phiên chấm nào trong học kỳ này.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {displayedSessions.map(s => {
+              const sessionClass = findClassById(s.classId)
+              const isActive = activeSession?.id === s.id
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  aria-current={isActive ? 'true' : undefined}
+                  onClick={() => {
+                    setShowSessionSwitcher(false)
+                    if (!isActive) selectSession(s.id)
+                  }}
+                  className={`flex w-full items-center justify-between gap-3 rounded-xl border p-3 text-left transition-colors ${
+                    isActive
+                      ? 'border-parish-primary bg-parish-primary/5'
+                      : 'border-surface-border bg-surface-card hover:bg-surface-app'
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-text-main">{s.subject}</span>
+                    <span className="mt-0.5 block truncate text-xs text-text-muted">
+                      {sessionClass?.name || 'Chưa xếp lớp'} · {SCORE_TYPE_LABELS[s.scoreType]} · {s.maxScore}đ
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <Badge tone={s.status === 'draft' ? 'primary' : 'success'}>
+                      {s.status === 'draft' ? 'Đang chấm' : 'Đã xong'}
+                    </Badge>
+                    {isActive && <Check size={18} className="text-parish-primary" aria-hidden="true" />}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </ModalShell>
+
+      {showGradingOptions && canScan && activeSession?.status === 'draft' && (
+        <ModalShell
+          isOpen
+          onClose={() => setShowGradingOptions(false)}
+          title="Chọn cách chấm bài"
+          subtitle={activeSession.subject}
+          icon={<ScanLine size={20} />}
+          maxWidth="480px"
+        >
+          <div className="flex flex-col gap-2.5">
+            <Button
+              variant="secondary"
+              className="h-auto! min-h-14 justify-start! py-3! text-left"
+              leadingIcon={<ListChecks size={20} className="shrink-0" />}
+              disabled={classStudents.length === 0}
+              onClick={() => { setShowGradingOptions(false); setShowGuidedGrade(true) }}
+            >
+              <span className="min-w-0 flex-1 whitespace-normal text-left">
+                <span className="block">Chấm Ổn Định</span>
+                <span className="mt-1 block text-xs font-normal leading-snug text-text-muted">Chọn thiếu nhi, rồi chấm lần lượt từng bài.</span>
+              </span>
+            </Button>
+            <Button
+              variant="secondary"
+              className="h-auto! min-h-14 justify-start! py-3! text-left"
+              leadingIcon={<ScanLine size={20} className="shrink-0" />}
+              onClick={() => { setShowGradingOptions(false); setFixedScanStudent(null); setShowScanner(true) }}
+            >
+              <span className="min-w-0 flex-1 whitespace-normal text-left">
+                <span className="block">Quét QR + OMR</span>
+                <span className="mt-1 block text-xs font-normal leading-snug text-text-muted">Mở camera để quét phiếu và nhận diện thiếu nhi.</span>
+              </span>
+            </Button>
+            {(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
+              <Button
+                variant="secondary"
+                className="h-auto! min-h-14 justify-start! py-3! text-left"
+                leadingIcon={<Images size={20} className="shrink-0" />}
+                onClick={() => { setShowGradingOptions(false); setShowBatchScan(true) }}
+              >
+                <span className="min-w-0 flex-1 whitespace-normal text-left">
+                  <span className="block">Chấm Nhiều Ảnh</span>
+                  <span className="mt-1 block text-xs font-normal leading-snug text-text-muted">Chọn nhiều ảnh bài trắc nghiệm để chấm cùng lúc.</span>
+                </span>
+              </Button>
+            )}
+          </div>
+        </ModalShell>
+      )}
+
       {/* Answer Key Viewer Modal for Active Session */}
       {showAnswerKeyModal && activeSession && (
         <ModalPortal>
@@ -1341,76 +1554,14 @@ export const ExamSessionView: React.FC = () => {
                   <ListChecks className="text-parish-primary" size={18} />
                   Đáp Án Chuẩn — {activeSession.subject}
                 </h4>
-                <p className="text-xs text-text-muted mt-0.5 m-0 font-medium">
-                  {activeSession.questionCount || 20} câu hỏi trắc nghiệm{activeIsMixed ? ` · ${activeEssayMaxPoints}đ tự luận` : ''} · Thang điểm {activeSession.maxScore}
-                </p>
+
               </div>
               <button onClick={closeAnswerKeyModal} className="btn btn-secondary btn-sm rounded-xl">
                 <X size={14} /> Đóng
               </button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 max-h-[60vh] overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
-              {(() => {
-                const parsedKey = parseAnswerKeySafe(activeSession.answerKey) || {}
-                const total = activeSession.questionCount || 20
-
-                return Array.from({ length: total }).map((_, i) => {
-                  const q = i + 1
-                  const ans = parsedKey[q] || '—'
-                  return (
-                    <div key={q} className="flex items-center justify-between p-2 bg-surface-card rounded-xl border border-surface-border shadow-2xs">
-                      <span className="text-xs font-bold text-text-muted">Câu {q}:</span>
-                      <span className="w-6 h-6 rounded-lg bg-parish-primary text-white font-black text-xs flex items-center justify-center shadow-xs">
-                        {ans}
-                      </span>
-                    </div>
-                  )
-                })
-              })()}
-            </div>
-
-            {/* Re-score button for draft MC sessions */}
-            {activeSession.status === 'draft' && (activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') && (
-              <div className="flex items-center gap-2 pt-2 border-t border-surface-border">
-                <button
-                  onClick={async () => {
-                    if (!activeSession.answerKey) return
-                    const ok = await askConfirm({
-                      title: 'Chấm lại điểm?',
-                      message: `Cập nhật answer key và chấm lại điểm cho ${results.length} kết quả OMR hiện có. Kết quả nhập tay sẽ không bị thay đổi.`,
-                      confirmText: 'Chấm lại',
-                      variant: 'warning',
-                    })
-                    if (!ok) return
-                    setRescoreLoading(true)
-                    setRescoreResult(null)
-                    try {
-                      const answerKeyStr = typeof activeSession.answerKey === 'string'
-                        ? activeSession.answerKey
-                        : JSON.stringify(activeSession.answerKey)
-                      const res = await api.updateAnswerKey(activeSession.id, answerKeyStr, activeSession.questionCount || 20)
-                      setRescoreResult({ rescored: res.rescored, skipped: res.skipped })
-                      await refreshResults()
-                    } catch (err: any) {
-                      useToastStore.getState().addToast(err?.message || 'Lỗi khi chấm lại', 'error')
-                    } finally {
-                      setRescoreLoading(false)
-                    }
-                  }}
-                  disabled={rescoreLoading}
-                  className="btn btn-secondary btn-sm rounded-xl gap-1.5 font-bold disabled:opacity-50"
-                >
-                  {rescoreLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                  Chấm Lại Điểm
-                </button>
-                {rescoreResult && (
-                  <span className="text-xs font-bold text-parish-success">
-                    Đã chấm lại {rescoreResult.rescored} kết quả · giữ nguyên {rescoreResult.skipped} kết quả nhập tay
-                  </span>
-                )}
-              </div>
-            )}
+            {answerKeyContent}
           </div>
         </div>
         </ModalPortal>
@@ -2151,6 +2302,7 @@ export const ExamSessionView: React.FC = () => {
           maxScore={activeSession.maxScore}
           questionCount={activeSession.questionCount}
           scoreTypeLabel={SCORE_TYPE_LABELS[activeSession.scoreType]}
+          answerKeyContent={(activeSession.examType === 'multiple_choice' || activeSession.examType === 'mixed') ? answerKeyContent : undefined}
         />
         </React.Suspense>
       )}

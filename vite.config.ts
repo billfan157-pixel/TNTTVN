@@ -17,6 +17,8 @@ const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:30
 const strictDevPort = process.env.E2E_STRICT_PORT === 'true'
 
 export default defineConfig({
+  // Validation only: keep optimizer state separate from other live checkouts.
+  cacheDir: '.e2e-prod/vite-cache',
   define: {
     __APP_RELEASE_ID__: JSON.stringify(publicReleaseId),
   },
