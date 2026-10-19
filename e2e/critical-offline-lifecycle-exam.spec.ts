@@ -136,7 +136,24 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
 
   test('@critical Smart Exam uses server-authoritative MC scoring and finalizes into grades', async ({ page }, testInfo) => {
     const session = await getAdminSession(page.request)
-    const subject = `OMR ${testKey(testInfo, 'E2E')}`
+    const key = `${testKey(testInfo, 'E2E')}-${testInfo.repeatEachIndex}`
+    const subject = `OMR ${key}`
+    const createdClass = await authorizedRequest(page.request, session, 'POST', '/api/classes', {
+      code: key, name: `Lớp ${key}`, branchId: 'ThieuNhi', academicYearId: '2026-2027',
+    })
+    expect(createdClass.status()).toBe(201)
+    const { id: classId } = (await createdClass.json()).data
+    // Always exercise the missing-score confirmation, independent of students
+    // left in seed classes by earlier journeys or another browser project.
+    const studentIds: string[] = []
+    for (const fullName of [`Đã chấm ${key}`, `Chưa chấm ${key}`]) {
+      const created = await authorizedRequest(page.request, session, 'POST', '/api/students', {
+        fullName, holyName: 'Maria', gender: 'Nữ', dateOfBirth: '2015-01-01', branch: 'ThieuNhi', classId,
+      })
+      expect(created.status()).toBe(201)
+      studentIds.push((await created.json()).data.id)
+    }
+    const studentId = studentIds[0]
     // This journey owns its lifecycle precondition. A previous lock-focused
     // test intentionally closes HK1 in the shared E2E sandbox.
     const unlocked = await authorizedRequest(page.request, session, 'POST', '/api/semester-locks', {
@@ -153,7 +170,7 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     await page.getByRole('button', { name: 'Tạo Phiên Chấm', exact: true }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Tạo Phiên Chấm' })
-    await dialog.getByRole('combobox', { name: 'Lớp học cho phiên chấm' }).selectOption('CLS-TN-1')
+    await dialog.getByRole('combobox', { name: 'Lớp học cho phiên chấm' }).selectOption(classId)
     await dialog.getByRole('button', { name: /Trắc nghiệm/ }).click()
     await dialog.getByRole('button', { name: /Giữa Kỳ/ }).click()
     await dialog.getByRole('textbox', { name: 'Môn hoặc nội dung kiểm tra' }).fill(subject)
@@ -172,7 +189,7 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     const answers = JSON.stringify({ 1: 'A', 2: 'A', 3: 'A', 4: 'A', 5: 'A' })
     const scored = await authorizedRequest(page.request, session, 'POST', `/api/exams/${exam.id}/results`, {
       results: [{
-        studentId: 'student-e2e-001',
+        studentId,
         score: 0,
         source: 'omr',
         answers,
@@ -190,7 +207,7 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
 
     const resultReadBack = await authorizedRequest(page.request, session, 'GET', `/api/exams/${exam.id}/results`)
     const storedResults = (await resultReadBack.json()).data.results as Array<{ studentId: string; score: number }>
-    expect(storedResults).toContainEqual(expect.objectContaining({ studentId: 'student-e2e-001', score: 10 }))
+    expect(storedResults).toContainEqual(expect.objectContaining({ studentId, score: 10 }))
 
     await page.reload()
     await page.getByRole('tab', { name: /Chấm Bài:/ }).click()
@@ -212,6 +229,10 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
       && response.request().method() === 'POST'
     ))
     await page.getByRole('button', { name: 'Hoàn Tất Phiên Chấm' }).click()
+    const confirmation = page.getByRole('alertdialog', { name: 'Hoàn tất khi còn 1 thiếu nhi chưa có điểm?', exact: true })
+    await expect(confirmation).toBeVisible()
+    await expect(confirmation.getByText(`Chưa chấm ${key}`, { exact: false })).toBeVisible()
+    await confirmation.getByRole('button', { name: 'Hoàn Tất', exact: true }).click()
     expect((await completeResponsePromise).status()).toBe(200)
     await expect(page.getByText(/Hoàn tất phiên chấm thành công/)).toBeVisible()
 
@@ -222,11 +243,11 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     expect((await completedExam.json()).data.status).toBe('completed')
     const grades = (await gradesResponse.json()).data as Array<Record<string, unknown>>
     expect(grades).toContainEqual(expect.objectContaining({
-      studentId: 'student-e2e-001', academicYear: '2026-2027', semester: 1, scoreMidterm: 10,
+      studentId, academicYear: '2026-2027', semester: 1, scoreMidterm: 10,
     }))
 
     const mutateCompleted = await authorizedRequest(page.request, session, 'POST', `/api/exams/${exam.id}/results`, {
-      results: [{ studentId: 'student-e2e-001', score: 5, source: 'quick_entry' }],
+      results: [{ studentId, score: 5, source: 'quick_entry' }],
     })
     expect(mutateCompleted.status()).toBe(409)
   })

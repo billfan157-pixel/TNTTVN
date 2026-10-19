@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { getAdminSession, injectSession, waitForBootstrapBaseline } from './helpers'
+import { authorizedRequest, getAdminSession, injectSession, testKey, waitForBootstrapBaseline } from './helpers'
 
 test.describe('Sync and attendance review regressions', () => {
   test.describe.configure({ timeout: 60_000 })
@@ -31,23 +31,41 @@ test.describe('Sync and attendance review regressions', () => {
 
     test(`@critical ${layout} attendance summary and student history keep unrecorded attendance neutral`, async ({ page }, testInfo) => {
       await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 1000 })
-      await injectSession(page, await getAdminSession(page.request))
+      const session = await getAdminSession(page.request)
+      // Shared seed classes have attendance after other journeys. Own the
+      // empty-history precondition on every browser, retry and repeat.
+      const key = `${testKey(testInfo, 'NEUTRAL')}-${testInfo.repeatEachIndex}`
+      const createdClass = await authorizedRequest(page.request, session, 'POST', '/api/classes', {
+        code: key, name: `Lớp ${key}`, branchId: 'AuNhi', academicYearId: '2026-2027',
+      })
+      expect(createdClass.status()).toBe(201)
+      const { id: classId } = (await createdClass.json()).data
+      const fullName = `Chưa điểm danh ${key}`
+      const createdStudent = await authorizedRequest(page.request, session, 'POST', '/api/students', {
+        fullName, holyName: 'Giuse', gender: 'Nam', dateOfBirth: '2016-02-02', branch: 'AuNhi', classId,
+      })
+      expect(createdStudent.status()).toBe(201)
+      const { id: studentId } = (await createdStudent.json()).data
+      const attendance = await authorizedRequest(page.request, session, 'GET', `/api/attendance?studentId=${studentId}`)
+      expect(attendance.status()).toBe(200)
+      expect((await attendance.json()).data).toEqual([])
+      await injectSession(page, session)
       await page.goto('/attendance?tab=summary')
       await waitForBootstrapBaseline(page)
       if (mobile) await page.getByRole('tab', { name: 'Tổng Hợp', exact: true }).click()
       const summary = page.getByRole('tabpanel', { name: /Tổng Hợp/ })
       await summary.getByRole('combobox', {
         name: mobile ? 'Chọn lớp xem tổng hợp chuyên cần' : 'Lớp cần xem thống kê chuyên cần',
-      }).selectOption('CLS-AN-1')
+      }).selectOption(classId)
       await expect(summary.getByText('Chưa có buổi được ghi nhận', { exact: true }).first()).toBeVisible()
       await expect(summary.getByText('100%', { exact: true })).toHaveCount(0)
       await expect(summary.getByText('Đều đạt chuẩn', { exact: true })).toHaveCount(0)
       if (mobile) {
-        await summary.getByRole('button', { name: 'Xem lịch sử điểm danh của Giuse Thiếu Nhi E2E Khác' }).click()
+        await summary.getByRole('button', { name: `Xem lịch sử điểm danh của Giuse ${fullName}`, exact: true }).click()
       } else {
-        await summary.getByRole('row').filter({ hasText: 'Thiếu Nhi E2E Khác' }).getByRole('button', { name: 'Chi tiết' }).click()
+        await summary.getByRole('row').filter({ hasText: fullName }).getByRole('button', { name: 'Chi tiết' }).click()
       }
-      const history = page.getByRole('dialog', { name: 'Giuse Thiếu Nhi E2E Khác', exact: true })
+      const history = page.getByRole('dialog', { name: `Giuse ${fullName}`, exact: true })
       await expect(history).toBeVisible()
       await expect(history.getByText(/Chưa có điểm danh/)).toBeVisible()
       await expect(history.getByText(/100%/)).toHaveCount(0)
