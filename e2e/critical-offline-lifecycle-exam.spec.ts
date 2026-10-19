@@ -135,6 +135,10 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
   })
 
   test('@critical Smart Exam uses server-authoritative MC scoring and finalizes into grades', async ({ page }, testInfo) => {
+    // WebKit can spend the 60s journey budget before the second boot finishes
+    // (trace: only 3s remained at the restored-session assertion). Match the
+    // grade-entry journey's budget while retaining all per-assertion limits.
+    if (testInfo.project.name === 'webkit') test.setTimeout(120_000)
     const session = await getAdminSession(page.request)
     const key = `${testKey(testInfo, 'E2E')}-${testInfo.repeatEachIndex}`
     const subject = `OMR ${key}`

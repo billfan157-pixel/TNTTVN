@@ -50,13 +50,15 @@ test.describe('Sync and attendance review regressions', () => {
       expect(attendance.status()).toBe(200)
       expect((await attendance.json()).data).toEqual([])
       await injectSession(page, session)
-      await page.goto('/attendance?tab=summary')
+      // Enter the fixture's class scope before opening history. Changing the
+      // class filter navigates/remounts this route and can close a new modal.
+      await page.goto(`/attendance?tab=summary&classId=${classId}`)
       await waitForBootstrapBaseline(page)
       if (mobile) await page.getByRole('tab', { name: 'Tổng Hợp', exact: true }).click()
       const summary = page.getByRole('tabpanel', { name: /Tổng Hợp/ })
-      await summary.getByRole('combobox', {
+      await expect(summary.getByRole('combobox', {
         name: mobile ? 'Chọn lớp xem tổng hợp chuyên cần' : 'Lớp cần xem thống kê chuyên cần',
-      }).selectOption(classId)
+      })).toHaveValue(classId)
       await expect(summary.getByText('Chưa có buổi được ghi nhận', { exact: true }).first()).toBeVisible()
       await expect(summary.getByText('100%', { exact: true })).toHaveCount(0)
       await expect(summary.getByText('Đều đạt chuẩn', { exact: true })).toHaveCount(0)
