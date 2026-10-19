@@ -115,7 +115,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
   // Lọc danh sách học sinh theo Search & Status
   const filteredSummaries = useMemo(() => {
     return summaries.filter((item) => {
-      if (statusFilter !== 'all' && item.overall.status !== statusFilter) {
+      if (statusFilter !== 'all' && (item.overall.totalSessions === 0 || item.overall.status !== statusFilter)) {
         return false
       }
       if (searchQuery.trim()) {
@@ -231,6 +231,14 @@ export const DesktopAttendanceSummary: React.FC = () => {
         </div>
       </div>
 
+      {/* FE-F5: phạm vi ngày/tỷ lệ luôn đứng cạnh con số để không đọc rời rạc. */}
+      <p className="text-xs text-text-muted m-0 -mt-1">
+        Niên học <strong className="text-text-main">{currentYear}</strong> · Khoảng ngày{' '}
+        <strong className="text-text-main">{range.startDate || '—'}</strong> →{' '}
+        <strong className="text-text-main">{range.endDate || '—'}</strong> ·{' '}
+        {kpis.totalSessionsMarked} buổi đã ghi · Trọng số phép <strong className="text-text-main">{excusedWeight}</strong>
+      </p>
+
       {/* Khung nhập ngày tùy chọn */}
       {timeFilterType === 'custom' && (
         <div className="flex items-center gap-3 px-3.5 py-1.5 rounded-xl border border-surface-border bg-surface-card shadow-xs text-xs">
@@ -267,12 +275,20 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Chuyên Cần Chung</p>
-              <h3 className="text-2xl font-extrabold text-text-main mt-1.5 mb-0 flex items-center gap-1.5">
-                <span>{kpis.averageRate}%</span>
-                <Badge tone={kpis.averageRate >= 80 ? 'success' : 'danger'}>
-                  {kpis.averageRate >= 80 ? 'Đạt' : 'Cần chú ý'}
-                </Badge>
-              </h3>
+              {kpis.totalSessionsMarked > 0 ? (
+                <h3 className="text-2xl font-extrabold text-text-main mt-1.5 mb-0 flex items-center gap-1.5">
+                  <span>{kpis.averageRate}%</span>
+                  <Badge tone={kpis.averageRate >= 80 ? 'success' : 'danger'}>
+                    {kpis.averageRate >= 80 ? 'Đạt' : 'Cần chú ý'}
+                  </Badge>
+                </h3>
+              ) : (
+                // FE-F5: zero buổi được ghi nhận KHÔNG được trình bày như một
+                // kết luận "Đạt" (100% chỉ là giá trị trung tính của công thức).
+                <h3 className="text-sm font-bold text-text-muted mt-1.5 mb-0">
+                  Chưa có buổi được ghi nhận
+                </h3>
+              )}
             </div>
             <div className="w-10 h-10 rounded-xl bg-parish-primary/10 text-parish-primary flex items-center justify-center font-bold">
               <Percent size={20} />
@@ -293,7 +309,11 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Tham Dự Thánh Lễ</p>
-              <h3 className="text-2xl font-extrabold text-sky-600 dark:text-sky-400 mt-1.5 mb-0">{kpis.massRate}%</h3>
+              {kpis.totalMassSessions > 0 ? (
+                <h3 className="text-2xl font-extrabold text-sky-600 dark:text-sky-400 mt-1.5 mb-0">{kpis.massRate}%</h3>
+              ) : (
+                <h3 className="text-sm font-bold text-text-muted mt-1.5 mb-0">Chưa có buổi được ghi nhận</h3>
+              )}
             </div>
             <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-600 dark:text-sky-400 flex items-center justify-center font-bold">
               <Church size={20} />
@@ -312,7 +332,11 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Học Giáo Lý</p>
-              <h3 className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1.5 mb-0">{kpis.catechismRate}%</h3>
+              {kpis.totalCatechismSessions > 0 ? (
+                <h3 className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1.5 mb-0">{kpis.catechismRate}%</h3>
+              ) : (
+                <h3 className="text-sm font-bold text-text-muted mt-1.5 mb-0">Chưa có buổi được ghi nhận</h3>
+              )}
             </div>
             <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold">
               <BookOpen size={20} />
@@ -331,7 +355,11 @@ export const DesktopAttendanceSummary: React.FC = () => {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-bold text-text-muted uppercase tracking-wider m-0">Chầu / Sinh Hoạt</p>
-              <h3 className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 mt-1.5 mb-0">{kpis.adorationRate}%</h3>
+              {kpis.totalAdorationSessions > 0 ? (
+                <h3 className="text-2xl font-extrabold text-purple-600 dark:text-purple-400 mt-1.5 mb-0">{kpis.adorationRate}%</h3>
+              ) : (
+                <h3 className="text-sm font-bold text-text-muted mt-1.5 mb-0">Chưa có buổi được ghi nhận</h3>
+              )}
             </div>
             <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center font-bold">
               <HeartHandshake size={20} />
@@ -438,11 +466,30 @@ export const DesktopAttendanceSummary: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-2.5 max-h-56 pr-1">
-            {kpis.atRiskStudents.length === 0 ? (
+            {kpis.totalSessionsMarked === 0 ? (
+              // FE-F5: không có bản ghi nào thì không thể kết luận "an toàn".
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center text-text-muted">
+                <Calendar size={32} className="mb-2 opacity-40" />
+                <p className="text-xs font-bold text-text-main m-0">Chưa có buổi được ghi nhận</p>
+                <p className="text-xs text-text-muted mt-0.5 m-0">
+                  Chưa có dữ liệu điểm danh trong khoảng {range.startDate || 'đầu niên học'} → {range.endDate || 'hiện tại'} để đánh giá nguy cơ.
+                </p>
+              </div>
+            ) : kpis.atRiskStudents.length === 0 && summaries.some(item => item.overall.totalSessions === 0) ? (
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center text-text-muted">
+                <Calendar size={32} className="mb-2 opacity-40" />
+                <p className="text-xs font-bold text-text-main m-0">Chưa đủ dữ liệu đánh giá toàn bộ thiếu nhi</p>
+                <p className="text-xs text-text-muted mt-0.5 m-0">
+                  Còn {summaries.filter(item => item.overall.totalSessions === 0).length} em chưa có điểm danh trong khoảng đã chọn.
+                </p>
+              </div>
+            ) : kpis.atRiskStudents.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center p-6 text-center text-text-muted">
                 <CheckCircle2 size={32} className="text-parish-success mb-2 opacity-80" />
                 <p className="text-xs font-bold text-text-main m-0">Không có học sinh nguy cơ</p>
-                <p className="text-[11px] text-text-muted mt-0.5 m-0">Tất cả các em đều đạt mức chuyên cần an toàn</p>
+                <p className="text-[11px] text-text-muted mt-0.5 m-0">
+                  Tất cả các em đều đạt mức chuyên cần an toàn trong {kpis.totalSessionsMarked} buổi đã ghi
+                </p>
               </div>
             ) : (
               kpis.atRiskStudents.map((item, idx) => (
@@ -700,7 +747,9 @@ export const DesktopAttendanceSummary: React.FC = () => {
                       <td className="p-3 text-center border-r border-surface-border">
                         <span
                           className={`font-black text-xs px-2 py-0.5 rounded-full ${
-                            item.overall.rate >= 95
+                            item.overall.totalSessions === 0
+                              ? 'bg-surface-hover text-text-muted'
+                              : item.overall.rate >= 95
                               ? 'bg-emerald-500/10 text-emerald-600'
                               : item.overall.rate >= minRateThreshold
                               ? 'bg-sky-500/10 text-sky-600'
@@ -709,7 +758,7 @@ export const DesktopAttendanceSummary: React.FC = () => {
                               : 'bg-rose-500/10 text-rose-600'
                           }`}
                         >
-                          {item.overall.rate}%
+                          {item.overall.totalSessions > 0 ? `${item.overall.rate}%` : '—'}
                         </span>
                       </td>
 

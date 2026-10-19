@@ -14,7 +14,7 @@ export async function getAttendance(
   parishId: string,
   studentId?: string,
   date?: string,
-  type?: 'SundayMass' | 'CatechismClass',
+  type?: 'SundayMass' | 'CatechismClass' | 'EucharisticAdoration',
   updatedAfter?: string,
   studentIds?: string[],
   executor: DbExecutor = db,

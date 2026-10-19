@@ -37,10 +37,10 @@ const PILLARS: TrustPillar[] = [
 export function LandingTrustStrip() {
   return (
     <section data-landing-scene="trust" data-landing-reveal aria-labelledby="tieu-de-tin-cay" className="landing-trust flex flex-col gap-8">
-      <div className="landing-narrative text-center flex flex-col items-center gap-3">
+      <div className="landing-trust__intro landing-narrative flex flex-col gap-3">
         <span className="landing-eyebrow">
           <ShieldCheck className="w-4 h-4" aria-hidden="true" />
-          <span>Nền Tảng Vững Chắc</span>
+          <span>An tâm trong từng kết nối</span>
         </span>
         <h2 id="tieu-de-tin-cay" className="landing-section-title m-0 text-balance">
           Bền bỉ, an toàn và tôn trọng quyền riêng tư

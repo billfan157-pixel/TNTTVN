@@ -26,8 +26,8 @@ Bulk transfer of students across classes within the same academic year is perfor
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 26 source page modules                                    │
-│  Components: 163 (audit: 5, auth: 5, common: 34,                  │
-│  desktop: 24, exam: 15, finance: 4, landing: 11, mobile: 17,      │
+│  Components: 164 (audit: 5, auth: 5, common: 34,                  │
+│  desktop: 24, exam: 15, finance: 4, landing: 11, mobile: 18,      │
 │  operations: 30, parish: 13, ui: 5)                               │
 │  Router: TanStack Router (27 policy paths, 6 public + 21 protected)│
 │  State: 26 Zustand stores (12 persist, 14 in-memory)               │
@@ -183,7 +183,7 @@ For the historical consolidated ADR log, see [`docs/ADR_ARCHITECTURE_DECISION_RE
 
 The dependency direction is one-way: Question Bank may create an Exam, but an Exam never reads mutable current bank content while rendering or scoring. Blueprint shortage and unsupported materialization types fail before session insert. Authoring/build are online-only; no new client sync entity or second scoring authority is introduced.
 
-Branch/class selection reuses the existing class catalog without coupling reusable content to a year-specific roster row: UI class IDs are transient and map to persisted `branch_id + curriculum_level=class.name`. Direct `.xlsx|.xls|.csv|.docx` imports are parsed and previewed client-side; only normalized question JSON crosses the API boundary. `POST /questions/import` validates the whole batch and tenant branch references, then writes draft items, immutable versions and audit metadata in one database transaction.
+Branch/khối selection reuses the existing class catalog without coupling reusable content to a year-specific roster row: the bank UI derives khối options (e.g. "Thiếu Nhi 1" grouping lớp 1A/1B) from the catalog and persists `branch_id + curriculum_level` as the khối label. Filters and blueprint selection expand a requested khối to the member class names, so legacy items tagged per lớp (`Thiếu Nhi 1A/1B`) keep matching without re-import; only the Exam build tab selects a concrete lớp for OMR. Direct `.xlsx|.xls|.csv|.docx` imports are parsed and previewed client-side; only normalized question JSON crosses the API boundary. `POST /questions/import` validates the whole batch and tenant branch references, then writes draft items, immutable versions and audit metadata in one database transaction.
 
 SheetJS and pinned Mammoth are lazy document chunks excluded from PWA install-time precache. Import is capped at 5 MB/50 parsed questions per file; server batch capacity is 100 normalized items. This is an authoring convenience only: it cannot activate questions, bypass lifecycle/RBAC, introduce a second file-storage path or change Smart Exam/OMR authority.
 

@@ -16,15 +16,11 @@ export function LandingAccessPaths() {
       aria-labelledby="tieu-de-cong"
       className="landing-access scroll-mt-20 relative overflow-hidden"
     >
-      {/* Background ambient lighting accents */}
-      <div className="absolute top-0 right-1/4 w-72 h-72 bg-brand-gold/5 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
-      <div className="absolute bottom-0 left-10 w-60 h-60 bg-parish-primary/10 rounded-full blur-3xl pointer-events-none" aria-hidden="true" />
-
       {/* Intro Header - Compact */}
       <div className="landing-access__intro relative z-10 flex flex-col items-center text-center gap-2 mb-6">
         <span className="landing-eyebrow inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 text-brand-gold font-semibold text-xs tracking-wider uppercase border border-brand-gold/30">
           <Sparkles className="w-3 h-3" aria-hidden="true" />
-          <span>Cùng bắt đầu</span>
+          <span>03 / Cùng bắt đầu</span>
         </span>
         <h2 id="tieu-de-cong" className="m-0 text-balance font-extrabold tracking-tight text-white text-2xl sm:text-3xl lg:text-4xl">
           Chọn cổng phù hợp với bạn
@@ -223,6 +219,7 @@ export function LandingAccessPaths() {
           </div>
         </div>
       </div>
+      <p className="landing-access__signature relative z-10">Cùng một Xứ Đoàn. <span>Cùng các em lớn lên.</span></p>
     </section>
   )
 }

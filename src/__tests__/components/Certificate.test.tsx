@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { Certificate } from '../../components/common/Certificate'
+import { verificationApi } from '../../lib/api/verification'
 
 const mockStudent = {
   id: 'ST-001',
@@ -45,6 +46,13 @@ vi.mock('../../stores/academicYearStore', () => ({
 
 vi.mock('lucide-react', () => ({
   Printer: 'svg', X: 'svg', Award: 'svg',
+}))
+
+// Chữ ký chứng nhận do server cấp. Mặc định: promise treo (không phát sinh
+// network/state update) để các test UI hiện có giữ nguyên hành vi đồng bộ; test
+// nào cần kết quả ký thì tự mockResolvedValue/mockRejectedValue.
+vi.mock('../../lib/api/verification', () => ({
+  verificationApi: { signVerificationIdentifiers: vi.fn(() => new Promise(() => {})) },
 }))
 
 describe('Certificate', () => {
@@ -110,5 +118,44 @@ describe('Certificate', () => {
     const inner = document.querySelector('.modal-content')
     fireEvent.click(inner!)
     expect(onClose).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Vòng xác thực chứng nhận: khi server ký được tuple định danh, QR in ra là URL
+ * xác thực công khai (quét bằng camera thường mở /verify). Khi KHÔNG ký được
+ * (offline / thiếu quyền) UI phải nói rõ đó là mã tham chiếu nội bộ — không được
+ * im lặng trình bày như đã xác thực.
+ */
+describe('Certificate — trạng thái xác thực chữ ký', () => {
+  it('hiển thị nhãn xác thực + certId do server ký khi ký thành công', async () => {
+    vi.mocked(verificationApi.signVerificationIdentifiers).mockResolvedValue({
+      parishId: 'gia-ton',
+      studentId: 'ST-001',
+      academicYear: '2025-2026',
+      certId: 'CERT-0F1E2D3C',
+      signature: 'a'.repeat(64),
+      verificationScope: 'signed_identifiers',
+    })
+
+    render(<Certificate isOpen={true} onClose={vi.fn()} student={mockStudent} />)
+
+    expect(await screen.findByText(/Mã xác thực chữ ký định danh/)).toBeDefined()
+    expect(screen.queryByText(/Mã tham chiếu nội bộ/)).toBeNull()
+    expect(screen.getByText('CERT-0F1E2D3C')).toBeDefined()
+    expect(verificationApi.signVerificationIdentifiers).toHaveBeenCalledWith({
+      studentId: 'ST-001',
+      academicYear: '2025-2026',
+      certId: expect.stringMatching(/^CERT-[0-9A-F]{8}$/),
+    })
+  })
+
+  it('quay về nhãn "mã tham chiếu nội bộ" khi không ký được (offline/403)', async () => {
+    vi.mocked(verificationApi.signVerificationIdentifiers).mockRejectedValue(new Error('offline'))
+
+    render(<Certificate isOpen={true} onClose={vi.fn()} student={mockStudent} />)
+
+    expect(await screen.findByText(/Mã tham chiếu nội bộ — không xác thực nội dung/)).toBeDefined()
+    expect(screen.queryByText(/Mã xác thực chữ ký định danh/)).toBeNull()
   })
 })

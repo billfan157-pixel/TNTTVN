@@ -122,22 +122,21 @@ export function LandingWorkspacePreview({ workspace }: { workspace: PreviewWorks
           <div className="landing-demo__identity"><div><span>Đồng hành mỗi ngày</span><h4>Sổ liên lạc điện tử</h4><p>Con của bạn · Chi đoàn Thiếu 2</p></div></div>
           <div className="landing-demo__child"><span aria-hidden="true">A</span><div><strong>Đoàn sinh minh họa</strong><p><Check aria-hidden="true" />Đang theo học · {displayYear}</p></div></div>
           <div className="landing-demo__parent-result"><div><span>Chuyên cần Thánh lễ</span><strong>100<small>%</small></strong><p>Đầy đủ trong kỳ minh họa</p></div><div><span>Điểm trung bình Giáo lý</span><strong>8.8</strong><p>Xếp loại Giỏi</p></div></div>
-          <div
-            className="landing-demo__notice cursor-pointer rounded-lg p-2 hover:bg-surface-hover/60 transition-colors"
+          <button
+            type="button"
+            className="landing-demo__notice w-full text-left bg-transparent border-0 cursor-pointer rounded-lg p-2 hover:bg-surface-hover/60 transition-colors"
+            aria-expanded={parentNoticeExpanded}
             onClick={() => setParentNoticeExpanded(!parentNoticeExpanded)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={e => e.key === 'Enter' && setParentNoticeExpanded(!parentNoticeExpanded)}
           >
             <span>Thông báo từ Xứ Đoàn</span>
             <strong>Chuẩn bị cho buổi học Chúa nhật</strong>
-            <p>Giữ kết nối với Giáo Lý Viên của con.</p>
+            <span className="landing-demo__notice-text">Giữ kết nối với Giáo Lý Viên của con.</span>
             {parentNoticeExpanded && (
-              <p className="mt-2 text-xs text-parish-primary font-medium animate-in fade-in">
+              <span className="landing-demo__notice-text mt-2 text-xs text-parish-primary font-medium animate-in fade-in">
                 Nhắc nhở: Chúa Nhật tuần này thiếu nhi mang theo sách Kinh Thánh và tập bài hát sinh hoạt.
-              </p>
+              </span>
             )}
-          </div>
+          </button>
           <div className="landing-demo__request"><span>Đơn xin phép nghỉ trực tuyến</span><strong>Gửi từ cổng phụ huynh</strong></div>
         </>
       )}

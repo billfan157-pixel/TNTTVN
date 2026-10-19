@@ -345,6 +345,7 @@ export async function upsertGrade(input: GradeData, userId: string, parishId: st
     const id = generateId('GR')
     const insertPayload: Record<string, any> = {
       id,
+      scoreDaoDuc: 10,
       studentId: data.studentId,
       semester: data.semester!,
       academicYear: normYear,

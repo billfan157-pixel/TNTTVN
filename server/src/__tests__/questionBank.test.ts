@@ -18,6 +18,7 @@ const adminB = `qb-admin-b-${suffix}`
 const branchA = `qb-branch-a-${suffix}`
 const branchB = `qb-branch-b-${suffix}`
 const classA = `qb-class-a-${suffix}`
+const classA1B = `qb-class-a1b-${suffix}`
 
 const token = (userId: string, username: string, role: 'admin'|'chunhiem'|'phuta'|'phuhuynh', parishId: string) =>
   generateTokens({ userId, username, role, parishId, tokenVersion: 1 }).accessToken
@@ -56,7 +57,10 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
       { id: branchB, name: 'Thiếu Nhi B', scarfColor: 'Xanh', ageMin: 9, ageMax: 12, parishId: parishB },
     ])
     await db.insert(academicYears).values({ id: '2026-2027', startDate: '2026-09-01', endDate: '2027-05-31', parishId: parishA })
-    await db.insert(classes).values({ id: classA, code: `QB-${suffix}`, name: 'Thiếu Nhi 1A', branchId: branchA, academicYearId: '2026-2027', parishId: parishA })
+    await db.insert(classes).values([
+      { id: classA, code: `QB-${suffix}`, name: 'Thiếu Nhi 1A', branchId: branchA, academicYearId: '2026-2027', parishId: parishA },
+      { id: classA1B, code: `QB-1B-${suffix}`, name: 'Thiếu Nhi 1B', branchId: branchA, academicYearId: '2026-2027', parishId: parishA },
+    ])
   })
 
   afterAll(async () => {
@@ -280,5 +284,38 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     expect(generated.status).toBe(422)
     expect(generated.error.code).toBe('BLUEPRINT_SHORTAGE')
     expect((await db.select().from(examSessions).where(eq(examSessions.parishId, parishA))).length).toBe(countBefore)
+  })
+
+  it('lọc và sinh đề theo khối bao gồm câu cũ gắn tên lớp 1A/1B', async () => {
+    const legacy = await req('/questions', { method: 'POST', auth: adminToken, body: {
+      ...mc('Câu cũ gắn theo lớp Thiếu Nhi 1B'), branchId: branchA, curriculumLevel: 'Thiếu Nhi 1B',
+    } })
+    expect(legacy.status).toBe(201)
+    for (const action of ['submit', 'approve', 'activate'] as const) {
+      await req(`/questions/${legacy.data.id}/lifecycle`, { method: 'POST', auth: adminToken, body: { action } })
+    }
+
+    // Lọc theo khối "Thiếu Nhi 1" phải trả về câu gắn taxonomy cũ theo lớp "Thiếu Nhi 1B".
+    const filtered = await req(`/questions?branchId=${branchA}&curriculumLevel=${encodeURIComponent('Thiếu Nhi 1')}`, { auth: adminToken })
+    expect(filtered.status).toBe(200)
+    expect(filtered.data.items.map((item: { id: string }) => item.id)).toContain(legacy.data.id)
+
+    // Ma trận chọn khối "Thiếu Nhi 1" cũng phải tuyển được câu gắn theo lớp "Thiếu Nhi 1B".
+    const blueprint = await req('/blueprints', { method: 'POST', auth: adminToken, body: {
+      name: 'Ma trận theo khối', branchId: branchA, curriculumLevel: 'Thiếu Nhi 1', totalQuestions: 1, maxScore: 10,
+      rules: [{ questionType: 'multiple_choice', difficulty: 'recognition', questionCount: 1, pointsEach: 10 }],
+    } })
+    expect(blueprint.status).toBe(201)
+    await req(`/blueprints/${blueprint.data.id}/status`, { method: 'POST', auth: adminToken, body: { status: 'active' } })
+    const built = await req('/exams/build', { method: 'POST', auth: adminToken, body: {
+      mode: 'blueprint', blueprintId: blueprint.data.id, classId: classA, subject: 'Đề theo khối', scoreType: '1period',
+      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 1, buildCommandId: 'QB-BUILD-KHOI-01',
+    } })
+    expect(built.status).toBe(201)
+    const snapshots = await db.select().from(examQuestionSnapshots).where(and(
+      eq(examQuestionSnapshots.parishId, parishA),
+      eq(examQuestionSnapshots.examSessionId, built.data.id),
+    ))
+    expect(snapshots.map(snapshot => snapshot.questionId)).toEqual([legacy.data.id])
   })
 })

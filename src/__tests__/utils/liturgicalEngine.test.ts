@@ -5,6 +5,7 @@ import {
   getLiturgicalDay,
   getUpcomingSolemnities,
 } from '../../utils/liturgicalEngine'
+import { LITURGICAL_CALENDAR_SOURCE, LITURGICAL_CALENDAR_VERSION } from '../../constants/liturgical'
 
 describe('liturgicalEngine Unit Tests (HĐGMVN & IGMR Standard)', () => {
   it('calculateEaster tính chính xác ngày Lễ Phục Sinh theo thuật toán Computus', () => {
@@ -67,9 +68,22 @@ describe('liturgicalEngine Unit Tests (HĐGMVN & IGMR Standard)', () => {
     expect(dec25.rank).toBe('SOLEMNITY')
   })
 
-  it('getUpcomingSolemnities trả về danh sách các Lễ Trọng tiếp theo', () => {
+  it.each(['2026-10-18', '2026-10-25', '2026-03-01', '2026-04-19', '2026-11-29'])(
+    'phân biệt Chúa nhật %s với lễ trọng và trả metadata lịch', (date) => {
+      const day = getLiturgicalDay(date)
+      expect(day.rank).toBe('SUNDAY')
+      expect(day.rankName).toBe('Chúa Nhật')
+      expect(day.isSunday).toBe(true)
+      expect(day.isHolyDayOfObligation).toBe(true)
+      expect(day.calendarSource).toBe(LITURGICAL_CALENDAR_SOURCE)
+      expect(day.calendarVersion).toBe(LITURGICAL_CALENDAR_VERSION)
+    },
+  )
+
+  it('getUpcomingSolemnities giữ cả Chúa nhật lễ buộc và lễ trọng thực sự', () => {
     const list = getUpcomingSolemnities(new Date(Date.UTC(2026, 7, 1)), 5)
-    expect(list.length).toBeGreaterThan(0)
-    expect(list[0].rank).toBe('SOLEMNITY')
+    expect(list.map(day => day.date)).toEqual(['2026-08-02', '2026-08-09', '2026-08-15', '2026-08-16', '2026-08-23'])
+    expect(list[0].rank).toBe('SUNDAY')
+    expect(list.find(day => day.date === '2026-08-15')?.rank).toBe('SOLEMNITY')
   })
 })

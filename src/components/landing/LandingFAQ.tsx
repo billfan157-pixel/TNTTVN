@@ -58,82 +58,84 @@ export function LandingFAQ() {
       data-landing-scene="faq"
       data-landing-reveal
       aria-labelledby="tieu-de-faq"
-      className="landing-faq flex flex-col gap-8 scroll-mt-20 max-w-4xl mx-auto w-full"
+      className="landing-faq scroll-mt-20 w-full"
       id="cau-hoi-thuong-gap"
     >
-      <div className="landing-narrative text-center flex flex-col items-center gap-3">
-        <span className="landing-eyebrow">
-          <HelpCircle aria-hidden="true" className="w-4 h-4" />
-          <span>Giải Đáp Thắc Mắc</span>
-        </span>
-        <h2 id="tieu-de-faq" className="landing-section-title m-0 text-balance">
-          Câu hỏi thường gặp
-        </h2>
-        <p className="landing-lead m-0 text-balance">
-          Những băn khoăn phổ biến nhất của phụ huynh và huynh trưởng khi sử dụng Catevia.
-        </p>
-      </div>
+      <div className="landing-faq__body">
+        <div className="landing-faq__intro landing-narrative flex flex-col gap-3">
+          <span className="landing-eyebrow">
+            <HelpCircle aria-hidden="true" className="w-4 h-4" />
+            <span>Giải Đáp Thắc Mắc</span>
+          </span>
+          <h2 id="tieu-de-faq" className="landing-section-title m-0 text-balance">
+            Câu hỏi thường gặp
+          </h2>
+          <p className="landing-lead m-0 text-balance">
+            Những băn khoăn phổ biến nhất của phụ huynh và huynh trưởng khi sử dụng Catevia.
+          </p>
+        </div>
 
-      <div className="flex flex-col gap-3" role="region" aria-label="Danh sách câu hỏi thường gặp">
-        {FAQ_ITEMS.map((item, index) => {
-          const isOpen = openId === item.id
-          const buttonId = `faq-btn-${item.id}`
-          const panelId = `faq-panel-${item.id}`
+        <div className="landing-faq__questions flex flex-col gap-3" role="region" aria-label="Danh sách câu hỏi thường gặp">
+          {FAQ_ITEMS.map((item, index) => {
+            const isOpen = openId === item.id
+            const buttonId = `faq-btn-${item.id}`
+            const panelId = `faq-panel-${item.id}`
 
-          return (
-            <article
-              key={item.id}
-              className={`card transition-colors duration-200 border rounded-2xl overflow-hidden ${
-                isOpen
-                  ? 'border-parish-primary/50 shadow-md bg-surface-card'
-                  : 'border-surface-border bg-surface-card hover:border-parish-primary/30'
-              }`}
-            >
-              <button
-                type="button"
-                id={buttonId}
-                aria-expanded={isOpen}
-                aria-controls={panelId}
-                onClick={() => toggleItem(item.id)}
-                className="w-full min-h-12 px-5 py-4 text-left flex items-center justify-between gap-4 text-text-main hover:text-parish-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary transition-colors"
+            return (
+              <article
+                key={item.id}
+                className={`card transition-colors duration-200 border rounded-2xl overflow-hidden ${
+                  isOpen
+                    ? 'border-parish-primary/50 shadow-md bg-surface-card'
+                    : 'border-surface-border bg-surface-card hover:border-parish-primary/30'
+                }`}
               >
-                <span className="text-sm sm:text-base font-bold flex items-center gap-3.5 min-w-0">
-                  <span
-                    className={`w-7 h-7 rounded-xl text-xs font-bold flex items-center justify-center shrink-0 transition-colors ${
-                      isOpen
-                        ? 'bg-parish-primary text-text-inverse'
-                        : 'bg-surface-app border border-surface-border text-text-muted'
-                    }`}
-                  >
-                    0{index + 1}
+                <button
+                  type="button"
+                  id={buttonId}
+                  aria-expanded={isOpen}
+                  aria-controls={panelId}
+                  onClick={() => toggleItem(item.id)}
+                  className="w-full min-h-12 px-5 py-4 text-left flex items-center justify-between gap-4 text-text-main hover:text-parish-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-parish-primary transition-colors"
+                >
+                  <span className="text-sm sm:text-base font-bold flex items-center gap-3.5 min-w-0">
+                    <span
+                      className={`w-7 h-7 rounded-xl text-xs font-bold flex items-center justify-center shrink-0 transition-colors ${
+                        isOpen
+                          ? 'bg-parish-primary text-text-inverse'
+                          : 'bg-surface-app border border-surface-border text-text-muted'
+                      }`}
+                    >
+                      0{index + 1}
+                    </span>
+                    <span className="leading-snug">{item.question}</span>
                   </span>
-                  <span className="leading-snug">{item.question}</span>
-                </span>
-                <ChevronDown
-                  aria-hidden="true"
-                  className={`w-4 h-4 text-text-muted shrink-0 transition-transform duration-300 ${
-                    isOpen ? 'rotate-180 text-parish-primary' : ''
-                  }`}
-                />
-              </button>
+                  <ChevronDown
+                    aria-hidden="true"
+                    className={`w-4 h-4 text-text-muted shrink-0 transition-transform duration-300 ${
+                      isOpen ? 'rotate-180 text-parish-primary' : ''
+                    }`}
+                  />
+                </button>
 
-              <div
-                id={panelId}
-                role="region"
-                aria-labelledby={buttonId}
-                className="landing-faq__panel"
-                data-open={isOpen ? 'true' : 'false'}
-                inert={!isOpen}
-              >
-                <div className="landing-faq__panel-inner">
-                  <p className="m-0 text-xs sm:text-sm text-text-secondary leading-relaxed p-5 pt-2 border-t border-surface-border/40">
-                    {item.answer}
-                  </p>
+                <div
+                  id={panelId}
+                  role="region"
+                  aria-labelledby={buttonId}
+                  className="landing-faq__panel"
+                  data-open={isOpen ? 'true' : 'false'}
+                  inert={!isOpen}
+                >
+                  <div className="landing-faq__panel-inner">
+                    <p className="m-0 text-xs sm:text-sm text-text-secondary leading-relaxed p-5 pt-2 border-t border-surface-border/40">
+                      {item.answer}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </article>
-          )
-        })}
+              </article>
+            )
+          })}
+        </div>
       </div>
 
       {/* Pastoral Support Box */}

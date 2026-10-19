@@ -14,6 +14,7 @@ import { SubpageHeader } from '../common/SubpageHeader'
 import { NoResultState } from '../common/StateFeedback'
 import { hapticFeedback } from '../../utils/haptics'
 import { useToastStore } from '../../stores/toastStore'
+import { MobileConductEntry } from './MobileConductEntry'
 
 const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string }> = [
   { id: 'oral', label: 'Điểm miệng', short: 'Miệng' },
@@ -53,7 +54,8 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   }, [selectedClassId, selectedSemester, academicYear, fetchDailyEntries])
   const classes = useClassStore(s => s.classes)
   const { restricted: semesterRestricted, openSemester } = useSemesterAccess()
-  const [activeType, setActiveType] = useState<DailyScoreType>('oral')
+  const [activeType, setActiveType] = useState<DailyScoreType | 'conduct'>('oral')
+  const assessmentType = activeType === 'conduct' ? 'oral' : activeType
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [srAnnouncement, setSrAnnouncement] = useState<string>('')
@@ -67,7 +69,13 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
       : students.filter(student => student.classId === selectedClassId && student.status === 'Đang học')
   ), [selectedClassId, students])
   const classNameById = useMemo(() => new Map(classes.map(item => [item.id, item.name])), [classes])
-  const activeTypeLabel = SCORE_TYPES.find(item => item.id === activeType)?.label || ''
+  useEffect(() => {
+    if (activeType === 'conduct' && selectedClassId === 'all') {
+      const classIds = new Set(filteredStudents.map(student => student.classId))
+      for (const classId of classIds) void fetchDailyEntries({ classId, semester: selectedSemester, academicYear, scoreType: 'conduct' })
+    }
+  }, [activeType, selectedClassId, selectedSemester, academicYear, filteredStudents, fetchDailyEntries])
+  const activeTypeLabel = activeType === 'conduct' ? 'Đạo đức' : SCORE_TYPES.find(item => item.id === activeType)?.label || ''
   const activeEntries = useMemo(() => entries.filter(entry => entry.scoreType === activeType && entry.semester === selectedSemester && filteredStudents.some(student => student.id === entry.studentId)), [entries, activeType, selectedSemester, filteredStudents])
 
   // Focus effect for sequential grading
@@ -124,6 +132,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   }
 
   const addScoreValue = async (student: Student, scoreValue: number, shouldAdvance = autoAdvance) => {
+    if (activeType === 'conduct') return
     if (savingEntries.current.has(student.id)) return
     if (!Number.isFinite(scoreValue) || scoreValue < 0 || scoreValue > 10) {
       hapticFeedback.error()
@@ -218,11 +227,13 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
               </button>
             )
           })}
+          <button type="button" role="tab" aria-selected={activeType === 'conduct'} onClick={() => setActiveType('conduct')} className={`grade-segmented-item ${activeType === 'conduct' ? 'is-active' : ''}`} data-compact-touch>Đạo đức</button>
         </div>
 
         {!canEdit && <div className="rounded-xl bg-surface-hover border border-surface-border px-3 py-1.5 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
       </SubpageHeader>
 
+      {activeType === 'conduct' ? <MobileConductEntry key={`${selectedClassId}:${academicYear}:${selectedSemester}`} students={filteredStudents} semester={selectedSemester} academicYear={academicYear} canEdit={canEdit} /> : <>
       {stats && (
         <section className="grade-metric-strip grade-metric-strip--3col" aria-label="Thống kê điểm số">
           <div className="grade-metric-cell">
@@ -243,10 +254,10 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
       {filteredStudents.length === 0 ? (
         <NoResultState title="Không có thiếu nhi" description="Không có thiếu nhi trong lớp hiện tại." />
       ) : filteredStudents.map(student => {
-        const studentEntries = getEntriesForStudent(student.id, selectedSemester, activeType)
+        const studentEntries = getEntriesForStudent(student.id, selectedSemester, assessmentType)
         // Tier 2: bài thi máy cùng cột — read-only, nhãn rõ, không nút xóa.
-        const machineEntries = getMachineEntries(student.id, selectedSemester, activeType)
-        const average = getAverageForStudent(student.id, selectedSemester, activeType)
+        const machineEntries = getMachineEntries(student.id, selectedSemester, assessmentType)
+        const average = getAverageForStudent(student.id, selectedSemester, assessmentType)
         const grade = getStudentGrade(student.id, selectedSemester)
         const isExpanded = expanded.has(student.id)
 
@@ -362,6 +373,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
           </article>
         )
       })}
+      </>}
     </div>
   )
 }

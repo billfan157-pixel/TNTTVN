@@ -1,4 +1,4 @@
-import { useSyncStore, migrateLegacyQueueOwnership, isOwnOp, getOwnUnsettledSyncOperations } from '../stores/syncStore'
+import { useSyncStore, migrateLegacyQueueOwnership, getOwnUnsettledSyncOperations } from '../stores/syncStore'
 import { api, isAuthenticated } from '../lib/api'
 import { getDB } from '../lib/db'
 import { resetClientData, getLocalPurgeVersion, PURGE_VERSION_KEY } from '../lib/resetClientData'
@@ -244,6 +244,17 @@ export async function runInitialSync(): Promise<void> {
 }
 
 
+/**
+ * FE-F1: in-tab reentrancy guard.
+ *
+ * `acquireSyncLease` treats the same tab as the current owner (same
+ * `parish_sync_owner`), so the localStorage fallback would let two rapid
+ * "Thử lại" clicks interleave inside one tab. This flag is set synchronously
+ * before the first await, closing that window. The cross-tab lease continues
+ * to protect other tabs; ownership checks still run for every claimed op.
+ */
+let syncFlowInFlight = false
+
 export async function runSyncFlow(leaseHeld = false) {
   const store = useSyncStore.getState()
   if (store.status === 'syncing') return
@@ -261,7 +272,13 @@ export async function runSyncFlow(leaseHeld = false) {
   }
 
   if (!leaseHeld) {
-    await runWithSyncLease(() => runSyncFlow(true))
+    if (syncFlowInFlight) return
+    syncFlowInFlight = true
+    try {
+      await runWithSyncLease(() => runSyncFlow(true))
+    } finally {
+      syncFlowInFlight = false
+    }
     return
   }
 
@@ -643,9 +660,11 @@ export async function runSyncFlow(leaseHeld = false) {
 
     const s = useSyncStore.getState()
     const finalCount = await s.refreshCount()
-    const db = getDB()
+    requireFlowOwner(flowOwner)
     // OFF-TENANT-1: thông báo lỗi chỉ đếm failed ops đúng scope phiên hiện tại.
-    const failedCount = await db.syncQueue.where('status').equals('failed').filter((item) => isOwnOp(item)).count()
+    // FE-F4: counter này do refreshCount() tính cùng lúc với pendingCount và
+    // được giữ trong store để banner hiển thị bền vững qua cả pull thành công.
+    const failedCount = useSyncStore.getState().failedCount
     const totalConflicts = syncState.mergedConflictCount
     if (finalCount < 0) {
       s.setStatus('failed')
@@ -692,6 +711,14 @@ export async function runSyncFlow(leaseHeld = false) {
     } else {
       s.setStatus('idle')
       s.setLastError((err as Error).message || 'Sync failed')
+    }
+  } finally {
+    // FE-F1: no exit path may leave the store in 'syncing'. An owner change
+    // aborts the flow without a terminal status, which previously stranded the
+    // retry button behind runSyncFlow's `status === 'syncing'` early return.
+    const current = useSyncStore.getState()
+    if (current.status === 'syncing') {
+      current.setStatus(navigator.onLine ? 'idle' : 'offline')
     }
   }
 }

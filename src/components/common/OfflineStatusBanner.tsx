@@ -2,26 +2,45 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Wifi, WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useSyncStore } from '../../stores/syncStore';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { requestSync } from '../../lib/syncTrigger';
 
 const ConflictInboxModal = lazy(() =>
   import('../desktop/ConflictInboxModal').then((m) => ({ default: m.ConflictInboxModal }))
 );
 
+export interface OfflineStatusBannerProps {
+  /** FE-F4: đường dẫn tới bản ghi + lý do (System Diagnostics) cho op failed. */
+  onOpenDiagnostics?: () => void;
+}
+
 /**
  * Sprint 2: Everyday Catechist-Friendly Offline UX Banner & Conflict Detector.
  * Translates complex sync engine state into reassuring natural Vietnamese language.
  */
-export const OfflineStatusBanner: React.FC = () => {
+export const OfflineStatusBanner: React.FC<OfflineStatusBannerProps> = ({ onOpenDiagnostics }) => {
   const isOnline = useOnlineStatus();
   const status = useSyncStore(s => s.status);
   const pendingCount = useSyncStore(s => s.pendingCount);
+  const failedCount = useSyncStore(s => s.failedCount);
   const unresolvedConflictsCount = useSyncStore(s => s.unresolvedConflictsCount);
   const isSyncing = status === 'syncing';
   const [showConflictModal, setShowConflictModal] = useState(false);
 
   useEffect(() => {
+    // Pending + failed counts come from the same owner-scoped read so a reload
+    // (or a successful pull) cannot make a failed op disappear from the banner.
+    void useSyncStore.getState().refreshCount();
     void useSyncStore.getState().refreshConflictsCount();
   }, []);
+
+  /**
+   * FE-F1: "Thử lại" phải phát lệnh đồng bộ qua trigger/coordinator — không tự
+   * set status 'syncing' (owner của status là runSyncFlow). requestSync() là
+   * no-op an toàn khi vòng đời sync chưa mount hoặc tab khác đang giữ lease.
+   */
+  const handleRetry = () => {
+    void requestSync();
+  };
 
   const conflictBanner = unresolvedConflictsCount > 0 ? (
     <div className="offline-status-banner offline-status-banner--conflict bg-parish-warning-bg text-parish-warning border-b border-parish-warning/30 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-colors">
@@ -51,8 +70,32 @@ export const OfflineStatusBanner: React.FC = () => {
     </Suspense>
   ) : null;
 
-  // 1. Online & fully synced & no conflicts (Normal state → visually silent)
-  if (isOnline && !isSyncing && pendingCount === 0 && status !== 'failed' && unresolvedConflictsCount === 0) {
+  // FE-F4: chỉ báo "thay đổi cần xử lý" bền vững cho op failed vĩnh viễn.
+  // Không phụ thuộc lastError (một lần pull thành công xoá lastError nhưng op
+  // failed vẫn còn trong queue) và không gộp với thông điệp "mất dữ liệu".
+  const failedOpsBanner = failedCount > 0 ? (
+    <div className="offline-status-banner offline-status-banner--failed-ops bg-parish-danger-bg text-parish-danger-hover border-b border-parish-danger/30 px-4 py-2 text-xs font-semibold flex items-center justify-between transition-colors">
+      <div className="offline-status-banner__content flex items-center gap-2">
+        <AlertTriangle size={15} className="text-parish-danger shrink-0" />
+        <span>
+          🛠 <strong>Thay đổi cần xử lý:</strong> {failedCount} thao tác chưa gửi được lên máy chủ
+          (bị từ chối). Dữ liệu gốc vẫn được giữ trên máy này.
+        </span>
+      </div>
+      {onOpenDiagnostics && (
+        <button
+          type="button"
+          onClick={onOpenDiagnostics}
+          className="btn btn-danger btn-sm text-xs shrink-0"
+        >
+          Xem lý do
+        </button>
+      )}
+    </div>
+  ) : null;
+
+  // 1. Online & fully synced & no conflicts, no rejected ops (Normal state → visually silent)
+  if (isOnline && !isSyncing && pendingCount === 0 && status !== 'failed' && failedCount === 0 && unresolvedConflictsCount === 0) {
     return conflictModal;
   }
 
@@ -66,13 +109,24 @@ export const OfflineStatusBanner: React.FC = () => {
             <WifiOff size={15} className="text-parish-danger shrink-0" />
             <span>🔴 <strong>Lỗi đồng bộ:</strong> Chưa thể gửi dữ liệu lên máy chủ.</span>
           </div>
-          <button
-            type="button"
-            onClick={() => useSyncStore.getState().setStatus('syncing')}
-            className="btn btn-danger btn-sm text-[11px]"
-          >
-            Thử lại
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {onOpenDiagnostics && (
+              <button
+                type="button"
+                onClick={onOpenDiagnostics}
+                className="btn btn-danger btn-sm text-xs"
+              >
+                Xem lý do
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="btn btn-danger btn-sm text-xs"
+            >
+              Thử lại
+            </button>
+          </div>
         </div>
         {conflictModal}
       </>
@@ -84,6 +138,7 @@ export const OfflineStatusBanner: React.FC = () => {
     return (
       <>
         {conflictBanner}
+        {failedOpsBanner}
         <div className="offline-status-banner offline-status-banner--syncing bg-parish-info-bg text-parish-info border-b border-parish-info/30 px-4 py-2 text-xs font-semibold flex items-center justify-between">
           <div className="offline-status-banner__content flex items-center gap-2">
             <RefreshCw size={15} className="text-parish-info animate-spin shrink-0" />
@@ -103,6 +158,7 @@ export const OfflineStatusBanner: React.FC = () => {
     return (
       <>
         {conflictBanner}
+        {failedOpsBanner}
         <div className="offline-status-banner offline-status-banner--offline bg-parish-warning-bg text-parish-warning border-b border-parish-warning/30 px-4 py-2 text-xs font-semibold flex items-center justify-between">
           <div className="offline-status-banner__content flex items-center gap-2">
             <WifiOff size={15} className="text-amber-600 shrink-0" />
@@ -119,10 +175,11 @@ export const OfflineStatusBanner: React.FC = () => {
     );
   }
 
-  // 5. Online with pending changes awaiting background push OR conflicts
+  // 5. Online with pending changes awaiting background push OR conflicts OR rejected ops
   return (
     <>
       {conflictBanner}
+      {failedOpsBanner}
       {pendingCount > 0 && (
         <div className="offline-status-banner offline-status-banner--pending bg-parish-info-bg text-parish-info border-b border-parish-info/30 px-4 py-2 text-xs font-semibold flex items-center justify-between">
           <div className="offline-status-banner__content flex items-center gap-2">

@@ -41,7 +41,7 @@ const { useSyncStore } = await import('../../stores/syncStore')
 const { setTenantScope } = await import('../../lib/tenantScope')
 
 beforeEach(() => {
-  useSyncStore.setState({ status: 'idle', pendingCount: 0, lastSyncAt: null, lastError: null })
+  useSyncStore.setState({ status: 'idle', pendingCount: 0, failedCount: 0, lastSyncAt: null, lastError: null })
   vi.clearAllMocks()
   localStorage.setItem('parish_current_user', JSON.stringify({ id: OWNER.userId, parishId: OWNER.parishId }))
   setTenantScope(OWNER)
@@ -51,6 +51,7 @@ beforeEach(() => {
   mockTable.equals = vi.fn().mockReturnThis()
   mockTable.filter = vi.fn().mockReturnThis()
   // Default: empty queue reads (refreshCount/addOp dedupe query toArray).
+  mockTable.toArray.mockReset()
   mockTable.toArray.mockResolvedValue([])
   mockTable.get.mockResolvedValue({ id: 'OWNED', ...OWNER })
 })
@@ -92,6 +93,42 @@ describe('syncStore', () => {
     mockTable.toArray.mockRejectedValue(new Error('IndexedDB unavailable'))
     await expect(useSyncStore.getState().refreshCount()).resolves.toBe(-1)
     expect(useSyncStore.getState().status).toBe('failed')
+  })
+
+  it.each([false, true])('does not publish counters from an earlier owner revision (return to A: %s)', async (returnToA) => {
+    let resolveRead!: (rows: unknown[]) => void
+    mockTable.toArray.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve }))
+    const refresh = useSyncStore.getState().refreshCount()
+    setTenantScope({ userId: 'USR-B', parishId: 'PARISH-B' })
+    if (returnToA) setTenantScope(OWNER)
+    useSyncStore.setState({ pendingCount: 2, failedCount: 3 })
+
+    resolveRead([{ id: 'OLD-OP', ...OWNER, status: 'pending' }])
+    await expect(refresh).resolves.toBe(-1)
+    expect(useSyncStore.getState()).toMatchObject({ pendingCount: 2, failedCount: 3, status: 'idle', lastError: null })
+  })
+
+  it('does not publish a failed-count read that finishes after switching accounts', async () => {
+    let resolveRead!: (rows: unknown[]) => void
+    mockTable.toArray.mockResolvedValueOnce([]).mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve }))
+    const refresh = useSyncStore.getState().refreshCount()
+    await vi.waitFor(() => expect(resolveRead).toBeTypeOf('function'))
+    setTenantScope({ userId: 'USR-B', parishId: 'PARISH-B' })
+    useSyncStore.setState({ pendingCount: 2, failedCount: 3 })
+    resolveRead([{ id: 'OLD-FAILED', ...OWNER, status: 'failed' }])
+    await expect(refresh).resolves.toBe(-1)
+    expect(useSyncStore.getState()).toMatchObject({ pendingCount: 2, failedCount: 3, status: 'idle' })
+  })
+
+  it('does not publish conflict counters after the owner revision expires', async () => {
+    let resolveRead!: (rows: unknown[]) => void
+    mockTable.toArray.mockImplementationOnce(() => new Promise(resolve => { resolveRead = resolve }))
+    const refresh = useSyncStore.getState().refreshConflictsCount()
+    setTenantScope({ userId: 'USR-B', parishId: 'PARISH-B' })
+    useSyncStore.setState({ unresolvedConflictsCount: 3 })
+    resolveRead([{ id: 'OLD-CONFLICT', ...OWNER, resolved: false }])
+    await refresh
+    expect(useSyncStore.getState().unresolvedConflictsCount).toBe(3)
   })
 
   it('getPendingOps returns sorted pending operations', async () => {

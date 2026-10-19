@@ -46,6 +46,9 @@ import {
   questionFormFromItem,
   type QuestionForm,
 } from '../../utils/questionEditorModel'
+import { buildQuestionBlockOptions } from '../../utils/questionBlock'
+import { XUAN_LOC_LEVELS, XUAN_LOC_REVIEWED_ON, XUAN_LOC_SOURCES, xuanLocReference, type XuanLocReference } from '../../constants/xuanLocCurriculum'
+import { EmptyState } from '../common/StateFeedback'
 
 const TYPE_LABELS: Record<QuestionBankType, string> = {
   multiple_choice: 'Trắc nghiệm',
@@ -85,7 +88,7 @@ const DIFFICULTY_TONES: Record<QuestionDifficulty, BadgeTone> = {
   application: 'orange',
 }
 
-type ViewTab = 'questions' | 'blueprints' | 'builder'
+type ViewTab = 'questions' | 'blueprints' | 'builder' | 'curriculum'
 
 export function QuestionBankView() {
   const effectiveMode = useEffectiveMode()
@@ -113,7 +116,7 @@ export function QuestionBankView() {
   const [status, setStatus] = useState<QuestionBankStatus | ''>('')
   const [difficulty, setDifficulty] = useState<QuestionDifficulty | ''>('')
   const [branchFilter, setBranchFilter] = useState('')
-  const [classFilter, setClassFilter] = useState('')
+  const [blockFilter, setBlockFilter] = useState('')
 
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -128,7 +131,7 @@ export function QuestionBankView() {
   // Blueprint creation state
   const [bpName, setBpName] = useState('')
   const [bpBranchId, setBpBranchId] = useState('')
-  const [bpClassId, setBpClassId] = useState('')
+  const [bpBlockId, setBpBlockId] = useState('')
   const [bpRules, setBpRules] = useState<ExamBlueprintRule[]>([
     { questionType: 'multiple_choice', difficulty: 'recognition', questionCount: 4, pointsEach: 1 },
     { questionType: 'multiple_choice', difficulty: 'understanding', questionCount: 4, pointsEach: 1 },
@@ -154,13 +157,13 @@ export function QuestionBankView() {
   const loadQuestions = async () => {
     setLoading(true)
     try {
-      const selectedClass = classes.find(item => item.id === classFilter)
+      const selectedBlock = blockOptions.find(item => item.id === blockFilter)
       const result = await api.listQuestionBank({
         search: search.trim() || undefined,
         status: status || undefined,
         difficulty: difficulty || undefined,
         branchId: branchFilter || undefined,
-        curriculumLevel: selectedClass?.name,
+        curriculumLevel: selectedBlock?.label,
         limit: 100,
       })
       setQuestions(result.items)
@@ -218,27 +221,29 @@ export function QuestionBankView() {
     setStatus('')
     setDifficulty('')
     setBranchFilter('')
-    setClassFilter('')
+    setBlockFilter('')
   }
 
-  const hasActiveFilters = Boolean(search || status || difficulty || branchFilter || classFilter)
+  const hasActiveFilters = Boolean(search || status || difficulty || branchFilter || blockFilter)
 
-  const editorClasses = useMemo(
+  const blockOptions = useMemo(
     () =>
-      classes.map(item => ({
-        id: item.id,
-        name: item.name,
-        branchId: item.branchId,
-        academicYear: item.academicYear ?? item.academicYearId,
-      })),
+      buildQuestionBlockOptions(
+        classes.map(item => ({
+          id: item.id,
+          name: item.name,
+          branchId: item.branchId,
+          academicYear: item.academicYear ?? item.academicYearId,
+        })),
+      ),
     [classes],
   )
   const branchOptions = useMemo(() => branches.map(item => ({ id: item.id, name: item.name })), [branches])
-  const filterClasses = useMemo(
-    () => classes.filter(item => !branchFilter || item.branchId === branchFilter),
-    [branchFilter, classes],
+  const filterBlocks = useMemo(
+    () => blockOptions.filter(item => !branchFilter || item.branchId === branchFilter),
+    [branchFilter, blockOptions],
   )
-  const blueprintClasses = useMemo(() => classes.filter(item => item.branchId === bpBranchId), [bpBranchId, classes])
+  const blueprintBlocks = useMemo(() => blockOptions.filter(item => item.branchId === bpBranchId), [bpBranchId, blockOptions])
   const buildClasses = useMemo(
     () => classes.filter(item => !buildBranchId || item.branchId === buildBranchId),
     [buildBranchId, classes],
@@ -309,11 +314,11 @@ export function QuestionBankView() {
     if (creatingBlueprint) return
     setCreatingBlueprint(true)
     try {
-      const blueprintClass = classes.find(item => item.id === bpClassId)
+      const blueprintBlock = blockOptions.find(item => item.id === bpBlockId)
       const created = await api.createExamBlueprint({
         name: bpName,
         branchId: bpBranchId || null,
-        curriculumLevel: blueprintClass?.name ?? null,
+        curriculumLevel: blueprintBlock?.label ?? null,
         totalQuestions: totalBpQuestions,
         maxScore: totalBpPoints,
         rules: bpRules,
@@ -380,6 +385,12 @@ export function QuestionBankView() {
   }
 
   const navTabs: SelectionItem<ViewTab>[] = [
+    {
+      value: 'curriculum',
+      label: 'Giáo lý Xuân Lộc',
+      icon: <BookOpenCheck size={16} />,
+      ariaLabel: 'Giáo lý Xuân Lộc',
+    },
     {
       value: 'questions',
       label: 'Ngân hàng câu hỏi',
@@ -544,6 +555,14 @@ export function QuestionBankView() {
         className="self-start flex-wrap"
       />
 
+      <TabPanel tabsId="question-bank-tabs" value="curriculum" activeValue={tab}>
+        <XuanLocCurriculumPanel online={online} onUseReference={reference => {
+          setEditingId(null)
+          setForm({ ...EMPTY_QUESTION, ...reference })
+          setEditorOpen(true)
+        }} />
+      </TabPanel>
+
       {/* Notification banner */}
       {message && (
         <Surface
@@ -618,7 +637,7 @@ export function QuestionBankView() {
                   value={branchFilter}
                   onChange={e => {
                     setBranchFilter(e.target.value)
-                    setClassFilter('')
+                    setBlockFilter('')
                   }}
                 >
                   <option value="">-- Mọi ngành --</option>
@@ -631,21 +650,21 @@ export function QuestionBankView() {
               </div>
 
               <div className="form-group">
-                <label className="form-label text-xs" htmlFor="qb-class">
-                  Khối lớp
+                <label className="form-label text-xs" htmlFor="qb-block">
+                  Khối
                 </label>
                 <select
-                  id="qb-class"
+                  id="qb-block"
                   className="form-select min-h-10 w-full text-sm"
-                  value={classFilter}
+                  value={blockFilter}
                   disabled={!branchFilter}
-                  onChange={e => setClassFilter(e.target.value)}
+                  onChange={e => setBlockFilter(e.target.value)}
                 >
-                  <option value="">-- Mọi lớp trong ngành --</option>
-                  {filterClasses.map(item => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                      {item.academicYear ? ` · ${item.academicYear}` : ''}
+                  <option value="">-- Mọi khối trong ngành --</option>
+                  {filterBlocks.map(block => (
+                    <option key={block.id} value={block.id}>
+                      {block.label}
+                      {block.academicYear ? ` · ${block.academicYear}` : ''}
                     </option>
                   ))}
                 </select>
@@ -947,7 +966,7 @@ export function QuestionBankView() {
                             leadingIcon={<FilePlus2 className="h-4 w-4" />}
                             onClick={() => {
                               setEditingId(preview.id)
-                              setForm(questionFormFromItem(preview, editorClasses))
+                              setForm(questionFormFromItem(preview, blockOptions))
                               setEditorOpen(true)
                             }}
                           >
@@ -1073,7 +1092,7 @@ export function QuestionBankView() {
                     value={bpBranchId}
                     onChange={e => {
                       setBpBranchId(e.target.value)
-                      setBpClassId('')
+                      setBpBlockId('')
                     }}
                   >
                     <option value="">-- Mọi ngành trong Xứ đoàn --</option>
@@ -1086,21 +1105,21 @@ export function QuestionBankView() {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label text-xs" htmlFor="bp-class">
-                    Khối lớp áp dụng
+                  <label className="form-label text-xs" htmlFor="bp-block">
+                    Khối áp dụng
                   </label>
                   <select
-                    id="bp-class"
+                    id="bp-block"
                     className="form-select min-h-10 w-full text-sm"
-                    value={bpClassId}
+                    value={bpBlockId}
                     disabled={!bpBranchId}
-                    onChange={e => setBpClassId(e.target.value)}
+                    onChange={e => setBpBlockId(e.target.value)}
                   >
                     <option value="">-- Dùng chung toàn ngành --</option>
-                    {blueprintClasses.map(item => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                        {item.academicYear ? ` · ${item.academicYear}` : ''}
+                    {blueprintBlocks.map(block => (
+                      <option key={block.id} value={block.id}>
+                        {block.label}
+                        {block.academicYear ? ` · ${block.academicYear}` : ''}
                       </option>
                     ))}
                   </select>
@@ -1696,7 +1715,7 @@ export function QuestionBankView() {
         form={form}
         setForm={setForm}
         branches={branchOptions}
-        classes={editorClasses}
+        blocks={blockOptions}
         saving={saving}
         onClose={() => {
           if (!saving) {
@@ -1712,7 +1731,7 @@ export function QuestionBankView() {
       <QuestionBankImportModal
         isOpen={importOpen}
         branches={branchOptions}
-        classes={editorClasses}
+        blocks={blockOptions}
         onClose={() => setImportOpen(false)}
         onImported={count => {
           setMessage({
@@ -1803,7 +1822,7 @@ export function QuestionBankView() {
                       onClick={() => {
                         setMobilePreviewOpen(false)
                         setEditingId(preview.id)
-                        setForm(questionFormFromItem(preview, editorClasses))
+                        setForm(questionFormFromItem(preview, blockOptions))
                         setEditorOpen(true)
                       }}
                     >
@@ -1946,6 +1965,90 @@ export function QuestionBankView() {
         )}
       </ModalShell>
     </div>
+  )
+}
+
+export function XuanLocCurriculumPanel({ online, onUseReference }: {
+  online: boolean
+  onUseReference: (reference: XuanLocReference) => void
+}) {
+  const [levelId, setLevelId] = useState(XUAN_LOC_LEVELS[0].id)
+  const [bookId, setBookId] = useState(XUAN_LOC_LEVELS[0].books[0].id)
+  const [lesson, setLesson] = useState('')
+  const level = XUAN_LOC_LEVELS.find(item => item.id === levelId)!
+  const book = level.books.find(item => item.id === bookId)
+  const lessonNumbers = book?.sections?.flatMap(section =>
+    Array.from({ length: section.last - section.first + 1 }, (_, index) => section.first + index)) ?? []
+
+  return (
+    <Surface variant="card" className="p-3.5 flex min-w-0 flex-col gap-3.5">
+      <div>
+        <h3 className="text-xl font-extrabold text-text-main">Giáo lý Hồng Ân · Xuân Lộc</h3>
+        <p className="text-sm text-text-muted mt-1">Danh mục tham khảo có nguồn · Đối chiếu ngày {XUAN_LOC_REVIEWED_ON}</p>
+      </div>
+      <div className="rounded-xl border border-parish-warning/30 bg-parish-warning-bg p-3 text-sm text-text-main">
+        <p><strong>Cần xác nhận năm học hiện tại.</strong> Số năm dưới đây theo lịch đề nghị 2023–2024 được giáo xứ đăng lại; chưa xác nhận áp dụng cho 2026–2027.</p>
+        <p className="mt-1">Xuân Lộc chia Khai Tâm thành 2 năm trong lịch này. Thái Bình chia cùng sách thành 3 năm; cách chia đó chỉ áp dụng tại Thái Bình.</p>
+        <a className="inline-flex items-center gap-1 min-h-11 text-parish-primary underline" href={XUAN_LOC_SOURCES.schedule.url} target="_blank" rel="noopener noreferrer">{XUAN_LOC_SOURCES.schedule.title}<ExternalLink size={14} aria-hidden="true" /></a>
+      </div>
+      <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="form-group min-w-0">
+          <label className="form-label" htmlFor="xl-level">Khối chương trình</label>
+          <select id="xl-level" className="form-select min-w-0 max-w-full w-full" value={levelId} onChange={event => {
+            const next = XUAN_LOC_LEVELS.find(item => item.id === event.target.value)!
+            setLevelId(next.id)
+            setBookId(next.books[0]?.id ?? '')
+            setLesson('')
+          }}>
+            {XUAN_LOC_LEVELS.map(item => <option key={item.id} value={item.id}>{item.name} · {item.branch} · {item.years} năm</option>)}
+          </select>
+        </div>
+        <div className="text-sm text-text-muted self-end">
+          <p>{level.branch} · {level.years} năm theo lịch lịch sử</p>
+          <p>{Array.from({ length: level.years }, (_, index) => `Năm ${index + 1}`).join(' → ')}</p>
+          <p>Đây là thứ tự năm học tham khảo. Tên lớp của giáo xứ được chọn riêng khi soạn câu hỏi.</p>
+        </div>
+      </div>
+      {level.books.length > 0 ? (
+        <>
+          <div className="form-group min-w-0 overflow-hidden p-1 -m-1">
+            <label className="form-label" htmlFor="xl-book">Sách / ấn bản đã đối chiếu</label>
+            <select id="xl-book" className="form-select min-w-0 max-w-full w-full" value={bookId} onChange={event => { setBookId(event.target.value); setLesson('') }}>
+              {level.books.map(item => <option key={item.id} value={item.id}>{item.title} · {item.edition}</option>)}
+            </select>
+          </div>
+          {book && <>
+            <p className="text-sm text-text-secondary">{book.note}{book.isbn ? ` ISBN: ${book.isbn}.` : ''}</p>
+            <a className="inline-flex items-center gap-1 min-h-11 text-sm text-parish-primary underline self-start" href={book.url} target="_blank" rel="noopener noreferrer">Mở nguồn sách / học liệu<ExternalLink size={14} aria-hidden="true" /></a>
+            {book.sections ? (
+              <>
+                <ol className="grid gap-2 sm:grid-cols-2 text-sm text-text-secondary">
+                  {book.sections.map((section, index) => <li key={section.first} className="rounded-lg bg-surface-hover p-3">Phần {index + 1}: {section.summary} · Bài {section.first}–{section.last}</li>)}
+                </ol>
+                <p className="text-xs text-text-muted">Các mô tả phần ở trên là diễn giải để tra cứu. 50 số bài dẫn đến mục lục ở nguồn, chưa bao gồm tên và nội dung từng bài.</p>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="xl-lesson">Tham chiếu bài Khai Tâm</label>
+                  <select id="xl-lesson" className="form-select w-full" value={lesson} onChange={event => setLesson(event.target.value)}>
+                    <option value="">Chỉ tham chiếu sách</option>
+                    {lessonNumbers.map(number => <option key={number} value={number}>Bài {number}</option>)}
+                  </select>
+                </div>
+                <a className="inline-flex min-h-11 items-center gap-1 text-sm text-parish-primary underline self-start" href={XUAN_LOC_SOURCES.khaiTam.url} target="_blank" rel="noopener noreferrer">Xem tên 50 bài tại nguồn Thái Bình<ExternalLink size={14} aria-hidden="true" /></a>
+              </>
+            ) : <p className="text-sm text-text-muted">Mục lục chưa xác minh cho ấn bản này. Chỉ có thể tham chiếu sách.</p>}
+            <Button className="self-start" variant="secondary" disabled={!online} onClick={() => onUseReference(xuanLocReference(book, lesson ? Number(lesson) : undefined))}>
+              Soạn câu hỏi với tham chiếu này
+            </Button>
+            {!online && <p className="text-sm text-text-muted">Có thể đọc danh mục khi ngoại tuyến sau khi ứng dụng đã tải. Cần kết nối để soạn và lưu câu hỏi.</p>}
+          </>}
+        </>
+      ) : <EmptyState title="Chưa xác minh sách cho khối Hồng Ân" description="Cần Ban Huấn giáo hoặc giáo xứ xác nhận tên sách, ấn bản và mục lục. Chưa tự đồng nhất khối này với Vào đời hoặc Bao đồng." />}
+      <div className="border-t border-surface-border pt-3 text-sm text-text-secondary">
+        <p><strong>Quyền nội dung: chưa có xác nhận cấp phép số hóa.</strong> Danh mục chỉ chứa thông tin sách, diễn giải ngắn và liên kết. Có file tải công khai không đồng nghĩa được tái bản toàn văn trong ứng dụng.</p>
+        <p className="mt-1">Khi soạn câu hỏi, chỉ nguồn và số bài được điền vào form; bạn tự viết nội dung và chủ động lưu nháp để xét duyệt.</p>
+        <p className="mt-1">Dự tòng, Hôn nhân và đào tạo Giáo lý viên là các chương trình khác; chưa nhập vào lộ trình thiếu nhi này.</p>
+      </div>
+    </Surface>
   )
 }
 

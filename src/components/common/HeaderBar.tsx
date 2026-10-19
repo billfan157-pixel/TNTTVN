@@ -58,7 +58,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({ activeWorkspace = 'academi
 
   return (
     <>
-      <OfflineStatusBanner />
+      <OfflineStatusBanner onOpenDiagnostics={() => setShowDiagnostics(true)} />
       {effectiveMode === 'mobile' ? (
         <MobileTopBar activeWorkspace={activeWorkspace} onWorkspaceChange={onWorkspaceChange} />
       ) : (

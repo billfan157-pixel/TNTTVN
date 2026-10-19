@@ -25,6 +25,17 @@ export interface ReportOptions {
   note?: string
 }
 
+/**
+ * Tuỳ chọn riêng cho Giấy Chứng Nhận Bí Tích. `verifyUrl` là URL công khai
+ * `/verify?...` (đủ tuple định danh + chữ ký HMAC do server cấp) — có thì bản in
+ * mang QR xác thực; không có thì bản in giữ nguyên như trước (không QR).
+ * Chữ ký CHỈ xác nhận định danh, không xác nhận điểm/nội dung.
+ */
+export interface SacramentCertificateOptions extends ReportOptions {
+  certId?: string
+  verifyUrl?: string
+}
+
 export const REPORT_CARD_STYLES = `
   @page { size: A4 portrait; margin: 10mm; }
   body { font-family: Arial, sans-serif; color: #1E293B; margin: 0; padding: 15px; font-size: 13px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -573,7 +584,17 @@ export function generateClassGradebookHTML(
 /**
  * Backward-Compatible Pure Utility: Sacrament Certificate HTML
  */
-export function generateSacramentCertificateHTML(student: Student, options?: ReportOptions): string {
+export function generateSacramentCertificateHTML(student: Student, options?: SacramentCertificateOptions): string {
+  // QR xác thực: chỉ in khi có chữ ký server (verifyUrl). Kích thước 150px để
+  // camera điện thoại đọc được ở khoảng cách gần trên bản in A4 landscape.
+  const verifyBlock = options?.verifyUrl
+    ? `
+      <div class="verify-block">
+        <div class="verify-caption">Mã xác thực định danh — quét QR để kiểm tra chữ ký (chỉ xác nhận định danh, không xác nhận điểm/nội dung)</div>
+        <div class="verify-qr">${generateCertificateQrSvg(options.verifyUrl, 4)}</div>
+        ${options.certId ? `<div class="verify-cert-id">${escapeHtml(options.certId)}</div>` : ''}
+      </div>`
+    : ''
   return `
     <!DOCTYPE html>
     <html lang="vi">
@@ -584,6 +605,11 @@ export function generateSacramentCertificateHTML(student: Student, options?: Rep
         @page { size: A4 landscape; margin: 15mm; }
         body { font-family: 'Times New Roman', serif; color: #1E293B; margin: 0; padding: 40px; text-align: center; border: 10px double #1E3A8A; }
         h1 { color: #1E3A8A; font-size: 26px; text-transform: uppercase; }
+        .verify-block { margin-top: 26px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .verify-qr { width: 150px; height: 150px; }
+        .verify-qr svg { width: 100%; height: auto; display: block; }
+        .verify-caption { font-size: 10px; color: #64748B; max-width: 320px; }
+        .verify-cert-id { font-size: 9px; font-family: monospace; color: #64748B; }
         ${buildWatermarkBlock(resolveParishName(options))}
       </style>
     </head>
@@ -592,6 +618,7 @@ export function generateSacramentCertificateHTML(student: Student, options?: Rep
       <div style="font-size:11px;font-weight:700;color:#1E3A8A;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(resolveParishName(options))} — ${escapeHtml(options?.dioceseName || 'Giáo Phận Xuân Lộc')}</div>
       <h1>GIẤY CHỨNG NHẬN BÍ TÍCH</h1>
       <p>${escapeHtml(student.holyName)} ${escapeHtml(student.fullName)}</p>
+      ${verifyBlock}
     </body>
     </html>
   `

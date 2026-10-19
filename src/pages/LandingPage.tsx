@@ -49,6 +49,7 @@ export function LandingPage() {
   const [activeStory, setActiveStory] = useState<PreviewWorkspace>('academic')
   const [headerStopLabel, setHeaderStopLabel] = useState(SCENE_STOP_LABELS.hero)
   const railRef = React.useRef<HTMLSpanElement>(null)
+  const menuButtonRef = React.useRef<HTMLButtonElement>(null)
   // Reduced motion is NOT a reason to switch to the sequential layout: it only
   // means "same composition, no animation". Width alone decides the layout.
   const [sequentialScenes, setSequentialScenes] = useState(() => typeof window !== 'undefined'
@@ -66,6 +67,17 @@ export function LandingPage() {
   }, [])
 
   useEffect(() => {
+    if (!isMobileMenuOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setIsMobileMenuOpen(false)
+      menuButtonRef.current?.focus({ preventScroll: true })
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [isMobileMenuOpen])
+
+  useEffect(() => {
     const root = landingRef.current
     if (!root || typeof window === 'undefined') return
     const scenes = Array.from(root.querySelectorAll<HTMLElement>('[data-landing-scene]'))
@@ -78,6 +90,7 @@ export function LandingPage() {
     // On a phone that is the difference between two style writes per frame for the two
     // scenes actually on screen and two for every scene on the page.
     const lastDepth = new Map<HTMLElement, string>()
+    const lastChapterProgress = new Map<HTMLElement, string>()
     const update = () => {
       frame = 0
       const nextSequentialMode = window.innerWidth < 1024
@@ -105,6 +118,13 @@ export function LandingPage() {
           const enter = Math.max(0, Math.min(1, (window.innerHeight - rect.top) / (window.innerHeight * 0.72)))
           scene.style.setProperty('--scene-shift', `${Math.round((1 - enter) * 28)}px`)
           scene.style.setProperty('--scene-opacity', String(0.92 + enter * 0.08))
+        }
+        if (id.startsWith('community-') && !reducedMotion?.matches) {
+          const progress = Math.max(0, Math.min(1, (focusLine - rect.top) / Math.max(1, rect.height))).toFixed(3)
+          if (lastChapterProgress.get(scene) !== progress) {
+            lastChapterProgress.set(scene, progress)
+            scene.style.setProperty('--chapter-progress', progress)
+          }
         }
 
         // ── Depth ──
@@ -233,8 +253,10 @@ export function LandingPage() {
       }
     }
     window.addEventListener('scroll', revealPassed, { passive: true })
+    root.addEventListener('focusin', revealPassed)
     return () => {
       window.removeEventListener('scroll', revealPassed)
+      root.removeEventListener('focusin', revealPassed)
       observer.disconnect()
       delete root.dataset.landingRevealArmed
     }
@@ -271,8 +293,20 @@ export function LandingPage() {
     }
   }
 
+  // Keep section navigation within the current page, including embedded
+  // browsers. Modified clicks retain the anchor's native behavior.
+  const handleSectionLink = (event: React.MouseEvent<HTMLElement>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href^="#"]') : null
+    if (!link || link.target || link.hasAttribute('download') || link.classList.contains('skip-link')) return
+    const href = link.getAttribute('href')
+    if (!href || !document.getElementById(href.slice(1))) return
+    event.preventDefault()
+    handleNavClick(href)
+  }
+
   return (
-    <main ref={landingRef} className="landing-page min-h-screen bg-surface-app text-text-main font-sans">
+    <main ref={landingRef} onClickCapture={handleSectionLink} className="landing-page min-h-screen bg-surface-app text-text-main font-sans">
       <a href="#gioi-thieu-noi-dung" className="skip-link">Bỏ qua đến nội dung chính</a>
 
       {/* ── 01. Thanh điều hướng public ──
@@ -305,25 +339,29 @@ export function LandingPage() {
           {/* Desktop navigation (Hiện đầy đủ trên desktop >= 1024px để không vỡ dòng ở tablet 768px) */}
           <nav aria-label="Điều hướng chính" className="hidden lg:flex items-center gap-1.5 xl:gap-2">
             <a
-              href="#cong-dang-nhap"
+              href="#hanh-trinh"
+              aria-current={headerStopLabel === SCENE_STOP_LABELS['community-gather'] ? 'location' : undefined}
               className="min-h-11 inline-flex items-center px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white/85 hover:text-white hover:bg-white/10 transition-colors"
             >
-              Cổng đăng nhập
+              Hành trình
             </a>
             <a
               href="#san-pham"
+              aria-current={headerStopLabel === SCENE_STOP_LABELS.academic ? 'location' : undefined}
               className="min-h-11 inline-flex items-center px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white/85 hover:text-white hover:bg-white/10 transition-colors"
             >
               Không gian làm việc
             </a>
             <a
               href="#tieu-de-nganh"
+              aria-current={headerStopLabel === SCENE_STOP_LABELS.branches ? 'location' : undefined}
               className="min-h-11 inline-flex items-center px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white/85 hover:text-white hover:bg-white/10 transition-colors"
             >
               5 Ngành TNTT
             </a>
             <a
               href="#cau-hoi-thuong-gap"
+              aria-current={headerStopLabel === SCENE_STOP_LABELS.faq ? 'location' : undefined}
               className="min-h-11 inline-flex items-center px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white/85 hover:text-white hover:bg-white/10 transition-colors"
             >
               Hỏi đáp
@@ -349,6 +387,8 @@ export function LandingPage() {
             <button
               type="button"
               aria-expanded={isMobileMenuOpen}
+              aria-controls="landing-mobile-nav"
+              ref={menuButtonRef}
               aria-label={isMobileMenuOpen ? 'Đóng menu' : 'Mở menu điều hướng'}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="border border-white/40 rounded-lg p-2 text-white hover:bg-white/10 flex items-center justify-center min-h-11 min-w-11"
@@ -379,9 +419,17 @@ export function LandingPage() {
         {/* Mobile & Tablet menu dropdown */}
         {isMobileMenuOpen && (
           <nav
+            id="landing-mobile-nav"
             aria-label="Menu di động"
             className="lg:hidden landing-header-menu text-white border-t border-white/15 px-4 py-3 flex flex-col gap-1 shadow-2xl animate-in fade-in"
           >
+            <button
+              type="button"
+              onClick={() => handleNavClick('#hanh-trinh')}
+              className="w-full min-h-11 px-3 text-left text-sm font-semibold text-white/90 hover:text-white hover:bg-white/10 rounded-lg flex items-center"
+            >
+              Hành trình Xứ Đoàn
+            </button>
             <button
               type="button"
               onClick={() => handleNavClick('#cong-dang-nhap')}
@@ -445,9 +493,12 @@ export function LandingPage() {
       >
         <div className="landing-cinematic__inner">
           <header className="landing-product-intro" data-landing-scene="product-intro">
-            <span className="landing-eyebrow"><Layers aria-hidden="true" className="w-4 h-4" /> Catevia trong từng vai trò</span>
+            <span className="landing-eyebrow"><Layers aria-hidden="true" className="w-4 h-4" /> 02 / Catevia trong từng vai trò</span>
             <h2 id="tieu-de-san-pham">Một nền tảng. <span>Ba cách đồng hành.</span></h2>
             <p>{sequentialScenes ? 'Cuộn để xem Catevia theo nhịp công việc của từng người.' : 'Chọn một không gian hoặc cuộn để xem Catevia theo nhịp công việc của từng người.'}</p>
+            <div className="landing-product-intro__index" aria-hidden="true">
+              <span><i>01</i> Học vụ</span><span><i>02</i> Xứ đoàn</span><span><i>03</i> Phụ huynh</span>
+            </div>
           </header>
           <div className="scrolly-stage landing-cinematic__stage">
             {!sequentialScenes && <div className="scrolly-pinned-preview landing-cinematic__preview order-1 lg:order-2">
@@ -456,6 +507,7 @@ export function LandingPage() {
                   (plan 2026-09-26 §3.1). */}
               <div className="landing-cinematic__preview-heading" aria-hidden="true">
                 <span>Không gian {activeStory === 'academic' ? 'Học vụ' : activeStory === 'organization' ? 'Xứ đoàn' : 'Phụ huynh'}</span>
+                <span>Trải nghiệm minh họa</span>
               </div>
               <LandingHeroPreview externalActiveTab={activeStory} onTabChange={handlePreviewTabChange} />
               <div className="landing-cinematic__progress" aria-hidden="true">
@@ -497,7 +549,7 @@ export function LandingPage() {
       </div>
 
       {/* ── 11. Chân trang ── */}
-      <footer role="contentinfo" className="border-t border-surface-border bg-surface-card">
+      <footer role="contentinfo" className="landing-footer border-t border-surface-border bg-surface-card">
         <div className="landing-shell py-12 flex flex-col gap-10">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 lg:gap-12">
             {/* Cột 1: Nhận diện Giáo Xứ & Xứ Đoàn */}

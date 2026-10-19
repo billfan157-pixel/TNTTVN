@@ -504,6 +504,22 @@ describe('syncProcessor', () => {
   })
 
   describe('Tier 2 — daily_entry', () => {
+    it('conduct forwards the reason and relative deduction unchanged', async () => {
+      vi.mocked(api.saveDailyEntries).mockResolvedValue({ saved: 1, duplicates: 0, errorCount: 0, total: 1, items: [{ id: 'CD-1', studentId: 'ST-001', scoreType: 'conduct', status: 'created', serverScore: 9.5 }] })
+      const payload = { id: 'CD-1', studentId: 'ST-001', academicYear: '2026-2027', semester: 1, scoreType: 'conduct', value: 0.5, date: '2026-10-19', reason: 'Nói chuyện riêng' }
+      const result = await processOperation({ entity: 'daily_entry', operation: 'CREATE', entityId: 'CD-1', payload: JSON.stringify(payload) })
+      expect(result.ok).toBe(true)
+      expect(api.saveDailyEntries).toHaveBeenCalledWith([payload])
+      expect(result.data.id).toBe('CD-1')
+    })
+
+    it('daily CREATE retains its operation when the server acknowledgement is missing', async () => {
+      vi.mocked(api.saveDailyEntries).mockResolvedValue({ saved: 1, duplicates: 0, errorCount: 0, total: 1, items: [] })
+      const result = await processOperation({ entity: 'daily_entry', operation: 'CREATE', entityId: 'CD-missing', payload: JSON.stringify({ id: 'CD-missing', studentId: 'ST-001', academicYear: '2026-2027', semester: 1, scoreType: 'conduct', value: 0.5, reason: 'Nội quy' }) })
+      expect(result.ok).toBe(false)
+      expect(result.recoverable).toBe(false)
+      expect(result.error).toMatch(/xác nhận/)
+    })
     it('CREATE đẩy 1 entry qua batch + reconcile receipt', async () => {
       vi.mocked(api.saveDailyEntries).mockResolvedValue({
         saved: 1, duplicates: 0, errorCount: 0, total: 1,

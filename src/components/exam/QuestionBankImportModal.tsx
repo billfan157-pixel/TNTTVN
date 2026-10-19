@@ -5,19 +5,19 @@ import type { QuestionDifficulty } from '../../types'
 import { parseQuestionBankFile, toQuestionBankImportItems, type QuestionBankFileParseResult } from '../../utils/questionBankImport'
 import { ModalShell } from '../common/ModalShell'
 import { Button, Badge } from '../common/ui'
-import type { QuestionBranchOption, QuestionClassOption } from './QuestionEditorModal'
+import type { QuestionBranchOption, QuestionBlockOption } from './QuestionEditorModal'
 
 interface QuestionBankImportModalProps {
   isOpen: boolean
   branches: QuestionBranchOption[]
-  classes: QuestionClassOption[]
+  blocks: QuestionBlockOption[]
   onClose: () => void
   onImported: (count: number) => void
 }
 
-export function QuestionBankImportModal({ isOpen, branches, classes, onClose, onImported }: QuestionBankImportModalProps) {
+export function QuestionBankImportModal({ isOpen, branches, blocks, onClose, onImported }: QuestionBankImportModalProps) {
   const [branchId, setBranchId] = useState('')
-  const [classId, setClassId] = useState('')
+  const [blockId, setBlockId] = useState('')
   const [difficulty, setDifficulty] = useState<QuestionDifficulty>('recognition')
   const [tags, setTags] = useState('')
   const [lesson, setLesson] = useState('')
@@ -34,9 +34,9 @@ export function QuestionBankImportModal({ isOpen, branches, classes, onClose, on
     setProcessing(false)
   }, [isOpen])
 
-  const classOptions = useMemo(() => classes.filter(cls => cls.branchId === branchId), [branchId, classes])
-  const selectedClass = classes.find(cls => cls.id === classId)
-  const canImport = Boolean(result?.parsed.ok && result.parsed.questions.length && branchId && selectedClass && !processing)
+  const blockOptions = useMemo(() => blocks.filter(block => block.branchId === branchId), [branchId, blocks])
+  const selectedBlock = blocks.find(block => block.id === blockId)
+  const canImport = Boolean(result?.parsed.ok && result.parsed.questions.length && branchId && selectedBlock && !processing)
 
   const handleFile = async (file?: File) => {
     if (!file) return
@@ -53,13 +53,13 @@ export function QuestionBankImportModal({ isOpen, branches, classes, onClose, on
   }
 
   const handleImport = async () => {
-    if (!result || !selectedClass || !canImport) return
+    if (!result || !selectedBlock || !canImport) return
     setProcessing(true)
     setError(null)
     try {
       const items = toQuestionBankImportItems(result, {
         branchId,
-        curriculumLevel: selectedClass.name,
+        curriculumLevel: selectedBlock.label,
         difficulty,
         tags: tags.split(',').map(tag => tag.trim()).filter(Boolean),
         lesson: lesson || null,
@@ -116,7 +116,7 @@ export function QuestionBankImportModal({ isOpen, branches, classes, onClose, on
                   value={branchId}
                   onChange={event => {
                     setBranchId(event.target.value)
-                    setClassId('')
+                    setBlockId('')
                   }}
                 >
                   <option value="">-- Chọn ngành áp dụng --</option>
@@ -129,20 +129,20 @@ export function QuestionBankImportModal({ isOpen, branches, classes, onClose, on
               </div>
 
               <div className="form-group">
-                <label className="form-label text-xs" htmlFor="qbi-class">
-                  Khối lớp bắt buộc <span className="text-parish-danger">*</span>
+                <label className="form-label text-xs" htmlFor="qbi-block">
+                  Khối bắt buộc <span className="text-parish-danger">*</span>
                 </label>
                 <select
-                  id="qbi-class"
+                  id="qbi-block"
                   className="form-select min-h-10 w-full text-sm"
-                  value={classId}
+                  value={blockId}
                   disabled={!branchId}
-                  onChange={event => setClassId(event.target.value)}
+                  onChange={event => setBlockId(event.target.value)}
                 >
-                  <option value="">-- Chọn lớp áp dụng --</option>
-                  {classOptions.map(cls => (
-                    <option key={cls.id} value={cls.id}>
-                      {cls.name}{cls.academicYear ? ` · ${cls.academicYear}` : ''}
+                  <option value="">-- Chọn khối áp dụng --</option>
+                  {blockOptions.map(block => (
+                    <option key={block.id} value={block.id}>
+                      {block.label}{block.academicYear ? ` · ${block.academicYear}` : ''}
                     </option>
                   ))}
                 </select>
@@ -276,7 +276,7 @@ export function QuestionBankImportModal({ isOpen, branches, classes, onClose, on
               <FileSpreadsheet className="h-10 w-10 text-text-muted/50 mb-2" />
               <p className="text-sm font-medium">Chưa có tệp nào được chọn.</p>
               <p className="text-xs mt-1 max-w-sm">
-                Vui lòng chọn Ngành, Khối lớp và tải lên tệp mẫu .docx hoặc .xlsx để hệ thống tự động bóc tách câu hỏi.
+                Vui lòng chọn Ngành, Khối và tải lên tệp mẫu .docx hoặc .xlsx để hệ thống tự động bóc tách câu hỏi.
               </p>
             </div>
           )}

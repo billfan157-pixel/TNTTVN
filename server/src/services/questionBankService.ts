@@ -15,6 +15,7 @@ import {
 } from '../db/schema.js'
 import { generateExamVariantManifest, type VariantQuestion } from './examVariantManifest.js'
 import { generateId } from '../utils/id.js'
+import { deriveQuestionBlockLabel } from '../utils/questionBlock.js'
 import { resolveWritableAcademicYear } from './academicYearService.js'
 
 export const QUESTION_TYPES = ['multiple_choice', 'true_false', 'multiple_select', 'short_answer', 'fill_blank', 'matching', 'essay'] as const
@@ -163,6 +164,30 @@ async function assertBranchInParish(executor: DbExecutor, parishId: string, bran
   if (!branch) throw new QuestionBankError('Ngành được chọn không tồn tại trong giáo xứ hiện tại.', 400, 'QUESTION_BRANCH_INVALID')
 }
 
+/**
+ * Các giá trị `curriculum_level` cần khớp khi lọc/sinh đề theo khối:
+ * bản thân tên khối (câu mới gắn "Thiếu Nhi 1") và mọi tên lớp thuộc khối đó
+ * (câu cũ gắn theo từng lớp "Thiếu Nhi 1A"/"Thiếu Nhi 1B"). Không lọc theo
+ * `deletedAt`: lớp đã xóa vẫn phải trả về câu hỏi cũ gắn với lớp đó.
+ */
+async function knowledgeBlockMatchValues(
+  executor: DbExecutor,
+  parishId: string,
+  curriculumLevel: string,
+  branchId?: string | null,
+): Promise<string[]> {
+  const level = curriculumLevel.trim()
+  const conditions = [eq(classes.parishId, parishId)]
+  if (branchId) conditions.push(eq(classes.branchId, branchId))
+  const rows = await executor.select({ name: classes.name }).from(classes).where(and(...conditions))
+  const values = new Set<string>([level])
+  for (const row of rows) {
+    const name = row.name.trim()
+    if (name && deriveQuestionBlockLabel(name) === level) values.add(name)
+  }
+  return [...values]
+}
+
 export async function createQuestion(input: QuestionContentInput, userId: string, parishId: string) {
   validateAnswerData(input.questionType, input.answerData)
   const id = generateId('QBI')
@@ -283,7 +308,10 @@ export async function listQuestions(parishId: string, filters: {
   if (filters.status) conditions.push(eq(questionBankItems.status, filters.status))
   if (filters.questionType) conditions.push(eq(questionBankVersions.questionType, filters.questionType))
   if (filters.branchId) conditions.push(eq(questionBankItems.branchId, filters.branchId))
-  if (filters.curriculumLevel) conditions.push(eq(questionBankItems.curriculumLevel, filters.curriculumLevel))
+  if (filters.curriculumLevel) {
+    const levelValues = await knowledgeBlockMatchValues(db, parishId, filters.curriculumLevel, filters.branchId)
+    conditions.push(inArray(questionBankItems.curriculumLevel, levelValues))
+  }
   if (filters.difficulty) conditions.push(eq(questionBankItems.difficulty, filters.difficulty))
   if (filters.lessonFrom !== undefined) conditions.push(gte(questionBankItems.lessonOrder, filters.lessonFrom))
   if (filters.lessonTo !== undefined) conditions.push(lte(questionBankItems.lessonOrder, filters.lessonTo))
@@ -551,6 +579,9 @@ export async function buildExamFromBank(input: {
     const blueprint = await getBlueprint(input.blueprintId, actor.parishId, tx)
     if (blueprint.status !== 'active') throw new QuestionBankError('Chỉ ma trận Active mới được sinh đề.', 409, 'BLUEPRINT_NOT_ACTIVE')
     resolvedMaxScore = blueprint.maxScore
+    const levelValues = blueprint.curriculumLevel
+      ? await knowledgeBlockMatchValues(tx, actor.parishId, blueprint.curriculumLevel, blueprint.branchId)
+      : null
     const used = new Set<string>()
     const shortages: Array<{ rule: number; required: number; available: number }> = []
     for (const rule of blueprint.rules) {
@@ -559,7 +590,7 @@ export async function buildExamFromBank(input: {
         eq(questionBankVersions.version, questionBankItems.currentVersion), eq(questionBankVersions.questionType, rule.questionType),
       ]
       if (blueprint.branchId) conditions.push(eq(questionBankItems.branchId, blueprint.branchId))
-      if (blueprint.curriculumLevel) conditions.push(eq(questionBankItems.curriculumLevel, blueprint.curriculumLevel))
+      if (levelValues) conditions.push(inArray(questionBankItems.curriculumLevel, levelValues))
       if (rule.chapter) conditions.push(eq(questionBankItems.chapter, rule.chapter))
       if (rule.lessonFrom != null) conditions.push(gte(questionBankItems.lessonOrder, rule.lessonFrom))
       if (rule.lessonTo != null) conditions.push(lte(questionBankItems.lessonOrder, rule.lessonTo))

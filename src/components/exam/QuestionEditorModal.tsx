@@ -1,10 +1,12 @@
 import { FilePlus2 } from 'lucide-react'
 import { Button } from '../common/ui'
 import { ModalShell } from '../common/ModalShell'
-import type { QuestionBranchOption, QuestionClassOption, QuestionForm } from '../../utils/questionEditorModel'
+import type { QuestionBranchOption, QuestionForm } from '../../utils/questionEditorModel'
+import type { QuestionBlockOption } from '../../utils/questionBlock'
 import type { QuestionDifficulty } from '../../types'
 
-export type { QuestionBranchOption, QuestionClassOption, QuestionForm }
+export type { QuestionBranchOption, QuestionForm }
+export type { QuestionBlockOption }
 
 interface QuestionEditorModalProps {
   isOpen: boolean
@@ -12,14 +14,14 @@ interface QuestionEditorModalProps {
   form: QuestionForm
   setForm: (updater: (current: QuestionForm) => QuestionForm) => void
   branches: QuestionBranchOption[]
-  classes: QuestionClassOption[]
+  blocks: QuestionBlockOption[]
   saving: boolean
   onClose: () => void
   onSave: () => void
 }
 
-export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, classes, saving, onClose, onSave }: QuestionEditorModalProps) {
-  const classOptions = classes.filter(cls => !form.branchId || cls.branchId === form.branchId)
+export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, blocks, saving, onClose, onSave }: QuestionEditorModalProps) {
+  const blockOptions = blocks.filter(block => !form.branchId || block.branchId === form.branchId)
   const set = <K extends keyof QuestionForm>(key: K, value: QuestionForm[K]) => setForm(current => ({ ...current, [key]: value }))
 
   return (
@@ -151,7 +153,7 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
               id="qe-branch"
               className="form-select min-h-10 w-full text-sm"
               value={form.branchId}
-              onChange={event => setForm(current => ({ ...current, branchId: event.target.value, classId: '', curriculumLevel: '' }))}
+              onChange={event => setForm(current => ({ ...current, branchId: event.target.value, blockId: '', curriculumLevel: '' }))}
             >
               <option value="">-- Mọi ngành trong Xứ đoàn --</option>
               {branches.map(branch => (
@@ -163,21 +165,21 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
           </div>
 
           <div className="form-group">
-            <label className="form-label text-xs" htmlFor="qe-class">Khối lớp áp dụng</label>
+            <label className="form-label text-xs" htmlFor="qe-block">Khối áp dụng</label>
             <select
-              id="qe-class"
+              id="qe-block"
               className="form-select min-h-10 w-full text-sm"
-              value={form.classId}
+              value={form.blockId}
               disabled={!form.branchId}
               onChange={event => {
-                const selected = classes.find(cls => cls.id === event.target.value)
-                setForm(current => ({ ...current, classId: event.target.value, curriculumLevel: selected?.name ?? '' }))
+                const selected = blocks.find(block => block.id === event.target.value)
+                setForm(current => ({ ...current, blockId: event.target.value, curriculumLevel: selected?.label ?? '' }))
               }}
             >
               <option value="">-- Dùng chung toàn ngành --</option>
-              {classOptions.map(cls => (
-                <option key={cls.id} value={cls.id}>
-                  {cls.name}{cls.academicYear ? ` · ${cls.academicYear}` : ''}
+              {blockOptions.map(block => (
+                <option key={block.id} value={block.id}>
+                  {block.label}{block.academicYear ? ` · ${block.academicYear}` : ''}
                 </option>
               ))}
             </select>

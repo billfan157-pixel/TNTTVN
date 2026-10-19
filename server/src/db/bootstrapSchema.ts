@@ -126,7 +126,7 @@ export const BOOTSTRAP_DDL = `
     id TEXT PRIMARY KEY,
     student_id TEXT NOT NULL REFERENCES students(id) ON DELETE RESTRICT,
     date TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('SundayMass', 'CatechismClass')),
+    type TEXT NOT NULL CHECK(type IN ('SundayMass', 'CatechismClass', 'EucharisticAdoration')),
     status TEXT NOT NULL CHECK(status IN ('Present', 'AbsentExcused', 'AbsentUnexcused')),
     note TEXT,
     version INTEGER NOT NULL DEFAULT 1,

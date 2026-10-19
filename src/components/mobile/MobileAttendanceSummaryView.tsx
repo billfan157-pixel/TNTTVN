@@ -208,9 +208,13 @@ export const MobileAttendanceSummaryView: React.FC = () => {
       <div className="grid grid-cols-2 gap-2">
         <div className="bg-surface-card p-3 rounded-xl border border-surface-border shadow-xs">
           <div className="text-xs uppercase font-extrabold text-text-muted tracking-wider">Chuyên Cần Chung</div>
-          <div className="text-xl font-black text-text-main mt-0.5 tabular-nums">{kpis.averageRate}%</div>
+          <div className="text-xl font-black text-text-main mt-0.5 tabular-nums">
+            {kpis.totalSessionsMarked > 0 ? `${kpis.averageRate}%` : '—'}
+          </div>
           <div className="text-xs text-text-muted mt-1">
-            {kpis.totalStudents} em • {kpis.totalSessionsMarked} buổi
+            {kpis.totalSessionsMarked > 0
+              ? `${kpis.totalStudents} em • ${kpis.totalSessionsMarked} buổi`
+              : 'Chưa có buổi được ghi nhận'}
           </div>
         </div>
 
@@ -218,13 +222,16 @@ export const MobileAttendanceSummaryView: React.FC = () => {
           <div className="text-xs uppercase font-extrabold text-text-muted tracking-wider">Cảnh Báo Vắng</div>
           <div
             className={`text-xl font-black mt-0.5 tabular-nums ${
-              kpis.atRiskStudents.length > 0 ? 'text-parish-danger' : 'text-parish-success'
+              kpis.atRiskStudents.length > 0 ? 'text-parish-danger' : summaries.some(item => item.overall.totalSessions === 0) || kpis.totalSessionsMarked === 0 ? 'text-text-muted' : 'text-parish-success'
             }`}
           >
-            {kpis.atRiskStudents.length} em
+            {kpis.totalSessionsMarked > 0 ? `${kpis.atRiskStudents.length} em` : '—'}
           </div>
           <div className="text-xs text-text-muted mt-1">
-            {kpis.atRiskStudents.length > 0 ? 'Cần liên hệ PH' : 'Đều đạt chuẩn'}
+            {kpis.totalSessionsMarked === 0 ? 'Chưa có buổi được ghi nhận'
+              : kpis.atRiskStudents.length > 0 ? 'Cần liên hệ PH'
+              : summaries.some(item => item.overall.totalSessions === 0) ? 'Chưa đủ dữ liệu đánh giá toàn bộ thiếu nhi'
+              : 'Đều đạt chuẩn'}
           </div>
         </div>
       </div>
@@ -233,15 +240,15 @@ export const MobileAttendanceSummaryView: React.FC = () => {
       <div className="bg-surface-card p-3 rounded-xl border border-surface-border shadow-xs flex items-center justify-between text-xs font-bold">
         <div className="flex items-center gap-1.5 text-parish-primary">
           <Church size={14} aria-hidden="true" />
-          <span>Lễ: {kpis.massRate}%</span>
+          <span>Lễ: {kpis.totalMassSessions > 0 ? `${kpis.massRate}%` : 'Chưa ghi nhận'}</span>
         </div>
         <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
           <BookOpen size={14} aria-hidden="true" />
-          <span>Giáo lý: {kpis.catechismRate}%</span>
+          <span>Giáo lý: {kpis.totalCatechismSessions > 0 ? `${kpis.catechismRate}%` : 'Chưa ghi nhận'}</span>
         </div>
         <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-400">
           <HeartHandshake size={14} aria-hidden="true" />
-          <span>Chầu: {kpis.adorationRate}%</span>
+          <span>Chầu: {kpis.totalAdorationSessions > 0 ? `${kpis.adorationRate}%` : 'Chưa ghi nhận'}</span>
         </div>
       </div>
 
@@ -286,7 +293,9 @@ export const MobileAttendanceSummaryView: React.FC = () => {
                 <div className="flex items-center gap-1.5">
                   <span
                     className={`text-xs font-black px-2 py-0.5 rounded-full ${
-                      item.overall.rate >= 95
+                      item.overall.totalSessions === 0
+                        ? 'bg-surface-hover text-text-muted'
+                        : item.overall.rate >= 95
                         ? 'bg-emerald-500/10 text-emerald-600'
                         : item.overall.rate >= minRateThreshold
                         ? 'bg-sky-500/10 text-sky-600'
@@ -295,21 +304,23 @@ export const MobileAttendanceSummaryView: React.FC = () => {
                         : 'bg-rose-500/10 text-rose-600'
                     }`}
                   >
-                    {item.overall.rate}%
+                    {item.overall.totalSessions > 0 ? `${item.overall.rate}%` : 'Chưa có điểm danh'}
                   </span>
                   <ChevronRight size={14} className="text-text-muted" aria-hidden="true" />
                 </div>
               </div>
 
               {/* Progress Bar */}
-              <div className="w-full bg-surface-app h-1.5 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    item.overall.rate >= 80 ? 'bg-parish-primary' : 'bg-rose-500'
-                  }`}
-                  style={{ width: `${Math.min(item.overall.rate, 100)}%` }}
-                />
-              </div>
+              {item.overall.totalSessions > 0 && (
+                <div className="w-full bg-surface-app h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      item.overall.rate >= 80 ? 'bg-parish-primary' : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${Math.min(item.overall.rate, 100)}%` }}
+                  />
+                </div>
+              )}
 
               {/* Session Pills */}
               <div className="grid grid-cols-3 gap-1.5 text-xs">

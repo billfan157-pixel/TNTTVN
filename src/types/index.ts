@@ -181,6 +181,20 @@ export interface DailyGradeEntry {
   createdAt: string
 }
 
+export interface ConductDeduction {
+  id: string
+  studentId: string
+  academicYear: string
+  semester: 1 | 2
+  scoreType: 'conduct'
+  value: number
+  reason: string
+  date: string
+  createdAt: string
+  afterScore?: number
+  pending?: boolean
+}
+
 /**
  * Tier 2: attempt trong sổ ledger server. `manual` = nhập tay (được sửa/xóa),
  * `machine` = bài thi máy/baseline (read-only, có nhãn rõ trong UI daily).

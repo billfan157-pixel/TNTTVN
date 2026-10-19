@@ -110,6 +110,28 @@ describe('attendanceAnalyticsService Unit & Integration Tests', () => {
     expect(kpis.trendTimeline.length).toBeGreaterThan(0)
   })
 
+  it('does not count unrecorded students as passing or inflate a recorded class average', () => {
+    const unrecorded = { ...mockStudent, id: 'NO-RECORDS', fullName: 'Chưa ghi nhận' }
+    const { kpis, summaries } = calculateClassAttendanceAnalytics([mockStudent, unrecorded], mockRecords)
+    expect(kpis.averageRate).toBe(87.5)
+    expect(kpis.goodCount).toBe(1)
+    expect(kpis.excellentCount).toBe(0)
+    expect(summaries.find(s => s.student.id === unrecorded.id)?.overall.statusLabel).toBe('Chưa có điểm danh')
+  })
+
+  it('keeps foreign and deleted students out of session counts and the timeline', () => {
+    const deleted = { ...mockStudent, id: 'DELETED', deletedAt: '2026-08-01' }
+    const foreignRecords = mockRecords.map(r => ({ ...r, studentId: 'OTHER-CLASS' }))
+    const deletedRecords = mockRecords.map(r => ({ ...r, studentId: deleted.id }))
+    const { kpis } = calculateClassAttendanceAnalytics([mockStudent, deleted], [...foreignRecords, ...deletedRecords])
+    expect(kpis.totalStudents).toBe(1)
+    expect(kpis.totalSessionsMarked).toBe(0)
+    expect(kpis.goodCount).toBe(0)
+    expect(kpis.excellentCount).toBe(0)
+    expect(kpis.atRiskStudents).toEqual([])
+    expect(kpis.trendTimeline).toEqual([])
+  })
+
   it('exportAttendanceSummaryReport xuất CSV/XLSX và dọn tài nguyên trước khi test kết thúc', async () => {
     const summary = computeStudentAttendanceSummary(mockStudent, mockRecords, 1.0, 80)
     // Mock triggerDownload

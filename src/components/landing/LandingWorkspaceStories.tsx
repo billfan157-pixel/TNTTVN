@@ -1,5 +1,5 @@
 import React from 'react'
-import { CalendarDays, CheckCircle2, GraduationCap, HeartHandshake } from 'lucide-react'
+import { ArrowRight, CalendarDays, CheckCircle2, GraduationCap, HeartHandshake } from 'lucide-react'
 import { LandingWorkspacePreview, type PreviewWorkspace } from './LandingHeroPreview'
 
 interface Story {
@@ -9,6 +9,8 @@ interface Story {
   title: string
   description: string
   highlights: [string, string]
+  workflow: [string, string, string]
+  invitation: string
   icon: typeof GraduationCap
 }
 
@@ -20,6 +22,8 @@ const STORIES: Story[] = [
     title: 'Từ buổi học đến trọn vẹn cả niên khóa',
     description: 'Lớp học, điểm danh, sổ điểm và hành trình thăng ngành nằm trong cùng một mạch công việc.',
     highlights: ['Ghi nhận chuyên cần ngay tại lớp, kể cả lúc mất mạng.', 'Theo dõi quá trình học và chuẩn bị đánh giá cuối kỳ.'],
+    workflow: ['Điểm danh', 'Theo dõi', 'Đánh giá'],
+    invitation: 'Đồng hành cùng lớp của bạn',
     icon: GraduationCap,
   },
   {
@@ -29,6 +33,8 @@ const STORIES: Story[] = [
     title: 'Một nơi để toàn thể Xứ Đoàn cùng vận hành',
     description: 'Lịch sinh hoạt, thông báo và phân công công việc giúp các huynh trưởng cùng nhìn về một hướng.',
     highlights: ['Kết nối sự kiện và công việc của các ngành.', 'Theo dõi hoạt động và quỹ theo đúng phạm vi phụ trách.'],
+    workflow: ['Lên lịch', 'Phân công', 'Cùng thực hiện'],
+    invitation: 'Kết nối công việc Xứ Đoàn',
     icon: CalendarDays,
   },
   {
@@ -38,6 +44,8 @@ const STORIES: Story[] = [
     title: 'Phụ huynh luôn biết con mình đang đồng hành thế nào',
     description: 'Trên điện thoại, cha mẹ theo dõi việc học Giáo lý, chuyên cần và gửi đơn xin phép khi cần.',
     highlights: ['Thông tin của con trong một không gian riêng.', 'Giữ liên lạc với Giáo Lý Viên và Xứ Đoàn.'],
+    workflow: ['Theo dõi', 'Xin phép', 'Kết nối'],
+    invitation: 'Cùng con trong từng bước lớn lên',
     icon: HeartHandshake,
   },
 ]
@@ -58,8 +66,10 @@ export function LandingWorkspaceStories({ activeStory = 'academic', sequential =
             className={`landing-product-story landing-product-story--${story.id}`}
           >
             <div className="landing-product-story__copy">
-              <span className="landing-product-story__number">{story.number} / 03</span>
-              <div className="landing-product-story__icon"><Icon aria-hidden="true" /></div>
+              <div className="landing-product-story__chapter-heading">
+                <span className="landing-product-story__number">{story.number} / 03</span>
+                <div className="landing-product-story__icon"><Icon aria-hidden="true" /></div>
+              </div>
               <p className="landing-product-story__eyebrow">{story.eyebrow}</p>
               <h3>{story.title}</h3>
               <p className="landing-product-story__description">{story.description}</p>
@@ -68,6 +78,12 @@ export function LandingWorkspaceStories({ activeStory = 'academic', sequential =
                   <li key={highlight}><CheckCircle2 aria-hidden="true" />{highlight}</li>
                 ))}
               </ul>
+              <p className="landing-product-story__workflow" aria-label="Mạch công việc minh họa">
+                {story.workflow.map((step, index) => <React.Fragment key={step}>
+                  {index > 0 && <ArrowRight aria-hidden="true" />}<span>{step}</span>
+                </React.Fragment>)}
+              </p>
+              <a className="landing-story-link" href="#cong-dang-nhap">{story.invitation}<ArrowRight aria-hidden="true" /></a>
             </div>
             {sequential && <div className="landing-product-story__mobile-visual" aria-label={`Giao diện minh họa ${story.eyebrow}`}>
               <LandingWorkspacePreview workspace={story.id} />

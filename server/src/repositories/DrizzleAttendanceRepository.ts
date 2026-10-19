@@ -5,6 +5,14 @@ import { AttendanceRecord } from '../domain/AttendanceRecord.js'
 import type { AttendanceStatus, AttendanceSessionType } from '../domain/AttendanceRecord.js'
 import { VersionConflictError } from '../domain/errors.js'
 
+/**
+ * Giá trị nằm trong cột `attendance.type` (drizzle enum trong db/schema.ts).
+ * Domain type `AttendanceSessionType` rộng hơn (còn Retreat/SpecialEvent —
+ * chưa có đường ghi), nên cần alias hẹp đúng bằng giá trị persist được.
+ * BUSINESS_RULES §2.2: SundayMass | CatechismClass | EucharisticAdoration.
+ */
+type PersistedAttendanceType = 'SundayMass' | 'CatechismClass' | 'EucharisticAdoration'
+
 export class DrizzleAttendanceRepository {
   public async findByStudentAndSession(
     studentId: string,
@@ -21,7 +29,7 @@ export class DrizzleAttendanceRepository {
           eq(attendance.parishId, parishId),
           eq(attendance.studentId, studentId),
           eq(attendance.date, date),
-           eq(attendance.type, type as 'SundayMass' | 'CatechismClass')
+          eq(attendance.type, type as PersistedAttendanceType)
         )
       )
       .limit(1)
@@ -67,7 +75,7 @@ export class DrizzleAttendanceRepository {
         id: record.id,
         studentId: record.studentId,
         date: record.date,
-        type: record.type as 'SundayMass' | 'CatechismClass',
+        type: record.type as PersistedAttendanceType,
         status: record.status,
         note: record.note,
         version: record.version,
@@ -90,7 +98,7 @@ export class DrizzleAttendanceRepository {
             eq(attendance.parishId, parishId),
             eq(attendance.studentId, record.studentId),
             eq(attendance.date, record.date),
-            eq(attendance.type, record.type as 'SundayMass' | 'CatechismClass')
+            eq(attendance.type, record.type as PersistedAttendanceType)
           )
         )
         .limit(1)

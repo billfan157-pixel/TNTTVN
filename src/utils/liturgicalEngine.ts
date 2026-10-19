@@ -9,6 +9,8 @@ import type {
 } from '../types/liturgical'
 import {
   FIXED_LITURGICAL_CALENDAR,
+  LITURGICAL_CALENDAR_SOURCE,
+  LITURGICAL_CALENDAR_VERSION,
   LITURGICAL_COLORS,
   LITURGICAL_RANKS,
   LITURGICAL_SEASONS,
@@ -102,7 +104,8 @@ export function getMobileLiturgicalEvents(year: number): Record<string, Partial<
     subTitle: 'Khởi đầu Mùa Chay Thánh',
     season: 'LENT',
     color: 'PURPLE',
-    rank: 'SOLEMNITY',
+    // Thứ Tư Lễ Tro là ngày chay buộc, KHÔNG phải Lễ Trọng.
+    rank: 'WEEKDAY',
     isHolyDayOfObligation: false,
     readings: { firstReading: 'Ge 2, 12-18', psalm: 'Tv 50', secondReading: '2 Cr 5, 20 - 6, 2', gospel: 'Mt 6, 1-6. 16-18', gospelVerse: 'Hãy thật lòng sám hối và tin vào Tin Mừng.' },
   }
@@ -115,7 +118,7 @@ export function getMobileLiturgicalEvents(year: number): Record<string, Partial<
       title: `Chúa Nhật ${i === 1 ? 'I' : i === 2 ? 'II' : i === 3 ? 'III' : i === 4 ? 'IV' : 'V'} Mùa Chay${isLaetare ? ' (Chúa Nhật Hân Hoan - Laetare)' : ''}`,
       season: 'LENT',
       color: isLaetare ? 'ROSE' : 'PURPLE',
-      rank: 'SOLEMNITY',
+      rank: 'SUNDAY',
       isSunday: true,
       isHolyDayOfObligation: true,
     }
@@ -128,7 +131,7 @@ export function getMobileLiturgicalEvents(year: number): Record<string, Partial<
     subTitle: 'Kỷ niệm cuộc Thương Khó của Chúa',
     season: 'LENT',
     color: 'RED',
-    rank: 'SOLEMNITY',
+    rank: 'SUNDAY',
     isSunday: true,
     isHolyDayOfObligation: true,
   }
@@ -175,10 +178,10 @@ export function getMobileLiturgicalEvents(year: number): Record<string, Partial<
   // Chúa Nhật II Phục Sinh (Lòng Chúa Thương Xót)
   const divineMercy = addDays(easter, 7)
   events[formatDateKey(divineMercy)] = {
-    title: 'Chúa Nhật II Phục Sinh (Đại Lễ Lòng Chúa Thương Xót)',
+    title: 'Chúa Nhật II Phục Sinh (Lòng Chúa Thương Xót)',
     season: 'EASTER',
     color: 'WHITE',
-    rank: 'SOLEMNITY',
+    rank: 'SUNDAY',
     isSunday: true,
     isHolyDayOfObligation: true,
   }
@@ -189,7 +192,7 @@ export function getMobileLiturgicalEvents(year: number): Record<string, Partial<
       title: `Chúa Nhật ${i === 3 ? 'III' : i === 4 ? 'IV (Chúa Chiên Lành)' : i === 5 ? 'V' : 'VI'} Phục Sinh`,
       season: 'EASTER',
       color: 'WHITE',
-      rank: 'SOLEMNITY',
+      rank: 'SUNDAY',
       isSunday: true,
       isHolyDayOfObligation: true,
     }
@@ -269,7 +272,7 @@ export function getMobileLiturgicalEvents(year: number): Record<string, Partial<
       title: `Chúa Nhật ${i === 1 ? 'I' : i === 2 ? 'II' : i === 3 ? 'III' : 'IV'} Mùa Vọng${isGaudete ? ' (Chúa Nhật Vui - Gaudete)' : ''}`,
       season: 'ADVENT',
       color: isGaudete ? 'ROSE' : 'PURPLE',
-      rank: 'SOLEMNITY',
+      rank: 'SUNDAY',
       isSunday: true,
       isHolyDayOfObligation: true,
     }
@@ -385,7 +388,7 @@ export function getLiturgicalDay(inputDate: Date | string): LiturgicalDay {
     selectedSubTitle = mobileEvent.subTitle
     selectedSeason = mobileEvent.season || selectedSeason
     selectedColor = mobileEvent.color || selectedColor
-    selectedRank = mobileEvent.rank || (isSunday ? 'SOLEMNITY' : 'FEAST')
+    selectedRank = mobileEvent.rank || (isSunday ? 'SUNDAY' : 'FEAST')
     isHolyDayOfObligation = mobileEvent.isHolyDayOfObligation ?? isSunday
     readings = mobileEvent.readings
   }
@@ -409,7 +412,7 @@ export function getLiturgicalDay(inputDate: Date | string): LiturgicalDay {
     } else {
       // Chúa Nhật Mùa Thường Niên
       selectedTitle = `Chúa Nhật ${selectedSeason === 'ORDINARY_TIME' ? 'Thường Niên' : ''}`
-      selectedRank = 'SOLEMNITY'
+      selectedRank = 'SUNDAY'
       selectedColor = LITURGICAL_SEASONS[selectedSeason].defaultColor
     }
   }
@@ -417,7 +420,7 @@ export function getLiturgicalDay(inputDate: Date | string): LiturgicalDay {
   else {
     const dayNames = ['Chúa Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy']
     selectedTitle = `${dayNames[dayOfWeek]} (${LITURGICAL_SEASONS[selectedSeason].name})`
-    selectedRank = isSunday ? 'SOLEMNITY' : 'WEEKDAY'
+    selectedRank = isSunday ? 'SUNDAY' : 'WEEKDAY'
     selectedColor = LITURGICAL_SEASONS[selectedSeason].defaultColor
   }
 
@@ -427,6 +430,8 @@ export function getLiturgicalDay(inputDate: Date | string): LiturgicalDay {
 
   return {
     date: dateKey,
+    calendarSource: LITURGICAL_CALENDAR_SOURCE,
+    calendarVersion: LITURGICAL_CALENDAR_VERSION,
     title: selectedTitle,
     subTitle: selectedSubTitle,
     season: selectedSeason,

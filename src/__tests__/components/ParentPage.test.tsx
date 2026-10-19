@@ -29,17 +29,33 @@ const mockReport = {
   promotion: { status: 'PROMOTED', gpa: 8.85, attendanceRate: 92.5, isOverridden: false },
 }
 
+const { portalState, printMock } = vi.hoisted(() => ({
+  portalState: {
+    selectedId: 'child-1',
+    report: null as any,
+  },
+  printMock: vi.fn(),
+}))
+
 vi.mock('../../hooks/useParentPortal', () => ({
   useParentPortal: () => ({
     children: mockChildren,
     loading: false,
     error: null,
-    selectedId: 'child-1',
-    report: mockReport,
+    selectedId: portalState.selectedId,
+    report: portalState.report,
     reportLoading: false,
     reportError: null,
     selectChild: mockSelectChild,
   }),
+}))
+
+vi.mock('../../services/reportExportService', () => ({
+  ReportExportService: { print: (...args: unknown[]) => printMock(...args) },
+}))
+
+vi.mock('../../utils/pdfGenerator', () => ({
+  generateParentReportCardHTML: (report: unknown) => `HTML:${(report as { student: { id: string } }).student.id}`,
 }))
 
 vi.mock('../../stores/leaveRequestStore', () => ({
@@ -70,6 +86,8 @@ vi.mock('../../components/common/LeaveRequestModal', () => ({
 describe('ParentPage Component', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    portalState.selectedId = 'child-1'
+    portalState.report = mockReport
   })
 
   it('renders page header and child cards', async () => {
@@ -125,5 +143,28 @@ describe('ParentPage Component', () => {
     fireEvent.click(cancelBtn)
 
     expect(mockCancelRequest).toHaveBeenCalledWith('req-1')
+  })
+
+  it('FE-F2: in đúng phiếu điểm của thiếu nhi đang chọn', async () => {
+    await act(async () => {
+      render(<ParentPage />)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /In Kết Quả Học Tập/ }))
+
+    expect(printMock).toHaveBeenCalledTimes(1)
+    expect(printMock.mock.calls[0][0]).toBe('HTML:child-1')
+  })
+
+  it('FE-F2: không in phiếu điểm cũ khi DTO thuộc thiếu nhi khác đang chọn', async () => {
+    portalState.selectedId = 'child-2'
+    // report vẫn là DTO của child-1 (ví dụ: report của lựa chọn trước còn sót lại)
+    await act(async () => {
+      render(<ParentPage />)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /In Kết Quả Học Tập/ }))
+
+    expect(printMock).not.toHaveBeenCalled()
   })
 })

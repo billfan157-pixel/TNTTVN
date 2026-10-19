@@ -8,7 +8,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { useLeaveRequestStore } from '../../stores/leaveRequestStore';
-import { calculateGradeAverage, calculateAttendanceRate } from '../../utils/grades';
+import { buildDashboardSummary } from '../../utils/dashboardSummary';
 import { 
   CheckSquare, FileSpreadsheet, UserPlus, CalendarClock,
   Bell, Users, Award, TrendingUp, ChevronRight, AlertCircle, Sparkles
@@ -31,6 +31,10 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
   const notices = useNoticeStore(s => s.notices);
   const currentUser = useAuthStore(s => s.user);
   const academicYearDisplay = useAcademicYearStore(s => s.currentYear);
+  const activeYear = useAcademicYearStore(s => s.currentYear) || useAcademicYearStore.getState().resolveActiveYear();
+  const getYearRange = useAcademicYearStore(s => s.getYearRange);
+  const gradeWeights = useSettingsStore(s => s.settings.gradeWeights);
+  const excusedWeight = useSettingsStore(s => s.settings.attendancePolicy?.excusedWeight ?? 1.0);
   const pendingCount = useLeaveRequestStore(s => s.pendingCount);
   const fetchPendingCount = useLeaveRequestStore(s => s.fetchPendingCount);
 
@@ -58,39 +62,20 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
   }, [currentUser?.role]);
 
   const stats = useMemo(() => {
-    const total = students.length;
-    const active = students.filter(s => s.status === 'Đang học').length;
-
-    let presentCount = 0;
-    attendance.forEach(a => {
-      if (a.status === 'Present' || a.status === 'AbsentExcused') presentCount++;
+    // FE-F3: cùng một read model với desktop — năm học + khoảng ngày + học kỳ +
+    // attendance policy; không còn đếm mọi bản ghi attendance bất kể năm học.
+    return buildDashboardSummary({
+      students,
+      attendance,
+      grades,
+      semester: selectedSemester,
+      academicYear: activeYear,
+      range: getYearRange(activeYear),
+      excusedWeight,
+      gradeWeights,
+      role: currentUser?.role,
     });
-    const attRate = attendance.length > 0 ? calculateAttendanceRate(presentCount, attendance.length).rate : 100;
-
-    // PERF: Build grade index once → O(1) lookup per student instead of O(M) find()
-    const gradeIndex = new Map<string, typeof grades[0]>();
-    for (const g of grades) {
-      if (g.semester === selectedSemester) gradeIndex.set(g.studentId, g);
-    }
-
-    const gradeWeights = useSettingsStore.getState().settings.gradeWeights;
-    let xuatSac = 0, gioi = 0, kha = 0;
-    let totalGraded = 0;
-    students.forEach(s => {
-      const g = gradeIndex.get(s.id);
-      if (g) {
-        const avg = calculateGradeAverage(g, gradeWeights);
-        if (avg.score !== null) {
-          totalGraded++;
-          if (avg.label === 'Xuất Sắc') xuatSac++;
-          else if (avg.label === 'Giỏi') gioi++;
-          else if (avg.label === 'Khá') kha++;
-        }
-      }
-    });
-
-    return { total, active, attRate, xuatSac, gioi, kha, totalGraded };
-  }, [students, attendance, grades, selectedSemester]);
+  }, [students, attendance, grades, selectedSemester, activeYear, getYearRange, excusedWeight, gradeWeights, currentUser?.role]);
 
   return (
     <div className="mobile-screen mobile-screen--stack product-view">
@@ -109,7 +94,7 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
           </h2>
         </div>
         <p className="relative z-1 text-[11px] text-white/70 mt-1 m-0 font-medium leading-relaxed">
-          {roleLabel} · Học kỳ {selectedSemester === 2 ? 'II' : 'I'} · Niên học {academicYearDisplay}
+          {roleLabel} · Học kỳ {selectedSemester === 2 ? 'II' : 'I'} · Niên học {academicYearDisplay || activeYear}
         </p>
       </div>
 
@@ -227,10 +212,10 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
             Tổng thiếu nhi
           </div>
           <div className="mobile-stat-card__value">
-            {stats.total} <span className="text-xs font-normal text-text-secondary">em</span>
+            {stats.students.total} <span className="text-xs font-normal text-text-secondary">em</span>
           </div>
           <div className="text-[10px] font-bold text-parish-success mt-1">
-            ● {stats.active} đang học
+            ● {stats.students.active} đang học
           </div>
         </div>
 
@@ -239,11 +224,17 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
             <TrendingUp size={14} className="text-parish-success" />
             Tỷ lệ chuyên cần
           </div>
-          <div className="mobile-stat-card__value text-parish-success">
-            {stats.attRate}%
-          </div>
+          {stats.attendance.hasRecords ? (
+            <div className="mobile-stat-card__value text-parish-success">
+              {stats.attendance.rate}%
+            </div>
+          ) : (
+            <div className="text-xs font-bold text-text-muted mt-1">
+              Chưa có buổi được ghi nhận
+            </div>
+          )}
           <div className="text-[10px] font-bold text-text-secondary mt-1">
-            Toàn xứ đoàn
+            {stats.scopeLabel} • {stats.attendance.sessionDates} buổi đã ghi
           </div>
         </div>
       </section>
@@ -267,28 +258,28 @@ export const MobileHomeView: React.FC<MobileHomeViewProps> = ({ onNavigateTab, o
         <div className="grid grid-cols-3 gap-2 text-center">
           <div className="bg-amber-500/10 dark:bg-amber-400/10 border border-amber-500/25 rounded-xl py-2 px-1">
             <div className="text-[10px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wide">Xuất sắc</div>
-            <div className="text-base font-black text-amber-700 dark:text-amber-400 mt-0.5">{stats.xuatSac}</div>
+            <div className="text-base font-black text-amber-700 dark:text-amber-400 mt-0.5">{stats.grades.xuatSac}</div>
           </div>
           <div className="bg-sky-500/10 dark:bg-sky-400/10 border border-sky-500/25 rounded-xl py-2 px-1">
             <div className="text-[10px] font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wide">Giỏi</div>
-            <div className="text-base font-black text-sky-700 dark:text-sky-400 mt-0.5">{stats.gioi}</div>
+            <div className="text-base font-black text-sky-700 dark:text-sky-400 mt-0.5">{stats.grades.gioi}</div>
           </div>
           <div className="bg-emerald-500/10 dark:bg-emerald-400/10 border border-emerald-500/25 rounded-xl py-2 px-1">
             <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wide">Khá</div>
-            <div className="text-base font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{stats.kha}</div>
+            <div className="text-base font-black text-emerald-700 dark:text-emerald-400 mt-0.5">{stats.grades.kha}</div>
           </div>
         </div>
 
         {/* Mini Academic Distribution Bar — Explicitly clarifies graded subset vs total */}
-        {stats.totalGraded > 0 && (
+        {stats.grades.totalGraded > 0 && (
           <div className="pt-1 flex flex-col gap-1.5">
             <div className="h-1.5 w-full bg-surface-hover rounded-full overflow-hidden flex" aria-hidden="true">
-              <div style={{ width: `${(stats.xuatSac / stats.totalGraded) * 100}%` }} className="bg-amber-500 h-full" title={`Xuất sắc: ${stats.xuatSac}`} />
-              <div style={{ width: `${(stats.gioi / stats.totalGraded) * 100}%` }} className="bg-sky-500 h-full" title={`Giỏi: ${stats.gioi}`} />
-              <div style={{ width: `${(stats.kha / stats.totalGraded) * 100}%` }} className="bg-emerald-500 h-full" title={`Khá: ${stats.kha}`} />
+              <div style={{ width: `${(stats.grades.xuatSac / stats.grades.totalGraded) * 100}%` }} className="bg-amber-500 h-full" title={`Xuất sắc: ${stats.grades.xuatSac}`} />
+              <div style={{ width: `${(stats.grades.gioi / stats.grades.totalGraded) * 100}%` }} className="bg-sky-500 h-full" title={`Giỏi: ${stats.grades.gioi}`} />
+              <div style={{ width: `${(stats.grades.kha / stats.grades.totalGraded) * 100}%` }} className="bg-emerald-500 h-full" title={`Khá: ${stats.grades.kha}`} />
             </div>
             <div className="text-[10px] text-text-muted font-medium text-right">
-              Tỷ lệ của {stats.totalGraded} em đã có điểm ({stats.totalGraded}/{stats.total} thiếu nhi)
+              Tỷ lệ của {stats.grades.totalGraded} em đã có điểm ({stats.grades.totalGraded}/{stats.students.total} thiếu nhi)
             </div>
           </div>
         )}

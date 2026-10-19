@@ -56,7 +56,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
   useGradeStore.setState({ grades: [] })
   useAttendanceStore.setState({ attendance: [] })
   
-  useDailyGradeStore.setState({ entries: [], serverEntries: [] })
+  useDailyGradeStore.setState({ entries: [], serverEntries: [], conductEntries: [] })
   useSacramentStore.setState({ promotionQueue: [] })
   useClassStore.setState({ classes: [], branches: [], academicYears: [] })
   useFilterStore.setState({
@@ -99,6 +99,7 @@ export async function resetAllStoresToDefault(options: { clearPersisted?: boolea
   useSyncStore.setState({
     status: 'idle',
     pendingCount: 0,
+    failedCount: 0,
     lastSyncAt: null,
     lastError: null,
     unresolvedConflictsCount: 0,

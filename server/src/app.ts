@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { bodyLimit } from 'hono/body-limit'
-import { securityHeaders, rateLimiter, loginRateLimiter, refreshRateLimiter } from './middleware/security.js'
+import { securityHeaders, rateLimiter, refreshRateLimiter } from './middleware/security.js'
 import authRouter from './routes/auth.js'
 import studentsRouter from './routes/students.js'
 import gradesRouter from './routes/grades.js'
@@ -89,7 +89,10 @@ app.use('/*', cors({
 app.use('/*', securityHeaders)
 app.use('/api/*', rateLimiter)
 app.use('/api/*', bodyLimit({ maxSize: 10 * 1024 * 1024 }))
-app.use('/api/auth/login', loginRateLimiter)
+// A-SEC (2026-10-18): loginRateLimiter áp dụng DUY NHẤT tại route
+// (auth.ts: auth.post('/login', loginRateLimiter, ...)). Trước đây limiter này
+// còn được mount ở đây → cùng key `login:<ip>` bị tăng 2 lần/request, khiến
+// ngưỡng 10 lần thực tế chỉ còn 5. Không mount lại limiter login ở cấp app.
 app.use('/api/auth/refresh', refreshRateLimiter)
 
 import promotionRouter from './routes/promotion.js'

@@ -184,8 +184,11 @@ export function calculateClassAttendanceAnalytics(
   kpis: AttendanceAnalyticsKPIs
   summaries: StudentAttendanceSummary[]
 } {
-  // Lọc theo khoảng ngày nếu có
+  const validStudents = students.filter((s) => !s.deletedAt)
+  const studentIds = new Set(validStudents.map(s => s.id))
+  // Keep every KPI and timeline in the same roster and date scope as the rows.
   const filteredRecords = attendanceRecords.filter((r) => {
+    if (!studentIds.has(r.studentId)) return false
     if (range?.startDate && r.date < range.startDate) return false
     if (range?.endDate && r.date > range.endDate) return false
     return true
@@ -207,9 +210,9 @@ export function calculateClassAttendanceAnalytics(
     recordsByDate.set(r.date, list)
   }
 
-  const validStudents = students.filter((s) => !s.deletedAt)
   const summaries: StudentAttendanceSummary[] = []
   let totalRateSum = 0
+  let studentsWithRecords = 0
   let totalMassRateSum = 0
   let massCountWithRecords = 0
   let totalCatechismRateSum = 0
@@ -245,7 +248,10 @@ export function calculateClassAttendanceAnalytics(
     const summary = computeStudentAttendanceSummary(s, sRecords, excusedWeight, minRateThreshold)
     summaries.push(summary)
 
-    totalRateSum += summary.overall.rate
+    if (summary.overall.totalSessions > 0) {
+      totalRateSum += summary.overall.rate
+      studentsWithRecords++
+    }
     if (summary.mass.total > 0) {
       totalMassRateSum += summary.mass.rate
       massCountWithRecords++
@@ -259,10 +265,12 @@ export function calculateClassAttendanceAnalytics(
       adorationCountWithRecords++
     }
 
-    if (summary.overall.status === 'excellent') excellentCount++
-    else if (summary.overall.status === 'good') goodCount++
-    else if (summary.overall.status === 'warning') warningCount++
-    else if (summary.overall.status === 'critical') criticalCount++
+    if (summary.overall.totalSessions > 0) {
+      if (summary.overall.status === 'excellent') excellentCount++
+      else if (summary.overall.status === 'good') goodCount++
+      else if (summary.overall.status === 'warning') warningCount++
+      else if (summary.overall.status === 'critical') criticalCount++
+    }
 
     // Kiểm tra danh sách nguy cơ
     const reasons: string[] = []
@@ -290,8 +298,9 @@ export function calculateClassAttendanceAnalytics(
     }
   }
 
-  const studentCount = validStudents.length || 1
-  const averageRate = Number((totalRateSum / studentCount).toFixed(1))
+  const averageRate = studentsWithRecords > 0
+    ? Number((totalRateSum / studentsWithRecords).toFixed(1))
+    : validStudents.length > 0 ? 100 : 0
   const massRate = massCountWithRecords > 0 ? Number((totalMassRateSum / massCountWithRecords).toFixed(1)) : 100
   const catechismRate = catechismCountWithRecords > 0 ? Number((totalCatechismRateSum / catechismCountWithRecords).toFixed(1)) : 100
   const adorationRate = adorationCountWithRecords > 0 ? Number((totalAdorationRateSum / adorationCountWithRecords).toFixed(1)) : 100
@@ -382,7 +391,7 @@ export async function exportAttendanceSummaryReport(
       'Chầu: Tỷ Lệ (%)': s.adoration.total > 0 ? s.adoration.rate : '-',
       'Tổng Số Buổi': s.overall.totalSessions,
       'Tổng Điểm Hiện Diện': Number(s.overall.effectivePresent.toFixed(1)),
-      'Tỷ Lệ Chuyên Cần Chung (%)': s.overall.rate,
+      'Tỷ Lệ Chuyên Cần Chung (%)': s.overall.totalSessions > 0 ? s.overall.rate : '-',
       'Đánh Giá': s.overall.statusLabel,
       'SĐT Phụ Huynh': s.student.parentPhone || '',
     }

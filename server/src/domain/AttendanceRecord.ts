@@ -1,5 +1,5 @@
 export type AttendanceStatus = 'Present' | 'AbsentExcused' | 'AbsentUnexcused'
-export type AttendanceSessionType = 'SundayMass' | 'CatechismClass' | 'Retreat' | 'SpecialEvent'
+export type AttendanceSessionType = 'SundayMass' | 'CatechismClass' | 'EucharisticAdoration' | 'Retreat' | 'SpecialEvent'
 
 export interface AttendanceRecordProps {
   id: string

@@ -170,7 +170,7 @@ export function syncDeleteExam(sessionId: string): Promise<string> {
 // CREATE (không UPDATE): add-then-remove khi offline được compact hủy cả cặp;
 // retry sau khi đã gửi trả `duplicate`, không nhân đôi.
 export function syncUpsertDailyEntry(data: {
-  id: string; studentId: string; academicYear: string; semester: number; scoreType: string; value: number; date?: string
+  id: string; studentId: string; academicYear: string; semester: number; scoreType: string; value: number; date?: string; reason?: string
 }): Promise<string> {
   return enqueue('daily_entry', 'CREATE', data.id, data)
 }

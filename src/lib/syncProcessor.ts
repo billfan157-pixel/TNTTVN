@@ -227,14 +227,22 @@ export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSn
             scoreType: data.scoreType,
             value: data.value,
             date: data.date,
+            reason: data.reason,
           }])
           // Server partial-success trả HTTP 200 kể cả khi item lỗi → không được
           // coi op là xong, nếu không mutation mất thầm lặng (fail-closed Diagnostics).
-          const first = res?.items?.[0] as { status?: string; reason?: string } | undefined
+          const first = res?.items?.[0]
           if (first && first.status === 'error') {
             return { ok: false, recoverable: false, error: `Daily entry bị từ chối: ${first.reason || 'không rõ lý do'}` }
           }
-          return { ok: true, data: res }
+          if (!first || !['created', 'duplicate'].includes(first.status)
+            || first.id !== String(data.id || targetId) || first.studentId !== data.studentId
+            || first.scoreType !== data.scoreType || !Number.isFinite(first.serverScore)) {
+            return { ok: false, recoverable: false, error: 'Thiếu xác nhận hợp lệ cho lần nhập điểm; giữ thao tác để đối chiếu.' }
+          }
+          // The generic CREATE acknowledgement needs a canonical identity.
+          // Daily IDs are stable: use the validated server receipt, not a new ID.
+          return { ok: true, data: { ...res, id: first.id } }
         } else if (action === 'delete') {
           const deletedId = String(data.id || targetId)
           const res = await api.deleteDailyEntry(deletedId)

@@ -97,7 +97,9 @@ export const AttendanceHistoryModal: React.FC<AttendanceHistoryModalProps> = ({
       isOpen={isOpen}
       onClose={onClose}
       title={`${summary.student.holyName ? `${summary.student.holyName} ` : ''}${summary.student.fullName}`}
-      subtitle={`Mã ${summary.student.code} • Tỷ lệ chuyên cần: ${summary.overall.rate}% (${summary.overall.presentCount}/${summary.overall.totalSessions} buổi) — ${summary.overall.statusLabel}`}
+      subtitle={summary.overall.totalSessions > 0
+        ? `Mã ${summary.student.code} • Tỷ lệ chuyên cần: ${summary.overall.rate}% (${summary.overall.presentCount}/${summary.overall.totalSessions} buổi) — ${summary.overall.statusLabel}`
+        : `Mã ${summary.student.code} • Chưa có điểm danh`}
       maxWidth="672px"
     >
       {/* Filter Toolbar */}

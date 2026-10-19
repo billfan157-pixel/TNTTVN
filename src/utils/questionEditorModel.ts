@@ -1,5 +1,6 @@
 import type { QuestionBankMutationInput } from '../lib/api'
 import type { QuestionBankItem, QuestionDifficulty } from '../types'
+import { findQuestionBlockForLevel, type QuestionBlockOption } from './questionBlock'
 
 export interface QuestionClassOption {
   id: string
@@ -23,7 +24,7 @@ export type QuestionForm = {
   correctOption: 'A' | 'B' | 'C' | 'D'
   explanation: string
   branchId: string
-  classId: string
+  blockId: string
   curriculumLevel: string
   chapter: string
   lesson: string
@@ -44,7 +45,7 @@ export const EMPTY_QUESTION: QuestionForm = {
   correctOption: 'A',
   explanation: '',
   branchId: '',
-  classId: '',
+  blockId: '',
   curriculumLevel: '',
   chapter: '',
   lesson: '',
@@ -76,12 +77,12 @@ export function mutationFromQuestionForm(form: QuestionForm): QuestionBankMutati
   }
 }
 
-export function questionFormFromItem(item: QuestionBankItem, classes: QuestionClassOption[]): QuestionForm {
+export function questionFormFromItem(item: QuestionBankItem, blocks: QuestionBlockOption[]): QuestionForm {
   const answer = item.current.answerData
   const options = Array.isArray(answer.options) ? answer.options as Array<{ id: string; text: string }> : []
   const option = (id: string) => options.find(value => value.id === id)?.text ?? ''
   const correct = Array.isArray(answer.correctOptionIds) ? String(answer.correctOptionIds[0] ?? 'A') : 'A'
-  const matchedClass = classes.find(cls => cls.branchId === item.branchId && cls.name === item.curriculumLevel)
+  const matchedBlock = findQuestionBlockForLevel(blocks, item.curriculumLevel)
   return {
     questionType: item.current.questionType === 'essay' ? 'essay' : 'multiple_choice',
     stem: item.current.stem,
@@ -92,8 +93,8 @@ export function questionFormFromItem(item: QuestionBankItem, classes: QuestionCl
     correctOption: /^[A-D]$/.test(correct) ? correct as 'A' | 'B' | 'C' | 'D' : 'A',
     explanation: item.current.explanation ?? '',
     branchId: item.branchId ?? '',
-    classId: matchedClass?.id ?? '',
-    curriculumLevel: item.curriculumLevel ?? '',
+    blockId: matchedBlock?.id ?? '',
+    curriculumLevel: matchedBlock?.label ?? item.curriculumLevel ?? '',
     chapter: item.chapter ?? '',
     lesson: item.lesson ?? '',
     lessonOrder: item.lessonOrder == null ? '' : String(item.lessonOrder),

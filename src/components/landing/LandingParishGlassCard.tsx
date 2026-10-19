@@ -1,5 +1,5 @@
 import React from 'react'
-import { ArrowRight, Award, Calendar, ChevronDown, Church, Compass, Users } from 'lucide-react'
+import { ArrowDownRight, ArrowRight, Award, Calendar, Church, Compass, Users } from 'lucide-react'
 import { useAcademicYearStore } from '../../stores/academicYearStore'
 import { normalizeAcademicYear } from '../../utils/academicYear'
 import { LandingHeroMedia } from './LandingHeroMedia'
@@ -21,7 +21,11 @@ export function LandingParishGlassCard({ onLogin, isLoggedIn = false, videoSrc }
       <div className="landing-hero-scrim absolute inset-0 pointer-events-none" aria-hidden="true" />
 
       {/* 1. KHỐI TRÊN: Eyebrow Phong Trào TNTTVN */}
-      <div className="relative z-10 flex justify-center pt-2 hero-enter-1">
+      <div className="landing-hero-masthead relative z-10 hero-enter-1">
+        <div className="landing-hero-wordmark">
+          <span>Catevia<span aria-hidden="true">.</span></span>
+          <span>Gắn kết hôm nay. Đồng hành mai sau.</span>
+        </div>
         <span className="landing-hero-kicker inline-flex items-center gap-2 text-xs font-extrabold text-white tracking-wide">
           <span className="landing-hero-kicker__line" aria-hidden="true" />
           <span className="text-parish-secondary-light select-none text-xs" aria-hidden="true">⚜️</span>
@@ -54,7 +58,7 @@ export function LandingParishGlassCard({ onLogin, isLoggedIn = false, videoSrc }
           </h1>
 
           <p className="landing-hero-lead m-0 mt-1 text-sm sm:text-base lg:text-lg font-medium text-white/95 max-w-2xl leading-relaxed text-balance">
-            Giáo lý, chuyên cần, điểm số và đời sống Xứ Đoàn — trong một nền tảng dành riêng cho Xứ Đoàn Đức Mẹ Fatima.
+            Để mỗi buổi Giáo lý được chăm chút, mỗi người phục vụ thêm gắn kết, mỗi gia đình gần hơn với hành trình của con.
           </p>
         </div>
 
@@ -82,6 +86,7 @@ export function LandingParishGlassCard({ onLogin, isLoggedIn = false, videoSrc }
             <span>Khám phá nền tảng</span>
           </a>
         </div>
+        <p className="landing-hero-promise hero-enter-3">Dành thêm thời gian cho điều ý nghĩa: <strong>cùng các em lớn lên.</strong></p>
       </div>
 
       {/* 3. KHỐI CHÂN ẢNH: Thẻ Kính Nổi Nhận Diện Mục Vụ (Parish Identity Rail) */}
@@ -120,22 +125,17 @@ export function LandingParishGlassCard({ onLogin, isLoggedIn = false, videoSrc }
         </div>
       </figcaption>
 
-      {/* 4. CHỈ HƯỚNG CUỘN (Scroll Down Indicator) */}
-      <div className="relative z-20 flex justify-center pt-2 sm:pt-3 hero-enter-5">
-        {/* rounded-2xl, not rounded-full: a pill of this height is only ~10px wide where
-            the label sits near its top edge, so the text fell outside the painted plate and
-            its glyphs landed on the bare photograph — measured 3.6:1 before this change. */}
-        <a
-          href="#hanh-trinh"
-          aria-label="Khám phá hành trình Xứ Đoàn cùng Catevia"
-          className="landing-hero-plate group inline-flex flex-col items-center justify-center gap-0.5 min-h-11 px-5 py-2 rounded-2xl no-underline text-white transition-opacity duration-200 hover:opacity-90"
-        >
-          <span className="text-xs font-semibold uppercase tracking-widest text-white group-hover:text-parish-secondary-light transition-colors">
-            Khám phá
-          </span>
-          <ChevronDown aria-hidden="true" className="w-4 h-4 text-white/90 group-hover:text-parish-secondary-light motion-safe:animate-bounce" />
+      <nav className="landing-hero-route relative z-20 hero-enter-5" aria-label="Khám phá Catevia">
+        <a href="#hanh-trinh" aria-label="Khám phá hành trình Xứ Đoàn cùng Catevia">
+          <span>01</span><span>Hành trình đức tin</span><ArrowDownRight aria-hidden="true" />
         </a>
-      </div>
+        <a href="#san-pham">
+          <span>02</span><span>Không gian đồng hành</span><ArrowDownRight aria-hidden="true" />
+        </a>
+        <a href="#cong-dang-nhap">
+          <span>03</span><span>Cùng bắt đầu</span><ArrowDownRight aria-hidden="true" />
+        </a>
+      </nav>
 
       {/* Chuyển tiếp ánh sáng đáy sang canvas thân bài (Bottom Ambient Veil) */}
       <div className="scene-hero-bottom-veil" aria-hidden="true" />

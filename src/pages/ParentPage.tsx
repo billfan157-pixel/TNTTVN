@@ -52,8 +52,10 @@ export const ParentPage: React.FC = () => {
 
   // B2 consolidation: template duy nhất bên utils/pdfGenerator (generateParentReportCardHTML) —
   // escaped + watermark + @page; print qua ReportExportService như mọi phiếu in khác.
+  // FE-F2: chỉ in DTO thuộc đúng thiếu nhi đang được chọn — không bao giờ in
+  // phiếu điểm của em khác (report cũ còn trong state trong lúc đang tải em mới).
   const handlePrint = () => {
-    if (!report) return
+    if (!report || !selectedChildId || report.student.id !== selectedChildId) return
     ReportExportService.print(generateParentReportCardHTML(report))
   }
 

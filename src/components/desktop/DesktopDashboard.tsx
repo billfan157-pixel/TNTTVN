@@ -4,12 +4,12 @@ import { useAttendanceStore } from '../../stores/attendanceStore';
 import { useGradeStore } from '../../stores/gradeStore';
 import { useNoticeStore } from '../../stores/noticeStore';
 import { useFilterStore } from '../../stores/filterStore';
-import { calculateGradeAverage, calculateAttendanceRate } from '../../utils/grades';
-import { indexDashboardGrades } from '../../utils/dashboardGradeIndex';
+import { buildDashboardSummary } from '../../utils/dashboardSummary';
 import { BRANCHES } from '../../constants/branches';
 import { useClassStore } from '../../stores/classStore';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useAuthStore } from '../../stores/authStore';
 import {
   Users, Award, CheckCircle2,
   Sparkles, AlertCircle, Plus, School, BarChart3, PieChart
@@ -35,45 +35,27 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
   const notices = useNoticeStore(s => s.notices);
   const selectedSemester = useFilterStore(s => s.selectedSemester);
   const gradeWeights = useSettingsStore(s => s.settings.gradeWeights);
+  const excusedWeight = useSettingsStore(s => s.settings.attendancePolicy?.excusedWeight ?? 1.0);
+  const userRole = useAuthStore(s => s.user?.role);
+  // FE-F3: đọc năm học qua subscription (không getState trong useMemo) để đổi
+  // năm học active là dashboard tự tính lại.
+  const activeYear = useAcademicYearStore(s => s.currentYear) || useAcademicYearStore.getState().resolveActiveYear();
+  const getYearRange = useAcademicYearStore(s => s.getYearRange);
 
-  const { totalStudents, activeStudents, overallAttendanceRate, xuatSacCount, gioiCount, khaCount, yeuCount, topStudents, branchStats } = React.useMemo(() => {
-    const total = students.length;
-    const active = students.filter(s => s.status === 'Đang học').length;
-
-    const activeYear = useAcademicYearStore.getState().resolveActiveYear();
-    const range = useAcademicYearStore.getState().getYearRange(activeYear);
-    let totalAttendanceRecords = 0;
-    let presentRecords = 0;
-    attendance.forEach(rec => {
-      if (rec.date >= range.startDate && rec.date <= range.endDate) {
-        totalAttendanceRecords++;
-        if (rec.status === 'Present' || rec.status === 'AbsentExcused') presentRecords++;
-      }
+  const {
+    summary,
+    totalStudents, activeStudents, overallAttendanceRate, attendanceSessionDates,
+    hasAttendanceRecords, xuatSacCount, gioiCount, khaCount, yeuCount, topStudents, branchStats,
+  } = React.useMemo(() => {
+    const readModel = buildDashboardSummary({
+      students, attendance, grades,
+      semester: selectedSemester,
+      academicYear: activeYear,
+      range: getYearRange(activeYear),
+      excusedWeight,
+      gradeWeights,
+      role: userRole,
     });
-    const attendanceRate = calculateAttendanceRate(presentRecords, totalAttendanceRecords).rate;
-
-    let xuatSac = 0, gioi = 0, kha = 0, yeu = 0;
-    const studentAverages: { student: typeof students[0]; avg: number; label: string }[] = [];
-
-    // The dashboard remounts on navigation. Filtering the entire grade array
-    // once per student made that render O(students * grades).
-    const gradeByStudent = indexDashboardGrades(grades, selectedSemester, activeYear);
-
-    students.forEach(student => {
-      const studentGrade = gradeByStudent.get(student.id);
-      if (studentGrade) {
-        const avgResult = calculateGradeAverage(studentGrade, gradeWeights);
-        if (avgResult.score !== null) {
-          studentAverages.push({ student, avg: avgResult.score, label: avgResult.label });
-          if (avgResult.label === 'Xuất Sắc') xuatSac++;
-          else if (avgResult.label === 'Giỏi') gioi++;
-          else if (avgResult.label === 'Khá') kha++;
-          else if (avgResult.label === 'Yếu') yeu++;
-        }
-      }
-    });
-
-    studentAverages.sort((a, b) => b.avg - a.avg);
 
     // Branch breakdown
     const branchMap: Record<string, number> = {};
@@ -83,17 +65,20 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
     });
 
     return {
-      totalStudents: total,
-      activeStudents: active,
-      overallAttendanceRate: attendanceRate,
-      xuatSacCount: xuatSac,
-      gioiCount: gioi,
-      khaCount: kha,
-      yeuCount: yeu,
-      topStudents: studentAverages.slice(0, 5),
+      summary: readModel,
+      totalStudents: readModel.students.total,
+      activeStudents: readModel.students.active,
+      overallAttendanceRate: readModel.attendance.rate,
+      attendanceSessionDates: readModel.attendance.sessionDates,
+      hasAttendanceRecords: readModel.attendance.hasRecords,
+      xuatSacCount: readModel.grades.xuatSac,
+      gioiCount: readModel.grades.gioi,
+      khaCount: readModel.grades.kha,
+      yeuCount: readModel.grades.yeu,
+      topStudents: readModel.grades.topStudents,
       branchStats: branchMap
     };
-  }, [students, attendance, grades, selectedSemester, gradeWeights]);
+  }, [students, attendance, grades, selectedSemester, gradeWeights, excusedWeight, userRole, activeYear, getYearRange]);
 
   const _maxBranchCount = Math.max(...Object.values(branchStats), 1);
 
@@ -126,8 +111,14 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
           </div>
           <div className="metric-card__body">
             <p className="metric-card__label">Tỷ lệ chuyên cần</p>
-            <h3 className="metric-card__value">{overallAttendanceRate}%</h3>
-            <p className="metric-card__meta">Toàn xứ đoàn niên học</p>
+            {hasAttendanceRecords ? (
+              <h3 className="metric-card__value">{overallAttendanceRate}%</h3>
+            ) : (
+              <h3 className="metric-card__value text-base font-bold text-text-muted">Chưa có buổi được ghi nhận</h3>
+            )}
+            <p className="metric-card__meta">
+              {summary.scopeLabel} • Niên học {activeYear} • {attendanceSessionDates} buổi đã ghi
+            </p>
           </div>
         </div>
 

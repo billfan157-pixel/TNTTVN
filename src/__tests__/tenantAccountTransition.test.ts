@@ -72,8 +72,16 @@ describe('TENANT-P1-001 account transition live-state boundary', () => {
     const queueId = await useSyncStore.getState().addOp({
       entity: 'exam', entityId: 'EXAM-A', operation: 'UPDATE', payload: JSON.stringify({ action: 'complete' }),
     })
+    const failedId = await useSyncStore.getState().addOp({
+      entity: 'student', entityId: 'FAILED-A', operation: 'UPDATE', payload: JSON.stringify({ fullName: 'Draft A' }),
+    })
+    await useSyncStore.getState().updateOp(failedId, { status: 'failed' })
+    await useSyncStore.getState().refreshCount()
+    expect(useSyncStore.getState().failedCount).toBe(1)
 
     await resetAllStoresToDefault()
+    expect(useSyncStore.getState()).toMatchObject({ pendingCount: 0, failedCount: 0 })
+    expect(await db.syncQueue.get(failedId)).toMatchObject({ userId: 'USER-A', parishId: 'PARISH-A', status: 'failed' })
     expect(useExamStore.getState()).toMatchObject({ sessions: [], selectedSessionId: null, results: [], cachedResultsBySession: {}, queuedResultMutations: {} })
     expect(useNoticeStore.getState().notices).toEqual([])
     expect(useAcademicYearStore.getState()).toMatchObject({ academicYears: [], currentYear: '' })

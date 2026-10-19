@@ -5,8 +5,9 @@ import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { BRANCHES } from '../../constants/branches';
 import { getSacramentStatus } from '../../utils/sacraments';
-import { generateCertificateQrSvg, buildCertificateQrPayload } from '../../lib/qr';
-import { generateId } from '../../lib/id';
+import { generateCertificateQrSvg, buildCertificateQrPayload, buildCertificateId } from '../../lib/qr';
+import { normalizeAcademicYear } from '../../utils/academicYear';
+import { resolveCertificateVerification, type CertificateVerification } from '../../lib/certificateVerification';
 import { generateSacramentCertificateHTML } from '../../utils/pdfGenerator';
 import { ReportExportService } from '../../services/reportExportService';
 import { Printer, X, Award } from 'lucide-react';
@@ -26,9 +27,30 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
   const dioceseName = useSettingsStore((s) => s.settings.dioceseName) || 'Giáo Phận Xuân Lộc'
   const findClassById = useClassStore((s) => s.findClassById)
 
-  // Generate unique certificate ID and QR code (hooks LUÔN được gọi trước early-return — rules-of-hooks)
-  const certId = React.useMemo(() => generateId('CERT'), [])
-  const qrPayload = React.useMemo(() => (student ? buildCertificateQrPayload(certId, student.id, type) : ''), [certId, student, type])
+  // Định danh chứng nhận ỔN ĐỊNH (hooks LUÔN được gọi trước early-return — rules-of-hooks)
+  const academicYearId = React.useMemo(() => normalizeAcademicYear(academicYearDisplay), [academicYearDisplay])
+  const certId = React.useMemo(
+    () => (student ? buildCertificateId(student.id, academicYearId, type) : ''),
+    [student, academicYearId, type],
+  )
+  const [verification, setVerification] = React.useState<CertificateVerification | null>(null)
+
+  // Chữ ký HMAC do server cấp (staff có quyền trên lớp hiện hành của học sinh).
+  // Không ký được (offline/thiếu quyền/năm học chưa có) → giữ chế độ "mã tham
+  // chiếu nội bộ"; KHÔNG bao giờ hiển thị như đã xác thực.
+  React.useEffect(() => {
+    let cancelled = false
+    setVerification(null)
+    if (!isOpen || !student || !academicYearId) return undefined
+    void resolveCertificateVerification({ studentId: student.id, academicYear: academicYearId, certType: type })
+      .then((result) => { if (!cancelled) setVerification(result) })
+    return () => { cancelled = true }
+  }, [isOpen, student, academicYearId, type])
+
+  const qrPayload = React.useMemo(
+    () => (verification?.verifyUrl || (student ? buildCertificateQrPayload(certId, student.id, type) : '')),
+    [verification, certId, student, type],
+  )
   const qrSvg = React.useMemo(() => (qrPayload ? generateCertificateQrSvg(qrPayload, 4) : ''), [qrPayload])
   const { dialogRef: trapRef, titleId } = useAccessibleDialog(isOpen && !!student, onClose)
 
@@ -43,6 +65,8 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
       parishName,
       dioceseName,
       academicYear: academicYearDisplay,
+      certId: certId || undefined,
+      verifyUrl: verification?.verifyUrl,
     })
     ReportExportService.print(html)
   };
@@ -121,11 +145,18 @@ export const Certificate: React.FC<CertificateProps> = ({ isOpen, onClose, stude
             </div>
           )}
 
-          {/* Unsigned reference code; this is deliberately not presented as verification. */}
+          {/* Có chữ ký server → QR là URL xác thực công khai (quét bằng camera
+              thường mở trang /verify). Không ký được → vẫn là mã tham chiếu nội
+              bộ và ghi rõ KHÔNG xác thực nội dung (fail-visible). */}
           <div className="print-only mt-4 mb-4 flex flex-col items-center gap-2">
-            <div className="text-xs text-text-muted">Mã tham chiếu nội bộ — không xác thực nội dung</div>
+            <div className="text-xs text-text-muted">
+              {verification
+                ? 'Mã xác thực chữ ký định danh — quét QR để kiểm tra (chỉ xác nhận định danh, không xác nhận điểm/nội dung)'
+                : 'Mã tham chiếu nội bộ — không xác thực nội dung'}
+            </div>
             <div dangerouslySetInnerHTML={{ __html: qrSvg }} style={{ width: '80px', height: '80px' }} />
-            <div className="text-[10px] font-mono text-text-muted">{certId}</div>
+            {/* Đã ký → hiển thị đúng certId server đã ký (server chuẩn hoá input). */}
+            <div className="text-[10px] font-mono text-text-muted">{verification?.certId || certId}</div>
           </div>
 
           <div className="grid grid-cols-3 text-center text-xs text-text-muted mt-6 pt-4 border-t border-surface-border">

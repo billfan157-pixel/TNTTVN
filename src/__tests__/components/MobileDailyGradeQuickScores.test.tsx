@@ -79,6 +79,15 @@ describe('MobileDailyGradeEntry Quick Scores & Accessibility', () => {
     expect(screen.getByRole('button', { name: '9' })).toBeInTheDocument()
   })
 
+  it('opens the conduct entry tab from daily grading', () => {
+    useDailyGradeStore.setState({ conductEntries: [] })
+    useGradeStore.setState({ grades: [] })
+    render(<MobileDailyGradeEntry onViewReport={vi.fn()} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Đạo đức' }))
+    expect(screen.getByRole('button', { name: '−0,5 đ' })).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Nhập 0–10...')).not.toBeInTheDocument()
+  })
+
   it('retains input and shows no success while admission is pending or rejected', async () => {
     let reject!: (error: Error) => void
     const pending = new Promise<void>((_resolve, rejectPromise) => { reject = rejectPromise })

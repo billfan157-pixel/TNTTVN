@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { dexieStorage } from '../lib/db'
-import type { DailyGradeEntry, DailyScoreType, DailyLedgerEntry, GradeRecord } from '../types'
+import type { ConductDeduction, DailyGradeEntry, DailyScoreType, DailyLedgerEntry, GradeRecord } from '../types'
 import { useGradeStore, getCurrentAcademicYear } from './gradeStore'
 import { normalizeAcademicYear } from '../utils/grades'
 import { useAcademicYearStore } from './academicYearStore'
@@ -23,6 +23,9 @@ function getActiveAcademicYear(): string {
 
 interface DailyGradeState {
   entries: DailyGradeEntry[]
+  conductEntries: ConductDeduction[]
+  addConductDeduction: (studentId: string, value: number, reason: string, semester: 1 | 2) => Promise<void>
+  acknowledgeConduct: (id: string, afterScore: number, createdAt?: string) => void
   setEntries: (entries: DailyGradeEntry[]) => void
   addEntry: (studentId: string, scoreType: DailyScoreType, value: number, semester: 1 | 2, date?: string) => Promise<void>
   removeEntry: (id: string) => Promise<void>
@@ -59,6 +62,18 @@ export const useDailyGradeStore = create<DailyGradeState>()(
   persist(
     (set, get) => ({
       entries: [],
+      conductEntries: [],
+      acknowledgeConduct: (id, afterScore, createdAt) => set(state => ({ conductEntries: state.conductEntries.map(e => e.id === id ? { ...e, pending: false, afterScore, createdAt: createdAt || e.createdAt } : e) })),
+      addConductDeduction: async (studentId, value, reason, semester) => {
+        const owner = captureTenantScope()
+        if (!owner) throw new Error('Không có phiên nhập điểm hợp lệ.')
+        if (![0.5, 1, 2].includes(value) || !reason.trim() || reason.trim().length > 500) throw new Error('Mức trừ hoặc lý do không hợp lệ.')
+        const entry: ConductDeduction = { id: `CD-${crypto.randomUUID()}`, studentId, academicYear: normalizeAcademicYear(getActiveAcademicYear()), semester, scoreType: 'conduct', value, reason: reason.trim(), date: toDateString(new Date()), createdAt: new Date().toISOString(), pending: true }
+        await syncUpsertDailyEntry(entry)
+        if (!isTenantScopeCurrent(owner)) throw new Error('Phiên nhập điểm đã thay đổi.')
+        set(state => ({ conductEntries: [...state.conductEntries, entry] }))
+        void requestSync().catch(error => Sentry.captureException(error))
+      },
       serverEntries: [],
       setEntries: (entries) => set({ entries }),
 
@@ -139,11 +154,16 @@ export const useDailyGradeStore = create<DailyGradeState>()(
       },
 
       fetchDailyEntries: async (params) => {
+        const owner = captureTenantScope()
         try {
           const rows = await api.getDailyEntries(params)
-          if (!Array.isArray(rows)) return
+          if (!Array.isArray(rows) || !owner || !isTenantScopeCurrent(owner)) return
           const validTypes = new Set(['oral', '15m', '1period'])
-          set({
+          set(state => ({
+            conductEntries: [...new Map([
+              ...state.conductEntries.map(e => [e.id, e] as const),
+              ...rows.filter(r => r.scoreType === 'conduct').map(r => [r.id, { ...r, semester: r.semester === 2 ? 2 : 1, scoreType: 'conduct', reason: r.reason || '', date: r.date || '', pending: false } as ConductDeduction] as const),
+            ]).values()],
             serverEntries: rows
               .filter(r => r && typeof r.id === 'string' && validTypes.has(String(r.scoreType)))
               .map(r => ({
@@ -157,7 +177,7 @@ export const useDailyGradeStore = create<DailyGradeState>()(
                 origin: (r.origin === 'machine' ? 'machine' : 'manual') as DailyLedgerEntry['origin'],
                 examSessionId: r.examSessionId,
               })),
-          })
+          }))
         } catch {
           // Offline/không quyền: giữ entries local, UI vẫn đầy đủ phần tay.
         }

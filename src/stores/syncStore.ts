@@ -45,6 +45,13 @@ function mergePendingExamResult(
 interface SyncState {
   status: SyncStatus
   pendingCount: number
+  /**
+   * FE-F4: số thao tác đã thất bại VĨNH VIỄN (4xx/business reject) đúng scope
+   * owner hiện tại (parishId + userId). Khác `pendingCount` (chỉ pending/retrying),
+   * đây là "thay đổi cần xử lý" — phải tồn tại qua reload, qua một lần pull
+   * thành công, và không bao giờ tính op của user/giáo xứ khác.
+   */
+  failedCount: number
   lastSyncAt: string | null
   lastError: string | null
   deviceId: string
@@ -103,9 +110,33 @@ export function isOwnOp(item: SyncQueueItem): boolean {
   return isOpOwnedBy(item, getTenantScope())
 }
 
-async function getPendingQueueItems(): Promise<SyncQueueItem[]> {
+/**
+ * FE-F4: đếm op `failed` đúng scope owner hiện tại. Dùng lại index userId khi
+ * có (như getPendingQueueItems); filter isOwnOp là fail-closed cho
+ * (parishId, userId) nên op của phiên khác không bao giờ lọt vào chỉ báo.
+ */
+async function getOwnFailedQueueCount(owner: TenantScope): Promise<number> {
   const db = getDB()
-  const currentUserId = getCurrentUserId()
+  const currentUserId = owner.userId
+  if (currentUserId) {
+    try {
+      const rows = await db.syncQueue
+        .where('userId')
+        .equals(currentUserId)
+        .filter((item) => item.status === 'failed')
+        .toArray()
+      return rows.filter(item => isOpOwnedBy(item, owner)).length
+    } catch {
+      // Older test doubles or partially migrated databases may not expose the index yet.
+    }
+  }
+  const rows = await db.syncQueue.where('status').equals('failed').toArray()
+  return rows.filter(item => isOpOwnedBy(item, owner)).length
+}
+
+async function getPendingQueueItems(owner = getTenantScope()): Promise<SyncQueueItem[]> {
+  const db = getDB()
+  const currentUserId = owner?.userId
   if (currentUserId) {
     try {
       return await db.syncQueue
@@ -169,6 +200,7 @@ export async function migrateLegacyQueueOwnership(): Promise<void> {
 export const useSyncStore = create<SyncState>((set, get) => ({
   status: 'idle',
   pendingCount: 0,
+  failedCount: 0,
   unresolvedConflictsCount: 0,
   lastSyncAt: null,
   lastError: null,
@@ -182,13 +214,24 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   setLastError: (err) => set({ lastError: err }),
 
   refreshCount: async () => {
+    const owner = captureTenantScope()
+    if (!owner) {
+      set({ pendingCount: 0, failedCount: 0 })
+      return 0
+    }
     try {
-      const items = await getPendingQueueItems()
-      const count = items.filter(isOwnOp).length
-      set({ pendingCount: count })
+      const items = await getPendingQueueItems(owner)
+      if (!isTenantScopeCurrent(owner)) return -1
+      const count = items.filter(item => isOpOwnedBy(item, owner)).length
+      // FE-F4: refresh both counters together so a successful pull can never
+      // clear a permanently failed owner-scoped op from the banner.
+      const failedCount = await getOwnFailedQueueCount(owner)
+      if (!isTenantScopeCurrent(owner)) return -1
+      set({ pendingCount: count, failedCount })
       void get().refreshConflictsCount()
       return count
     } catch (error) {
+      if (!isTenantScopeCurrent(owner)) return -1
       const message = error instanceof Error ? error.message : 'Không thể đọc hàng đợi đồng bộ'
       set({ status: 'failed', lastError: message })
       return -1
@@ -196,21 +239,21 @@ export const useSyncStore = create<SyncState>((set, get) => ({
   },
 
   refreshConflictsCount: async () => {
+    const owner = captureTenantScope()
     try {
       const db = getDB()
-      const userId = getCurrentUserId()
-      if (!userId) {
+      if (!owner) {
         set({ unresolvedConflictsCount: 0 })
         return 0
       }
-      const parishId = getCurrentParishId()
       const list = await db.syncConflicts
         .where('userId')
-        .equals(userId)
+        .equals(owner.userId)
         .toArray()
+      if (!isTenantScopeCurrent(owner)) return 0
       // OFF-TENANT-1: chỉ đếm conflicts đúng parish hiện tại (đồng nhất với
       // getConflicts — legacy rows thiếu parish không hiện/không đếm).
-      const count = list.filter((c) => !c.resolved && (!parishId || c.parishId === parishId)).length
+      const count = list.filter((c) => !c.resolved && c.parishId === owner.parishId).length
       set({ unresolvedConflictsCount: count })
       return count
     } catch {

@@ -35,7 +35,7 @@ describe('Question Bank document import', () => {
 
     const items = toQuestionBankImportItems(parsed, {
       branchId: 'branch-thieu-nhi',
-      curriculumLevel: 'Thiếu Nhi 1A',
+      curriculumLevel: 'Thiếu Nhi 1',
       difficulty: 'understanding',
       tags: ['thánh thể'],
       lesson: 'Bài 3',
@@ -44,7 +44,7 @@ describe('Question Bank document import', () => {
     expect(items[0]).toMatchObject({
       questionType: 'multiple_choice',
       branchId: 'branch-thieu-nhi',
-      curriculumLevel: 'Thiếu Nhi 1A',
+      curriculumLevel: 'Thiếu Nhi 1',
       provenance: 'import',
       answerData: { correctOptionIds: ['B'] },
     })
@@ -56,7 +56,7 @@ describe('Question Bank document import', () => {
     const file = new File(['placeholder'], 'multipart.docx')
     Object.defineProperty(file, 'arrayBuffer', { value: async () => new ArrayBuffer(16) })
     const result = await parseQuestionBankFile(file)
-    const [item] = toQuestionBankImportItems(result, { branchId: 'branch-thieu', curriculumLevel: 'Thiếu 1', difficulty: 'understanding' })
+    const [item] = toQuestionBankImportItems(result, { branchId: 'branch-thieu', curriculumLevel: 'Thiếu Nhi 1', difficulty: 'understanding' })
     expect(item.questionType).toBe('essay')
     expect(item.stem).toBe('Trình bày:\na) Ý nghĩa.\nb) Liên hệ.')
     expect(item.answerData).toEqual({ rubric: 'a) Đúng khái niệm.\nb) Có ví dụ.' })

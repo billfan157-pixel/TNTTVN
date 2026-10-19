@@ -17,7 +17,9 @@ const attendanceDateSchema = z.string().refine(isValidIsoDate, 'Ngày điểm da
 const attendanceSchema = z.object({
   studentId: z.string().trim().min(1),
   date: attendanceDateSchema,
-  type: z.enum(['SundayMass', 'CatechismClass']),
+  // BUSINESS_RULES §2.2: 3 loại buổi được ghi nhận — SundayMass, CatechismClass,
+  // EucharisticAdoration (Chầu Thánh Thể / Sinh hoạt xứ đoàn, ADR-033/ADR-034).
+  type: z.enum(['SundayMass', 'CatechismClass', 'EucharisticAdoration']),
   status: z.enum(['Present', 'AbsentExcused', 'AbsentUnexcused']),
   note: z.string().trim().max(500).optional(),
   version: z.coerce.number().int().min(0).optional(),
@@ -27,7 +29,7 @@ attendanceRouter.get('/', roleMiddleware('admin', 'chunhiem', 'phuta'), async (c
   const user = c.get('user') as JwtPayload
   const studentId = c.req.query('studentId')
   const date = c.req.query('date')
-  const type = c.req.query('type') as 'SundayMass' | 'CatechismClass' | undefined
+  const type = c.req.query('type') as 'SundayMass' | 'CatechismClass' | 'EucharisticAdoration' | undefined
   const updatedAfter = c.req.query('updatedAfter')
   if (c.req.query('includeScope') === 'true') {
     const result = await runDbTransaction(async tx => {
@@ -113,7 +115,7 @@ attendanceRouter.post(
         }),
       ).max(500),
       date: attendanceDateSchema,
-      type: z.enum(['SundayMass', 'CatechismClass']),
+      type: z.enum(['SundayMass', 'CatechismClass', 'EucharisticAdoration']),
     }),
   ),
   async (c) => {

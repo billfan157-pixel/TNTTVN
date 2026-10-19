@@ -20,10 +20,11 @@ export type LiturgicalColor =
 
 export type LiturgicalRank =
   | 'SOLEMNITY'         // Lễ Trọng (Bậc 1)
+  | 'SUNDAY'            // Chúa Nhật — bậc riêng, KHÔNG đồng nghĩa Lễ Trọng
   | 'FEAST'             // Lễ Kính (Bậc 2)
   | 'MEMORIAL'          // Lễ Nhớ Buộc (Bậc 3)
   | 'OPTIONAL_MEMORIAL' // Lễ Nhớ Tùy Ý (Bậc 4)
-  | 'WEEKDAY'           // Ngày trong tuần / Chúa Nhật thường (Bậc 5)
+  | 'WEEKDAY'           // Ngày trong tuần (Bậc 5)
 
 export type SundayCycle = 'A' | 'B' | 'C'
 export type WeekdayCycle = 'I' | 'II'
@@ -45,11 +46,17 @@ export interface LiturgicalDay {
   color: LiturgicalColor     // Màu sắc áo lễ
   colorName: string          // Tên màu tiếng Việt (ví dụ: "Tím")
   colorHex: string           // Mã màu CSS chuẩn Design System
-  rank: LiturgicalRank       // Bậc lễ
-  rankName: string           // Tên bậc lễ tiếng Việt (ví dụ: "Lễ Trọng")
-  rankWeight: number         // Trọng số ưu tiên (1 = cao nhất, 5 = thấp nhất)
-  isHolyDayOfObligation: boolean // Lễ Buộc
-  isSunday: boolean          // Có phải ngày Chúa Nhật không
+  rank: LiturgicalRank       // Bậc lễ (Chúa Nhật có bậc riêng, không phải Lễ Trọng)
+  rankName: string           // Tên bậc lễ tiếng Việt (ví dụ: "Lễ Trọng", "Chúa Nhật")
+  rankWeight: number         // Trọng số ưu tiên (1 = cao nhất)
+  isHolyDayOfObligation: boolean // Lễ Buộc — độc lập với rank
+  isSunday: boolean          // Có phải ngày Chúa Nhật không — độc lập với rank
+  /** Tuần phụng vụ (chỉ điền khi nguồn lịch xác nhận, vd "Chúa Nhật XXIX Thường Niên"). */
+  liturgicalWeek?: string
+  /** Nguồn lịch phụng vụ đang dùng (Ordo/HĐGMVN). */
+  calendarSource: string
+  /** Phiên bản dữ liệu lịch — đổi khi nguồn cập nhật để đối chiếu. */
+  calendarVersion: string
   sundayCycle?: SundayCycle  // Năm A / B / C (nếu là Chúa Nhật hoặc mùa liên quan)
   weekdayCycle?: WeekdayCycle// Năm I / II (nếu là ngày thường)
   readings?: LiturgicalReadings // Bài đọc Lời Chúa

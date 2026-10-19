@@ -81,6 +81,13 @@ test('desktop: community imagery, distinct product scenes, reverse scroll and ke
     return box.top < innerHeight * 0.47 && box.bottom > innerHeight * 0.47
   })).toBe(true)
   await expect(stage).toHaveAttribute('data-active-story', 'parent')
+  const notice = preview.getByRole('button', { name: /thông báo từ xứ đoàn/i })
+  await notice.focus()
+  await notice.press('Space')
+  await expect(notice).toHaveAttribute('aria-expanded', 'true')
+  await expect(notice).toContainText('mang theo sách Kinh Thánh')
+  await notice.press('Space')
+  await expect(notice).toHaveAttribute('aria-expanded', 'false')
   await preview.getByRole('tab', { name: /phụ huynh/i }).press('Home')
   await expect(preview.getByRole('tab', { name: /học vụ/i })).toBeFocused()
   await expect.poll(() => page.locator('#story-academic').evaluate(element => {
@@ -105,6 +112,11 @@ test('mobile and tablet: sequential scenes, readable previews and no horizontal 
     await expect(page.locator('.landing-cinematic__preview')).toBeHidden()
     await capture(page, info, `${width}-hero`)
     if (width === 390) {
+      await page.getByRole('button', { name: /mở menu điều hướng/i }).click()
+      await page.getByRole('navigation', { name: /menu di động/i }).getByRole('button', { name: 'Hành trình Xứ Đoàn' }).focus()
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('navigation', { name: /menu di động/i })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: /mở menu điều hướng/i })).toBeFocused()
       await page.getByRole('button', { name: /mở menu điều hướng/i }).click()
       await page.getByRole('navigation', { name: /menu di động/i }).getByRole('button', { name: 'Không gian làm việc' }).click()
       await expect(page.getByRole('navigation', { name: /menu di động/i })).toHaveCount(0)
@@ -363,4 +375,62 @@ test('reduced motion never arms the tail reveal', async ({ page }) => {
   const state = await readRevealState(page)
   expect(state.armed, 'reveal is not armed under reduced motion').toBeNull()
   expect(state.items.every(item => item.opacity === '1.00'), 'all tail sections plainly visible').toBe(true)
+})
+
+test('changing motion preference while reading exposes every pending section and its content', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openLanding(page)
+  expect((await readRevealState(page)).armed).toBe('true')
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.landing-page')).toHaveAttribute('data-motion-ready', 'false')
+  await expect.poll(async () => (await readRevealState(page)).items.every(item => item.opacity === '1.00')).toBe(true)
+  for (const selector of ['.landing-faith-section', '.landing-faith-card > *', '.landing-trust__card', '.landing-access__door', '.landing-faq__questions > article']) {
+    for (const element of await page.locator(selector).all()) await expect(element).toHaveCSS('opacity', '1')
+  }
+  await chapter(page, 'access')
+  await expect(page.getByRole('button', { name: /đăng nhập phụ huynh/i })).toBeVisible()
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await expect(page.locator('.landing-page')).toHaveAttribute('data-motion-ready', 'true')
+  await expect(page.locator('#cong-dang-nhap')).toHaveCSS('opacity', '1')
+})
+
+test('chapter links land on their headings below the sticky header', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await openLanding(page)
+  const expectHeadingInView = async (selector: string) => {
+    await expect.poll(() => page.locator(selector).evaluate(element => {
+      const heading = element.getBoundingClientRect()
+      const header = document.querySelector('.landing-header')!.getBoundingClientRect()
+      return heading.top >= header.bottom && heading.bottom <= innerHeight
+    })).toBe(true)
+  }
+  const explore = page.getByRole('navigation', { name: 'Khám phá Catevia', exact: true })
+  await explore.getByRole('link', { name: '02 Không gian đồng hành' }).click()
+  await expectHeadingInView('#tieu-de-san-pham')
+  await expect(page.getByRole('navigation', { name: 'Điều hướng chính' }).getByRole('link', { name: 'Không gian làm việc' })).toHaveAttribute('aria-current', 'location')
+  await page.locator('#story-academic').getByRole('link', { name: 'Đồng hành cùng lớp của bạn' }).click()
+  await expectHeadingInView('#tieu-de-cong')
+  await page.getByRole('navigation', { name: 'Điều hướng chính' }).getByRole('link', { name: 'Hành trình', exact: true }).press('Enter')
+  await expectHeadingInView('#landing-community-title')
+})
+
+test('FAQ introduction clears the support card when scrolling to the end of the questions', async ({ page }, info) => {
+  for (const [width, height] of [[1280, 720], [1440, 900], [390, 844]] as const) {
+    await page.setViewportSize({ width, height })
+    await openLanding(page)
+    const support = page.locator('.landing-faq__support')
+    for (const expanded of [false, true]) {
+      if (expanded) await page.getByRole('button', { name: /dữ liệu và điểm số của con em tôi/i }).click()
+      await support.evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }))
+      await settleFiniteAnimations(page)
+      const gap = await page.evaluate(() => {
+        const intro = document.querySelector('.landing-faq__intro')!.getBoundingClientRect()
+        const card = document.querySelector('.landing-faq__support')!.getBoundingClientRect()
+        return card.top - intro.bottom
+      })
+      await capture(page, info, `faq-support-${width}-${expanded ? 'expanded' : 'closed'}`)
+      expect(gap, `${width}px: FAQ copy must end before the support card begins`).toBeGreaterThanOrEqual(16)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)
+    }
+  }
 })

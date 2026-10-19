@@ -11,6 +11,7 @@ import {
   type ReportType,
 } from '../../utils/pdfGenerator'
 import { ReportExportService } from '../../services/reportExportService'
+import { resolveCertificateVerification } from '../../lib/certificateVerification'
 import { fetchOfficialClassReport, fetchOfficialReportClasses, type OfficialClassMetadata, type OfficialClassReport } from '../../services/officialReporting'
 import { exportOfficialGradebook } from '../../services/reportExporter'
 import { api } from '../../lib/api'
@@ -156,7 +157,19 @@ export const PrintReportModal: React.FC<Props> = ({
     }
 
     if (reportType === 'SACRAMENT_CERTIFICATE' && activeStudent) {
-      const html = generateSacramentCertificateHTML(activeStudent, options)
+      // Khép vòng xác thực: xin chữ ký HMAC cho tuple định danh rồi in QR xác
+      // thực vào giấy chứng nhận. Không ký được (offline/thiếu quyền/năm học
+      // chưa tồn tại) → in như trước, KHÔNG có QR và không hiển thị như đã ký.
+      const verification = await resolveCertificateVerification({
+        studentId: activeStudent.id,
+        academicYear: resolvedYear,
+        certType: 'completion',
+      })
+      const html = generateSacramentCertificateHTML(activeStudent, {
+        ...options,
+        certId: verification?.certId,
+        verifyUrl: verification?.verifyUrl,
+      })
       return { html, filename: `GiayChungNhan_${activeStudent.code}.html` }
     }
 

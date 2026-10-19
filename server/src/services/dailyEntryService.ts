@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { runDbTransaction, db, type DbTransaction } from '../db/index.js'
-import { assessmentEntries, auditLogs, classes, students, grades } from '../db/schema.js'
+import { assessmentEntries, auditLogs, classes, students, grades, gradeOverrides } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
 import { createSemesterLockSpecification } from './policyAdapters.js'
 import { getStudentClassId } from './studentService.js'
@@ -11,7 +11,7 @@ import { normalizeAcademicYear } from '../utils/academicYear.js'
 const DAILY_FIELDS = { oral: 'scoreOral', '15m': 'score15m', '1period': 'score1Period' } as const
 
 async function projectDailyGrade(tx: DbTransaction, entry: { studentId: string; academicYear: string; semester: number; scoreType: string }, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null, expected?: AcademicWriteExpectation) {
-  const field = DAILY_FIELDS[entry.scoreType as DailyEntryScoreType]
+  const field = DAILY_FIELDS[entry.scoreType as keyof typeof DAILY_FIELDS]
   const [grade] = await tx.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, entry.studentId), eq(grades.academicYear, entry.academicYear), eq(grades.semester, entry.semester))).limit(1)
   // upsertGrade computes the value from the ledger and preserves overrides.
   await upsertGrade({ studentId: entry.studentId, academicYear: entry.academicYear, semester: entry.semester, version: grade?.version, [field]: null, [`${field}_source`]: 'daily_avg' }, userId, parishId, ip, userAgent, tx, allowedClassIds, expected, ['admin', 'chunhiem', 'phuta'])
@@ -27,7 +27,7 @@ async function projectDailyGrade(tx: DbTransaction, entry: { studentId: string; 
  * trả `duplicate` qua PK `(parish_id,id)`; cùng id khác payload → 409.
  */
 
-export type DailyEntryScoreType = 'oral' | '15m' | '1period'
+export type DailyEntryScoreType = 'oral' | '15m' | '1period' | 'conduct'
 
 export interface DailyEntryInput {
   id: string
@@ -37,6 +37,7 @@ export interface DailyEntryInput {
   scoreType: DailyEntryScoreType
   value: number
   date?: string | null
+  reason?: string
 }
 
 export interface DailyEntryAck {
@@ -46,6 +47,7 @@ export interface DailyEntryAck {
   status: 'created' | 'duplicate' | 'error'
   serverScore: number | null
   reason?: string
+  createdAt?: string
 }
 
 export class DailyEntryNotFoundError extends Error {
@@ -119,6 +121,32 @@ async function assertWritable(
   }
 }
 
+// Conduct is a relative manual adjustment, not an assessment average. Each
+// immutable receipt in audit_logs owns its idempotency and history; Grade is
+// still written only by upsertGrade, in this same transaction.
+async function deductConduct(tx: DbTransaction, entry: DailyEntryInput, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null, expected?: AcademicWriteExpectation): Promise<DailyEntryAck> {
+  const reason = entry.reason?.trim()
+  if (![0.5, 1, 2].includes(entry.value) || !reason || reason.length > 500) badRequest('Cần mức trừ 0,5 / 1 / 2 điểm và lý do (tối đa 500 ký tự).')
+  const receiptId = `conduct:${entry.id}`
+  const [receipt] = await tx.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishId), eq(auditLogs.id, receiptId))).limit(1)
+  if (receipt) {
+    const previous = JSON.parse(receipt.newValue!)
+    if (previous.studentId !== entry.studentId || previous.academicYear !== entry.academicYear || previous.semester !== entry.semester || previous.value !== entry.value || previous.reason !== reason || previous.date !== entry.date) {
+      throw new DailyEntryStateError('Mã entry đã được dùng cho dữ liệu khác (IDEMPOTENCY_CONFLICT).')
+    }
+    return { id: entry.id, studentId: entry.studentId, scoreType: 'conduct', status: 'duplicate', serverScore: previous.afterScore, createdAt: receipt.createdAt }
+  }
+  const [grade] = await tx.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, entry.studentId), eq(grades.academicYear, entry.academicYear), eq(grades.semester, entry.semester))).limit(1)
+  const overrides = grade ? await tx.select().from(gradeOverrides).where(and(eq(gradeOverrides.parishId, parishId), eq(gradeOverrides.gradeId, grade.id), eq(gradeOverrides.scoreField, 'scoreDaoDuc'), isNull(gradeOverrides.deletedAt))).limit(1) : []
+  const beforeScore = overrides[0]?.manualValue ?? grade?.scoreDaoDuc ?? 10
+  if (beforeScore < entry.value) badRequest('Điểm đạo đức không đủ để trừ mức đã chọn. Điểm không được âm.')
+  const afterScore = beforeScore - entry.value
+  const createdAt = new Date().toISOString()
+  await upsertGrade({ studentId: entry.studentId, academicYear: entry.academicYear, semester: entry.semester, version: grade?.version, scoreDaoDuc: afterScore, scoreDaoDuc_source: 'manual', overrideReasonNote: reason }, userId, parishId, ip, userAgent, tx, allowedClassIds, expected, ['admin', 'chunhiem', 'phuta'])
+  await tx.insert(auditLogs).values({ id: receiptId, parishId, userId, action: 'CONDUCT_DEDUCTION', entityType: 'conduct_deduction', entityId: entry.studentId, oldValue: null, newValue: JSON.stringify({ ...entry, reason, beforeScore, afterScore }), ip, userAgent, createdAt })
+  return { id: entry.id, studentId: entry.studentId, scoreType: 'conduct', status: 'created', serverScore: afterScore, createdAt }
+}
+
 function samePayload(existing: typeof assessmentEntries.$inferSelect, input: DailyEntryInput): boolean {
   return (
     existing.studentId === input.studentId &&
@@ -172,6 +200,8 @@ export async function upsertDailyEntries(
           allowedClassIds,
           userId, expected,
         })
+
+        if (entry.scoreType === 'conduct') return deductConduct(tx, entry, userId, parishId, ip, userAgent, allowedClassIds, expected)
 
         const [existing] = await tx
           .select()
@@ -293,6 +323,9 @@ export interface DailyEntryListItem {
   origin: 'manual' | 'machine'
   examSessionId: string | null
   createdAt: string
+  reason?: string
+  beforeScore?: number
+  afterScore?: number
 }
 
 /**
@@ -347,7 +380,7 @@ export async function listDailyEntries(
     rows = rows.filter((r) => memberIds.has(r.studentId))
   }
 
-  return rows
+  const attempts: DailyEntryListItem[] = rows
     .filter((r) => r.source === 'manual_entry' || r.source === 'exam_finalization')
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1))
     .map((r) => ({
@@ -362,4 +395,17 @@ export async function listDailyEntries(
       examSessionId: r.examSessionId,
       createdAt: r.createdAt,
     }))
+
+  if (params.scoreType && params.scoreType !== 'conduct') return attempts
+  const receipts = await db.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishId), eq(auditLogs.action, 'CONDUCT_DEDUCTION'), eq(auditLogs.entityType, 'conduct_deduction'), ...(params.studentId ? [eq(auditLogs.entityId, params.studentId)] : [])))
+  const roster = params.classId ? await db.select({ id: students.id }).from(students).where(and(eq(students.parishId, parishId), eq(students.classId, params.classId), isNull(students.deletedAt))) : []
+  const memberIds = new Set(roster.map(r => r.id))
+  const conduct: DailyEntryListItem[] = receipts.flatMap(r => {
+    const e = JSON.parse(r.newValue!)
+    if (params.classId && !memberIds.has(e.studentId)) return []
+    if (params.semester !== undefined && e.semester !== params.semester) return []
+    if (params.academicYear && e.academicYear !== normalizeAcademicYear(params.academicYear)) return []
+    return [{ ...e, origin: 'manual' as const, examSessionId: null, createdAt: r.createdAt }]
+  })
+  return [...attempts, ...conduct].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
 }

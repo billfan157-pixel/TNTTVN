@@ -74,11 +74,21 @@ export const LITURGICAL_SEASONS: Record<LiturgicalSeason, { name: string; defaul
  */
 export const LITURGICAL_RANKS: Record<LiturgicalRank, { name: string; weight: number }> = {
   SOLEMNITY: { name: 'Lễ Trọng', weight: 1 },
-  FEAST: { name: 'Lễ Kính', weight: 2 },
-  MEMORIAL: { name: 'Lễ Nhớ Buộc', weight: 3 },
-  OPTIONAL_MEMORIAL: { name: 'Lễ Nhớ Tùy Ý', weight: 4 },
-  WEEKDAY: { name: 'Ngày Trong Tuần', weight: 5 },
+  SUNDAY: { name: 'Chúa Nhật', weight: 2 },
+  FEAST: { name: 'Lễ Kính', weight: 3 },
+  MEMORIAL: { name: 'Lễ Nhớ Buộc', weight: 4 },
+  OPTIONAL_MEMORIAL: { name: 'Lễ Nhớ Tùy Ý', weight: 5 },
+  WEEKDAY: { name: 'Ngày Trong Tuần', weight: 6 },
 }
+
+/**
+ * Nguồn + phiên bản lịch phụng vụ. Chỉ lịch chung Rôma (kèm các lễ riêng
+ * HĐGMVN đã có trong FIXED_LITURGICAL_CALENDAR) được bảo chứng ở đây; các
+ * ngoại lệ lịch địa phương (giáo phận/giáo xứ) cần một quyết định riêng của
+ * chủ dự án trước khi thay đổi.
+ */
+export const LITURGICAL_CALENDAR_SOURCE = 'Lịch Phụng Vụ Rôma — HĐGMVN (lịch chung + lễ riêng VN đã nhập)'
+export const LITURGICAL_CALENDAR_VERSION = '2026.1'
 
 export interface FixedLiturgicalEntry {
   month: number // 1 - 12

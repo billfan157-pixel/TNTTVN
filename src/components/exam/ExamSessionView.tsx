@@ -128,6 +128,16 @@ function parseQuestionsSafe(raw: unknown): ExamQuestion[] {
   }
 }
 
+/**
+ * Nhãn loại đề dùng chung cho thẻ catalog, khung tiêu đề workspace và meta mobile.
+ * `short` = biến thể gọn cho meta 1 dòng trên mobile ("TN OMR").
+ */
+function examTypeLabel(examType?: ExamType | null, short = false): string {
+  if (examType === 'mixed') return 'Kết hợp TN+TL'
+  if (examType === 'multiple_choice') return short ? 'TN OMR' : 'Trắc nghiệm OMR'
+  return 'Tự luận'
+}
+
 export const ExamSessionView: React.FC = () => {
   const effectiveMode = useEffectiveMode()
   const { can } = useAuth()
@@ -1015,7 +1025,7 @@ export const ExamSessionView: React.FC = () => {
                           {s.subject}
                         </h4>
                         <p className="text-xs text-text-muted mt-1 m-0">
-                          Thang điểm {s.maxScore}đ · {s.examType === 'mixed' ? 'Kết hợp TN+TL' : s.examType === 'multiple_choice' ? 'Trắc nghiệm OMR' : 'Tự luận'}
+                          Thang điểm {s.maxScore}đ · {examTypeLabel(s.examType)}
                         </p>
                       </div>
 
@@ -1115,54 +1125,109 @@ export const ExamSessionView: React.FC = () => {
 
           {/* Active Session Card (Full Width) */}
           <Surface variant="card" className="p-4 sm:p-5 flex flex-col gap-4">
-            {/* Active Session Header Banner */}
-            <div className="flex flex-col gap-3 pb-3 border-b border-surface-border">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    {findClassById(activeSession.classId) && (
-                      <Badge tone="neutral">
-                        {findClassById(activeSession.classId)?.name}
-                      </Badge>
-                    )}
-                    <Badge tone="primary">
-                      {SCORE_TYPE_LABELS[activeSession.scoreType]}
-                    </Badge>
-                    <Badge tone={activeSession.status === 'draft' ? 'primary' : 'success'}>
-                      {activeSession.status === 'draft' ? 'Đang chấm' : 'Đã hoàn tất'}
-                    </Badge>
-                    {activeSession.examType && (
-                      <span className="text-xs font-semibold text-text-muted">
-                        ({activeSession.examType === 'mixed' ? 'Kết hợp TN+TL' : activeSession.examType === 'multiple_choice' ? 'Trắc nghiệm OMR' : 'Tự luận'})
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="font-black text-xl text-text-main m-0">
-                    {activeSession.subject}
-                  </h2>
-                  <p className="text-xs text-text-muted mt-1 m-0">
-                    {DAILY_TYPES.includes(activeSession.scoreType as any)
-                      ? 'Điểm vào cột hằng ngày (tính trung bình)'
-                      : 'Điểm ghi thẳng vào cột Giữa Kỳ / Cuối Kỳ'}
-                    {' · '}Thang điểm {activeSession.maxScore}đ · {activeSession.questionCount ? `${activeSession.questionCount} câu hỏi` : ''}
-                  </p>
+            {/* Active Session Header Banner — MOBILE-UX: khối tiêu đề gọn cho
+                mobile (badge 1 hàng, tiêu đề text-lg, meta 1 dòng, thanh tiến độ
+                mảnh ~20px thay hộp 63px) để ô nhập điểm đầu tiên lọt vào màn
+                hình 844px; desktop giữ nguyên bố cục cũ. */}
+            <div className="flex flex-col gap-2.5 pb-2.5 border-b border-surface-border sm:gap-3 sm:pb-3">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="min-w-0">
+                  {effectiveMode === 'mobile' ? (
+                    <>
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        {findClassById(activeSession.classId) && (
+                          <Badge tone="neutral" className="max-w-[150px] truncate">
+                            {findClassById(activeSession.classId)?.name}
+                          </Badge>
+                        )}
+                        <Badge tone="primary">
+                          {SCORE_TYPE_LABELS[activeSession.scoreType]}
+                        </Badge>
+                        <Badge tone={activeSession.status === 'draft' ? 'primary' : 'success'}>
+                          {activeSession.status === 'draft' ? 'Đang chấm' : 'Đã hoàn tất'}
+                        </Badge>
+                      </div>
+                      <h2 className="m-0 text-lg font-black leading-snug text-text-main">
+                        {activeSession.subject}
+                      </h2>
+                      <p className="m-0 mt-1 text-xs text-text-muted">
+                        {DAILY_TYPES.includes(activeSession.scoreType as any) ? 'Hằng ngày' : 'Giữa kỳ / Cuối kỳ'}
+                        {activeSession.examType ? ` · ${examTypeLabel(activeSession.examType, true)}` : ''}
+                        {' · '}Thang {activeSession.maxScore}đ{activeSession.questionCount ? ` · ${activeSession.questionCount} câu` : ''}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        {findClassById(activeSession.classId) && (
+                          <Badge tone="neutral">
+                            {findClassById(activeSession.classId)?.name}
+                          </Badge>
+                        )}
+                        <Badge tone="primary">
+                          {SCORE_TYPE_LABELS[activeSession.scoreType]}
+                        </Badge>
+                        <Badge tone={activeSession.status === 'draft' ? 'primary' : 'success'}>
+                          {activeSession.status === 'draft' ? 'Đang chấm' : 'Đã hoàn tất'}
+                        </Badge>
+                        {activeSession.examType && (
+                          <span className="text-xs font-semibold text-text-muted">
+                            ({examTypeLabel(activeSession.examType)})
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="font-black text-xl text-text-main m-0">
+                        {activeSession.subject}
+                      </h2>
+                      <p className="text-xs text-text-muted mt-1 m-0">
+                        {DAILY_TYPES.includes(activeSession.scoreType as any)
+                          ? 'Điểm vào cột hằng ngày (tính trung bình)'
+                          : 'Điểm ghi thẳng vào cột Giữa Kỳ / Cuối Kỳ'}
+                        {' · '}Thang điểm {activeSession.maxScore}đ · {activeSession.questionCount ? `${activeSession.questionCount} câu hỏi` : ''}
+                      </p>
+                    </>
+                  )}
                 </div>
 
-                {/* Quick Progress Bar Widget */}
-                <div className="flex items-center gap-3 bg-surface-app p-2.5 rounded-xl border border-surface-border self-start sm:self-auto">
-                  <div className="text-right">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted block">Tiến độ chấm</span>
-                    <span className="text-sm font-black text-parish-primary">
+                {effectiveMode === 'mobile' ? (
+                  /* MOBILE-UX: thanh tiến độ mảnh — nhãn + bar + số em trên một
+                     dòng, thay hộp viền 63px chiếm chỗ vô ích khi 0%. */
+                  <div className="flex w-full items-center gap-2.5">
+                    <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-text-muted">Tiến độ</span>
+                    <div
+                      role="progressbar"
+                      aria-label={`Tiến độ chấm: ${results.length}/${classStudents.length} em`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={gradingProgressPercent}
+                      className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-border"
+                    >
+                      <div
+                        className="h-full bg-parish-primary transition-[width] duration-300 rounded-full"
+                        style={{ width: `${gradingProgressPercent}%` }}
+                      />
+                    </div>
+                    <span className="shrink-0 font-bold text-xs text-parish-primary tabular-nums">
                       {results.length}/{classStudents.length} em ({gradingProgressPercent}%)
                     </span>
                   </div>
-                  <div className="w-20 sm:w-28 h-2 bg-surface-border rounded-full overflow-hidden shrink-0">
-                    <div
-                      className="h-full bg-parish-primary transition-[width] duration-300 rounded-full"
-                      style={{ width: `${gradingProgressPercent}%` }}
-                    />
+                ) : (
+                  /* Quick Progress Bar Widget */
+                  <div className="flex items-center gap-3 bg-surface-app p-2.5 rounded-xl border border-surface-border self-start sm:self-auto">
+                    <div className="text-right">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-text-muted block">Tiến độ chấm</span>
+                      <span className="text-sm font-black text-parish-primary">
+                        {results.length}/{classStudents.length} em ({gradingProgressPercent}%)
+                      </span>
+                    </div>
+                    <div className="w-20 sm:w-28 h-2 bg-surface-border rounded-full overflow-hidden shrink-0">
+                      <div
+                        className="h-full bg-parish-primary transition-[width] duration-300 rounded-full"
+                        style={{ width: `${gradingProgressPercent}%` }}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Primary Action Clusters Toolbar — MOBILE-UX: mỗi nhóm là một

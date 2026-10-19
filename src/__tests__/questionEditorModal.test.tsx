@@ -12,7 +12,13 @@ const props = {
   form: EMPTY_QUESTION,
   setForm: vi.fn(),
   branches: [{ id: 'branch-1', name: 'Ngành Thiếu Nhi' }],
-  classes: [{ id: 'class-1', name: 'Thiếu Nhi 1A', branchId: 'branch-1', academicYear: '2026-2027' }],
+  blocks: [{
+    id: 'branch-1::grade:1',
+    branchId: 'branch-1',
+    label: 'Thiếu Nhi 1',
+    classNames: ['Thiếu Nhi 1A', 'Thiếu Nhi 1B'],
+    academicYear: '2026-2027',
+  }],
   saving: false,
   onClose: vi.fn(),
   onSave: vi.fn(),
@@ -25,11 +31,11 @@ describe('QuestionEditorModal', () => {
     expect(screen.queryByText('Tạo câu hỏi nháp')).not.toBeInTheDocument()
   })
 
-  it('opens as the shared accessible modal with Catevia branch and class options', () => {
+  it('opens as the shared accessible modal with Catevia branch and khối options', () => {
     render(<QuestionEditorModal {...props} isOpen />)
     expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'true')
     expect(screen.getByRole('heading', { name: 'Tạo câu hỏi nháp' })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Ngành Thiếu Nhi' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Thiếu Nhi 1A · 2026-2027' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Thiếu Nhi 1 · 2026-2027' })).toBeInTheDocument()
   })
 })

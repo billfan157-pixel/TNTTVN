@@ -13,6 +13,7 @@ vi.mock('../lib/syncProcessor', async (importOriginal) => {
 import { initDB, getDB } from '../lib/db'
 import { useSyncStore } from '../stores/syncStore'
 import { useGradeStore } from '../stores/gradeStore'
+import { useDailyGradeStore } from '../stores/dailyGradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
 import { useStudentStore } from '../stores/studentStore'
 import { runSyncFlow } from '../lib/syncCoordinator'
@@ -119,6 +120,17 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('daily conduct CREATE reconciles a batch receipt and retires its queue item', async () => {
+    useDailyGradeStore.setState({ conductEntries: [] })
+    await useDailyGradeStore.getState().addConductDeduction('ST-CONDUCT', 0.5, 'Nội quy', 1)
+    const [entry] = useDailyGradeStore.getState().conductEntries
+    vi.spyOn(api, 'saveDailyEntries').mockResolvedValue({ saved: 1, duplicates: 0, errorCount: 0, total: 1, items: [{ id: entry.id, studentId: entry.studentId, scoreType: 'conduct', status: 'created', serverScore: 9.5, createdAt: '2026-10-19T10:00:00Z' }] })
+    await runSyncFlow()
+    expect(useDailyGradeStore.getState().conductEntries[0]).toMatchObject({ pending: false, afterScore: 9.5 })
+    expect(await getDB().syncQueue.toArray()).toHaveLength(0)
+    expect(api.saveDailyEntries).toHaveBeenCalledTimes(1)
   })
 
   it('XD-08: pull path does not report idle when generation evidence is unavailable', async () => {
@@ -522,6 +534,90 @@ describe('Sync Engine — student CREATE idempotency (audit #3)', () => {
       classId: 'AU2',
       idempotencyKey: 'ST-TMP-X',
     })
+  })
+})
+
+describe('Sync Engine — FE-F1 in-tab reentrancy & FE-F4 rejected-op visibility', () => {
+  beforeEach(async () => {
+    await initDB()
+    await useSyncStore.getState().initDevice()
+    await resetDB()
+    mockAllApiMethods()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('FE-F1: hai lần gọi runSyncFlow chồng nhau trong CÙNG tab chỉ chạy một flow', async () => {
+    let releaseWatermark: (value: { serverTime: string; cursorVersion: number }) => void = () => {}
+    const gate = new Promise<{ serverTime: string; cursorVersion: number }>((resolve) => { releaseWatermark = resolve })
+    const watermark = vi.spyOn(api, 'getSyncWatermark').mockReturnValue(gate)
+
+    const first = runSyncFlow()
+    // Mô phỏng sự kiện 'online' đặt status về idle trong lúc flow đầu còn chạy:
+    // cửa sổ mà guard theo status không còn đủ, chỉ còn guard trong tab.
+    useSyncStore.getState().setStatus('idle')
+    const second = runSyncFlow()
+
+    releaseWatermark({ serverTime: '2026-09-01T00:00:00.000Z', cursorVersion: 1 })
+    await Promise.all([first, second])
+
+    expect(watermark).toHaveBeenCalledTimes(1)
+    expect(useSyncStore.getState().status).not.toBe('syncing')
+  })
+
+  it('FE-F1: owner change giữa flow không để status kẹt ở syncing', async () => {
+    useStudentStore.getState().setStudents([{ id: 'ST-OWNER-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2', parishId: 'PARISH-TEST' } as any])
+    let releaseCreate: (value: { id: string }) => void = () => {}
+    const gate = new Promise<{ id: string }>((resolve) => { releaseCreate = resolve })
+    vi.mocked(api.createStudent).mockReturnValue(gate as any)
+    vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-09-01T00:00:00.000Z', cursorVersion: 1 })
+    syncService.syncCreateStudent({ id: 'ST-OWNER-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2' })
+    await waitForQueueSize(1)
+
+    const flow = runSyncFlow()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(useSyncStore.getState().status).toBe('syncing')
+
+    // Phiên đổi chủ trong lúc request đang bay → requireFlowOwner ném
+    // SyncOwnerChangedError và flow thoát không set terminal status.
+    setTenantScope({ userId: 'U-OTHER', parishId: 'PARISH-TEST' })
+    releaseCreate({ id: 'ST-SRV-OWNER-1' })
+    await flow
+
+    expect(useSyncStore.getState().status).not.toBe('syncing')
+  })
+
+  it('FE-F4: failedCount đúng scope owner, tồn tại qua refresh/pull và bỏ qua op của scope khác', async () => {
+    useStudentStore.getState().setStudents([{ id: 'ST-F4-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2', parishId: 'PARISH-TEST' } as any])
+    vi.mocked(api.createStudent).mockRejectedValue(new ApiError(400, 'Bad Request', '/students'))
+    vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-09-01T00:00:00.000Z', cursorVersion: 1 })
+    syncService.syncCreateStudent({ id: 'ST-F4-1', fullName: 'A', branch: 'AuNhi', classId: 'AU2' })
+    await waitForQueueSize(1)
+
+    await runSyncFlow()
+
+    const state = useSyncStore.getState()
+    expect(state.failedCount).toBe(1)
+    expect(state.pendingCount).toBe(0)
+
+    // Một lần pull/kéo dữ liệu thành công chỉ refresh lại counter từ DB —
+    // op failed vẫn còn thì chỉ báo vẫn còn.
+    await useSyncStore.getState().refreshCount()
+    expect(useSyncStore.getState().failedCount).toBe(1)
+
+    // Op failed của user/giáo xứ khác không bao giờ được tính.
+    const db = getDB()
+    await db.syncQueue.add({
+      id: 'OP-FOREIGN-1', entity: 'student', entityId: 'ST-OTHER', operation: 'CREATE',
+      payload: '{}', retryCount: 0, lastError: null,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      status: 'failed', deviceId: 'D-OTHER', userId: 'U-OTHER', parishId: 'PARISH-OTHER',
+    } as any)
+    await useSyncStore.getState().refreshCount()
+    expect(useSyncStore.getState().failedCount).toBe(1)
   })
 })
 

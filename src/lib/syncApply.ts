@@ -167,6 +167,9 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any,
         // ADR-016 (S4): AWAIT remap so Phase 2 sees the real studentId.
         await remapStudentIdInPendingOps(oldId, newId, expectedOwner)
         requireSyncOwner(op, expectedOwner)
+        const { useDailyGradeStore } = await import('../stores/dailyGradeStore')
+        requireSyncOwner(op, expectedOwner)
+        useDailyGradeStore.setState(state => ({ conductEntries: state.conductEntries.map(e => e.studentId === oldId ? { ...e, studentId: newId } : e) }))
       } else {
         studentStore.reconcileImportedStudents([{ action: 'updated', student: serverData }])
       }
@@ -258,7 +261,13 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any,
     // Local entry đã là truth cho lần nhập tay; server chỉ echo receipt
     // (created/duplicate) — không merge gì thêm. DELETE cũng đã xóa local trước.
     if (entity === 'daily_entry') {
-      /* no-op: id ổn định, không remap, không merge */
+      const { useDailyGradeStore } = await import('../stores/dailyGradeStore')
+      requireSyncOwner(op, expectedOwner)
+      for (const receipt of serverData?.items || []) {
+        if (receipt.scoreType === 'conduct' && ['created', 'duplicate'].includes(receipt.status) && typeof receipt.serverScore === 'number') {
+          useDailyGradeStore.getState().acknowledgeConduct(receipt.id, receipt.serverScore, receipt.createdAt)
+        }
+      }
     }
   } catch (err) {
     Sentry.captureException(err)

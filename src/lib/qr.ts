@@ -176,6 +176,67 @@ export function parseCertificateQrPayload(payload: string): { certId: string; st
 }
 
 /**
+ * Đích công khai của QR xác thực in trên chứng nhận. Mặc định là origin
+ * production hiện hành (khớp CORS allowlist + deploy workflow); đặt
+ * `VITE_PUBLIC_APP_URL` khi giáo xứ dùng tên miền riêng.
+ */
+export const DEFAULT_PUBLIC_APP_URL = 'https://tnttvn.vercel.app'
+
+function resolvePublicAppBaseUrl(): string {
+  // `import.meta.env` chỉ tồn tại trong Vite/Vitest; helper QR còn được dùng từ
+  // script chạy tsx (vd scripts/benchmark-omr.ts) nên phải truy cập phòng thủ.
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env
+  const configured = env?.VITE_PUBLIC_APP_URL?.trim()
+  return (configured || DEFAULT_PUBLIC_APP_URL).replace(/\/+$/, '')
+}
+
+export interface CertificateVerifyUrlParts {
+  parishId: string
+  studentId: string
+  academicYear: string
+  certId: string
+  signature: string
+}
+
+/**
+ * URL xác thực chữ ký chứng nhận. Khớp CHÍNH XÁC route công khai `/verify` của
+ * `VerificationPage` (parishId, studentId, academicYear, certId, sig) và endpoint
+ * `GET /api/verification/verify`, nên quét QR bằng camera thường sẽ mở thẳng
+ * trang xác thực. Chữ ký là HMAC (đối xứng) → chỉ server xác thực được, client
+ * không tự kết luận hợp lệ.
+ */
+export function buildCertificateVerifyUrl(parts: CertificateVerifyUrlParts, baseUrl?: string): string {
+  const base = (baseUrl || resolvePublicAppBaseUrl()).replace(/\/+$/, '')
+  const params = new URLSearchParams({
+    parishId: parts.parishId,
+    studentId: parts.studentId,
+    academicYear: parts.academicYear,
+    certId: parts.certId,
+    sig: parts.signature,
+  })
+  return `${base}/verify?${params.toString()}`
+}
+
+/**
+ * Mã chứng nhận ỔN ĐỊNH cho một (học sinh, năm học, loại chứng nhận): in lại
+ * cùng một chứng nhận cho cùng certId, thay cho `generateId('CERT')` ngẫu nhiên
+ * theo mỗi lần mở modal. Checksum chỉ để định danh ngắn gọn (không phải chữ ký
+ * bảo mật — tính toàn vẹn do HMAC server quyết định).
+ */
+export function buildCertificateId(studentId: string, academicYear: string, certType: 'completion' | 'promotion'): string {
+  return `CERT-${fnv1a32Hex(`${studentId}|${academicYear}|${certType}`)}`
+}
+
+function fnv1a32Hex(value: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).toUpperCase().padStart(8, '0')
+}
+
+/**
  * Sinh SVG QR code ở hệ tọa độ MODULE chuẩn, kèm quiet zone 4 module.
  * `qrcode-generator.createSvgTag(cellSize, 0)` dùng tọa độ pixel
  * (moduleCount × cellSize). Khi caller tách inner SVG rồi đặt viewBox theo

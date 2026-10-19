@@ -3,8 +3,8 @@ import * as gradeService from '../services/gradeService.js'
 import { generateTokens } from '../middleware/auth.js'
 import dailyEntriesApp from '../routes/dailyEntries.js'
 import examsApp from '../routes/exams.js'
-import { db } from '../db/index.js'
-import { users, branches, academicYears, classes, students, catechistAssignments, semesterLocks, assessmentEntries, grades, examSessions, examResults, examFinalizations, examFinalizationItems } from '../db/schema.js'
+import { db, client } from '../db/index.js'
+import { users, branches, academicYears, classes, students, catechistAssignments, semesterLocks, assessmentEntries, grades, examSessions, examResults, examFinalizations, examFinalizationItems, auditLogs } from '../db/schema.js'
 import { eq, and } from 'drizzle-orm'
 
 // Tier 2 (daily là điểm chính thức): attempts nhập tay là first-class ledger rows.
@@ -83,6 +83,68 @@ describe('Tier 2 — daily-entries ledger API', () => {
 
   it('401 khi thiếu token', async () => {
     expect((await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', body: { entries: [] } })).status).toBe(401)
+  })
+
+  it('conduct starts at 10, accumulates deductions, persists reasons and replays exactly once', async () => {
+    const send = (id: string, value: number, extra = {}) => jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: cnToken, body: { entries: [entry(id, value, { semester: 2, scoreType: 'conduct', reason: 'Nói chuyện riêng', ...extra })] } })
+    const id = `CD-${PREFIX}-first`
+    expect((await send(id, 0.5)).data.items[0]).toMatchObject({ status: 'created', serverScore: 9.5 })
+    expect((await send(`CD-${PREFIX}-second`, 1)).data.items[0]).toMatchObject({ status: 'created', serverScore: 8.5 })
+    expect((await send(id, 0.5)).data.items[0]).toMatchObject({ status: 'duplicate', serverScore: 9.5 })
+    expect((await send(id, 0.5, { reason: 'Lý do khác' })).data.errorCount).toBe(1)
+    const [grade] = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId), eq(grades.semester, 2)))
+    expect(grade.scoreDaoDuc).toBe(8.5)
+    const history = await jsonReq(dailyEntriesApp, `/?classId=${classId}&semester=2&academicYear=${yearId}&scoreType=conduct`, { token: cnToken })
+    expect(history.data).toHaveLength(2)
+    expect(history.data[0]).toMatchObject({ reason: 'Nói chuyện riêng', beforeScore: 10, afterScore: 9.5 })
+    expect((await send(`CD-${PREFIX}-bad`, 0.5, { reason: ' ' })).status).toBe(400)
+    expect((await send(`CD-${PREFIX}-amount`, 3)).status).toBe(400)
+    for (const value of [2, 2, 2, 2, 0.5]) expect((await send(`CD-${PREFIX}-${crypto.randomUUID()}`, value)).data.saved).toBe(1)
+    expect((await send(`CD-${PREFIX}-negative`, 0.5)).data.errorCount).toBe(1)
+    const [zero] = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId), eq(grades.semester, 2)))
+    expect(zero.scoreDaoDuc).toBe(0)
+  })
+
+  it('conduct rejects wrong class, other parish and locked semester without a receipt', async () => {
+    const id = `CD-${PREFIX}-denied`
+    const body = { entries: [entry(id, 1, { scoreType: 'conduct', reason: 'Nội quy' })] }
+    const otherParishToken = generateTokens({ userId: 'USR-001', username: 'bill', role: 'admin', parishId: 'gia-ton' }).accessToken
+    for (const token of [phutaOtherToken, otherParishToken]) {
+      const res = await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token, body })
+      expect(res.data.errorCount).toBe(1)
+    }
+    await db.insert(semesterLocks).values({ id: `conduct-lock-${PREFIX}`, parishId, academicYear: yearId, semester: 1, isLocked: 1 })
+    try {
+      const res = await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: cnToken, body })
+      expect(res.data.items[0].reason).toMatch(/khóa sổ/)
+      expect(await db.select().from(auditLogs).where(eq(auditLogs.id, `conduct:${id}`))).toHaveLength(0)
+    } finally {
+      await db.delete(semesterLocks).where(eq(semesterLocks.id, `conduct-lock-${PREFIX}`))
+    }
+  })
+
+  it('conduct preserves an existing manual score and serializes distinct concurrent deductions', async () => {
+    const existingId = `st-conduct-existing-${PREFIX}`
+    await db.insert(students).values({ id: existingId, code: `ST-C-${PREFIX}`, fullName: 'Điểm đã có', holyName: '', gender: 'Nam', dateOfBirth: '2015-01-01', parentName: 'P', parentPhone: '000', address: 'X', branch: 'AuNhi', classId, parishId })
+    await gradeService.upsertGrade({ studentId: existingId, academicYear: yearId, semester: 1, scoreDaoDuc: 6.5, scoreDaoDuc_source: 'manual' }, adminId, parishId, '', '')
+    const results = await Promise.all([0.5, 1].map((value, i) => jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: cnToken, body: { entries: [entry(`CD-${PREFIX}-concurrent-${i}`, value, { studentId: existingId, scoreType: 'conduct', reason: `Vi phạm ${i}` })] } })))
+    expect(results.map(r => r.data.saved)).toEqual([1, 1])
+    const [grade] = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, existingId)))
+    expect(grade.scoreDaoDuc).toBe(5)
+    expect(grade.scoreOral).toBeNull()
+  })
+
+  it('conduct rolls back grade and override when its receipt cannot commit', async () => {
+    const id = `CD-${PREFIX}-rollback`
+    const trigger = `reject_conduct_${PREFIX}`
+    await client.execute(`CREATE TRIGGER ${trigger} BEFORE INSERT ON audit_logs WHEN NEW.id = 'conduct:${id}' BEGIN SELECT RAISE(ABORT, 'synthetic receipt failure'); END`)
+    const before = await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId), eq(grades.semester, 1)))
+    try {
+      const res = await jsonReq(dailyEntriesApp, '/batch', { method: 'POST', token: cnToken, body: { entries: [entry(id, 1, { scoreType: 'conduct', reason: 'Nội quy' })] } })
+      expect(res.data.errorCount).toBe(1)
+      expect(await db.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, studentId), eq(grades.semester, 1)))).toEqual(before)
+      expect(await db.select().from(auditLogs).where(eq(auditLogs.id, `conduct:${id}`))).toHaveLength(0)
+    } finally { await client.execute(`DROP TRIGGER ${trigger}`) }
   })
 
   it('batch tạo 2 attempts tay → saved 2, ledger source manual_entry', async () => {

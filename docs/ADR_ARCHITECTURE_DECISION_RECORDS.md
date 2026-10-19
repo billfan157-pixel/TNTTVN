@@ -3324,6 +3324,18 @@ This is a D2 extension under the ARCHITECTURE + SECURITY profiles. Option A (new
 - Mammoth and SheetJS remain user-triggered lazy chunks and are excluded from PWA install-time precache. Rollback R1 removes the import button/route and dependency while retaining any already imported draft/version records under the normal lifecycle.
 - Focused acceptance on this amendment: Question Bank API, DOCX conversion, draft modal and PWA lazy policy **4 files / 13 tests PASS**; server and frontend production builds PASS. Full-suite, physical-device and hostile DOCX corpus claims are not made by this focused evidence.
 
+### Amendment 2026-10-16 — Ngân hàng đề chọn theo khối thay vì từng lớp
+
+Repository evidence: `classes` vẫn là roster theo năm học — "Thiếu Nhi 1A" và "Thiếu Nhi 1B" là hai row riêng — nhưng đơn vị nội dung thực tế là **khối** (VD `Thiếu Nhi 1`). Product requirement (user-confirmed): import, tạo/sửa câu hỏi, bộ lọc và ma trận đề chọn theo khối; riêng tab Tạo đề vẫn chọn lớp cụ thể để sinh phiếu OMR. Legacy requirement (user-confirmed): câu đã gắn taxonomy theo lớp (`curriculum_level='Thiếu Nhi 1A'/'Thiếu Nhi 1B'`) phải được lọc và tuyển vào ma trận theo khối mà không cần import lại.
+
+Option A (bảng `question_blocks` + FK) bị loại: nó migrate taxonomy đang sống và gắn reusable content vào schema phụ thuộc roster cho một nhãn vốn suy ra được từ dữ liệu hiện có. Option B (suy nhãn khối, giữ `curriculum_level` text, mở rộng khớp khi đọc/sinh đề) **SELECT** — không đổi schema, không ghi lại dữ liệu đã lưu, rollback bằng cách hoàn nguyên UI/server expansion.
+
+- Client `src/utils/questionBlock.ts` và server `server/src/utils/questionBlock.ts` suy khối bằng cùng một quy tắc: bỏ hậu tố phân ban sau cụm số đầu tiên (`Thiếu Nhi 1A → Thiếu Nhi 1`; tên lớp không có số giữ nguyên). Lựa chọn khối được gom theo (branchId, số khối) từ catalog lớp hiện có.
+- Stored taxonomy không đổi: vẫn `branch_id + curriculum_level` dạng text; giá trị mới là **tên khối**. Không thêm bảng/cột/migration. Mở sửa câu cũ gắn tên lớp sẽ normalize hiển thị về khối tương ứng.
+- `listQuestions` (`GET /questions`) và blueprint materialization (`buildExamFromBank`) mở rộng một khối yêu cầu thành `[tên khối, ...tên các lớp thuộc khối]` từ classes cùng tenant, không lọc `deletedAt` để lớp đã xóa vẫn trả câu cũ. Tab Tạo đề giữ nguyên lựa chọn lớp để sinh phiếu OMR.
+- `exam_question_snapshots` và đề đã sinh không thay đổi: đây là thay đổi taxonomy tác giả, không đụng nội dung lịch sử.
+- Focused acceptance on this amendment: khối filter + khối blueprint materialize từ câu gắn taxonomy lớp cũ (server integration), questionBlock utility, question editor modal và import mapping **4 files / 20 tests PASS**. Full-suite và production build được ghi nhận ở verification pass của thay đổi này; không claim nào vượt quá evidence đó.
+
 ---
 
 ## ADR-098: Tenant-safe Parish Activity Cache and Server-Acknowledged Event Mutations (2026-09-02)

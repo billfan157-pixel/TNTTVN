@@ -25,9 +25,14 @@ const entrySchema = z.object({
   studentId: z.string().trim().min(1),
   academicYear: z.string().trim().regex(/^\d{4}-\d{4}$/),
   semester: z.coerce.number().int().min(1).max(2),
-  scoreType: z.enum(['oral', '15m', '1period']),
+  scoreType: z.enum(['oral', '15m', '1period', 'conduct']),
   value: z.coerce.number().min(0).max(10),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  reason: z.string().trim().max(500).optional(),
+}).superRefine((entry, ctx) => {
+  if (entry.scoreType === 'conduct' && (![0.5, 1, 2].includes(entry.value) || !entry.reason)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Chọn mức trừ 0,5 / 1 / 2 điểm và nhập lý do.', path: ['reason'] })
+  }
 })
 
 const batchSchema = z.object({

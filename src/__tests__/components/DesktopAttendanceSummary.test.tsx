@@ -97,4 +97,27 @@ describe('DesktopAttendanceSummary Component Tests', () => {
     expect(screen.getAllByText(/Tỷ lệ chuyên cần chung/i).length).toBeGreaterThan(0)
     expect(screen.getByText('Đóng')).toBeDefined()
   })
+
+  it('FE-F5: không có bản ghi nào thì không hiển thị 100% kèm kết luận Đạt', () => {
+    useAttendanceStore.setState({ attendance: [] })
+    render(<DesktopAttendanceSummary />)
+
+    // Cả 4 thẻ KPI đều nói rõ chưa có buổi thay vì khoe 100%/Đạt.
+    expect(screen.getAllByText('Chưa có buổi được ghi nhận').length).toBeGreaterThanOrEqual(4)
+    expect(screen.queryByText('Đạt')).toBeNull()
+    expect(screen.queryByText('Cần chú ý')).toBeNull()
+    expect(screen.queryByText('100%')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Đạt Chuẩn (0)' })).toBeDefined()
+    // Treo mẫu số + phạm vi ngày bên cạnh con số.
+    expect(screen.getByText(/Khoảng ngày/)).toBeDefined()
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0)
+  })
+
+  it('FE-F5: cảnh báo sớm không kết luận an toàn khi chưa có buổi nào', () => {
+    useAttendanceStore.setState({ attendance: [] })
+    render(<DesktopAttendanceSummary />)
+
+    expect(screen.getByText(/Chưa có dữ liệu điểm danh trong khoảng/)).toBeDefined()
+    expect(screen.queryByText(/Tất cả các em đều đạt mức chuyên cần an toàn/)).toBeNull()
+  })
 })

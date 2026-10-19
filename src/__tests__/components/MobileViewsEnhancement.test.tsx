@@ -18,6 +18,7 @@ import { useStudentStore } from '../../stores/studentStore'
 import { useClassStore } from '../../stores/classStore'
 import { useFilterStore } from '../../stores/filterStore'
 import { useAttendanceStore } from '../../stores/attendanceStore'
+import { useAcademicYearStore } from '../../stores/academicYearStore'
 
 // Mock Stores & Hooks
 vi.mock('../../hooks/useAuth', () => ({
@@ -437,6 +438,65 @@ describe('MobileViewsEnhancement Tests', () => {
 
       fireEvent.click(duyetNghiBtn)
       expect(handleNavigateTab).toHaveBeenCalledWith('leave-requests')
+    })
+
+    it('FE-F5: chưa có buổi điểm danh trong niên học → không hiển thị 100%', () => {
+      useAttendanceStore.setState({ attendance: [] })
+      render(
+        <MobileHomeView
+          onNavigateTab={vi.fn()}
+          onOpenAddStudent={vi.fn()}
+        />
+      )
+
+      expect(screen.getByText('Chưa có buổi được ghi nhận')).toBeInTheDocument()
+      expect(screen.queryByText('100%')).toBeNull()
+    })
+
+    it('FE-F3: bản ghi attendance của niên học khác không được tính vào tỷ lệ', () => {
+      useAttendanceStore.setState({
+        attendance: [
+          { id: 'att-old', studentId: 'st-1', date: '2020-09-06', type: 'SundayMass', status: 'Present' },
+        ] as any,
+      })
+      render(
+        <MobileHomeView
+          onNavigateTab={vi.fn()}
+          onOpenAddStudent={vi.fn()}
+        />
+      )
+
+      expect(screen.getByText('Chưa có buổi được ghi nhận')).toBeInTheDocument()
+      expect(screen.queryByText('100%')).toBeNull()
+    })
+
+    it('FE-F3: nhãn phạm vi khớp quyền (admin = toàn xứ đoàn, phụ tá = lớp phụ trách)', () => {
+      const activeYear = useAcademicYearStore.getState().resolveActiveYear()
+      const yearRange = useAcademicYearStore.getState().getYearRange(activeYear)
+      useAttendanceStore.setState({
+        attendance: [
+          { id: 'att-now', studentId: 'st-1', date: yearRange.startDate, type: 'SundayMass', status: 'Present' },
+        ] as any,
+      })
+      const { unmount } = render(
+        <MobileHomeView
+          onNavigateTab={vi.fn()}
+          onOpenAddStudent={vi.fn()}
+        />
+      )
+      expect(screen.getByText(/Toàn xứ đoàn/)).toBeInTheDocument()
+      unmount()
+
+      useAuthStore.setState({
+        user: { id: 'phuta-1', username: 'phuta', fullName: 'Phụ Tá', role: 'phuta', status: 'ACTIVE', parishId: 'test-parish' }
+      })
+      render(
+        <MobileHomeView
+          onNavigateTab={vi.fn()}
+          onOpenAddStudent={vi.fn()}
+        />
+      )
+      expect(screen.getByText(/Lớp bạn phụ trách/)).toBeInTheDocument()
     })
   })
 

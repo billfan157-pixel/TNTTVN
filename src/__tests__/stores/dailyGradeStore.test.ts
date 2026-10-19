@@ -35,12 +35,45 @@ afterEach(() => setTenantScope(null))
 
 beforeEach(() => {
   setTenantScope({ userId: 'DAILY-TEST', parishId: 'gia-ton' })
-  useDailyGradeStore.setState({ entries: [], serverEntries: [] })
+  useDailyGradeStore.setState({ entries: [], serverEntries: [], conductEntries: [] })
   useGradeStore.setState({ grades: [] })
   vi.clearAllMocks()
 })
 
 describe('DailyGradeStore', () => {
+  it('conduct queues the relative amount with reason and normalized year, never an absolute grade', async () => {
+    await useDailyGradeStore.getState().addConductDeduction('ST-001', 0.5, '  Nội quy  ', 1)
+    expect(syncService.syncUpsertDailyEntry).toHaveBeenCalledWith(expect.objectContaining({ studentId: 'ST-001', value: 0.5, reason: 'Nội quy', scoreType: 'conduct', academicYear: '2025-2026' }))
+    expect(syncService.syncUpsertGrade).not.toHaveBeenCalled()
+    const [entry] = useDailyGradeStore.getState().conductEntries
+    expect(entry.pending).toBe(true)
+    useDailyGradeStore.getState().acknowledgeConduct(entry.id, 9.5, '2026-10-19T09:00:00Z')
+    expect(useDailyGradeStore.getState().conductEntries[0]).toMatchObject({ pending: false, afterScore: 9.5 })
+  })
+
+  it('conduct does not admit a local entry on queue failure or tenant switch', async () => {
+    vi.mocked(syncService.syncUpsertDailyEntry).mockRejectedValueOnce(new Error('Disk full'))
+    await expect(useDailyGradeStore.getState().addConductDeduction('ST-001', 1, 'Nội quy', 1)).rejects.toThrow('Disk full')
+    expect(useDailyGradeStore.getState().conductEntries).toHaveLength(0)
+    vi.mocked(syncService.syncUpsertDailyEntry).mockImplementationOnce(async () => {
+      setTenantScope({ userId: 'OTHER', parishId: 'OTHER' })
+      return 'OP-OLD-OWNER'
+    })
+    await expect(useDailyGradeStore.getState().addConductDeduction('ST-001', 1, 'Nội quy', 1)).rejects.toThrow(/thay đổi/)
+    expect(useDailyGradeStore.getState().conductEntries).toHaveLength(0)
+  })
+
+  it('conduct reconciles server history by ID without losing pending local entries', async () => {
+    const { api } = await import('../../lib/api')
+    await useDailyGradeStore.getState().addConductDeduction('ST-001', 0.5, 'Nội quy', 1)
+    const [local] = useDailyGradeStore.getState().conductEntries
+    vi.mocked(api.getDailyEntries).mockResolvedValue([{ ...local, origin: 'manual', examSessionId: null, afterScore: 9.5 }])
+    await useDailyGradeStore.getState().fetchDailyEntries({ classId: 'CL-1' })
+    expect(useDailyGradeStore.getState().conductEntries).toHaveLength(1)
+    expect(useDailyGradeStore.getState().conductEntries[0]).toMatchObject({ pending: false, afterScore: 9.5 })
+    expect(useDailyGradeStore.getState().serverEntries).toHaveLength(0)
+  })
+
   it('adds a daily grade entry with auto-generated id and date', async () => {
     await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
     const entries = useDailyGradeStore.getState().entries
