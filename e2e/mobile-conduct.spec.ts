@@ -55,6 +55,8 @@ test('@critical mobile conduct deduction queues offline, syncs once and retains 
   await expect(card.getByText(reason, { exact: true })).toBeVisible()
   await card.getByText(reason, { exact: true }).scrollIntoViewIfNeeded()
   const screenshotPath = testInfo.outputPath('mobile-conduct-history.png')
-  await page.screenshot({ path: screenshotPath, fullPage: true })
+  // The full-suite roster can exceed WebKit's 32767px screenshot limit.
+  // Capture the student's persisted history that this journey verifies.
+  await card.screenshot({ path: screenshotPath })
   await testInfo.attach('mobile-conduct-history.png', { path: screenshotPath, contentType: 'image/png' })
 })
