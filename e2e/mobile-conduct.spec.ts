@@ -5,9 +5,15 @@ test('@critical mobile conduct deduction queues offline, syncs once and retains 
   test.setTimeout(90_000)
   await page.setViewportSize({ width: 390, height: 844 })
   const session = await getAdminSession(page.request)
-  const name = `Đạo Đức ${testKey(testInfo, 'CONDUCT')}`
+  const key = `${testKey(testInfo, 'CONDUCT')}-${testInfo.repeatEachIndex}`
+  const classResponse = await authorizedRequest(page.request, session, 'POST', '/api/classes', {
+    code: key, name: `Lớp ${key}`, branchId: 'ThieuNhi', academicYearId: '2026-2027',
+  })
+  expect(classResponse.status()).toBe(201)
+  const { id: classId } = (await classResponse.json()).data
+  const name = `Đạo Đức ${key}`
   const created = await authorizedRequest(page.request, session, 'POST', '/api/students', {
-    fullName: name, holyName: 'Maria', gender: 'Nữ', dateOfBirth: '2015-01-01', branch: 'ThieuNhi', classId: 'CLS-TN-1',
+    fullName: name, holyName: 'Maria', gender: 'Nữ', dateOfBirth: '2015-01-01', branch: 'ThieuNhi', classId,
   })
   expect(created.status()).toBe(201)
   const student = (await created.json()).data
@@ -16,12 +22,14 @@ test('@critical mobile conduct deduction queues offline, syncs once and retains 
     await page.getByRole('tab', { name: 'Hằng ngày', exact: true }).click()
     await page.getByRole('tab', { name: 'Đạo đức', exact: true }).click()
   }
-  await page.goto('/grades')
+  await page.goto(`/grades?classId=${classId}`)
   // A cold Vite graph can take longer than the shared 15s baseline budget on
   // Windows. Keep waiting for the same real baseline; never synthesize it.
   await waitForBootstrapBaseline(page, 45_000)
   await openConduct()
-  const card = page.getByRole('region', { name: 'Điểm đạo đức', exact: true }).locator('article').filter({ hasText: name })
+  const conduct = page.getByRole('region', { name: 'Điểm đạo đức', exact: true })
+  await expect(conduct.locator('article')).toHaveCount(1)
+  const card = conduct.locator('article').filter({ hasText: name })
   const score = card.getByLabel(`Điểm đạo đức của ${name}`)
   await expect(score).toHaveText('10 / 10')
   const deduct = card.getByRole('button', { name: '−0,5 đ' })
@@ -55,6 +63,8 @@ test('@critical mobile conduct deduction queues offline, syncs once and retains 
   await expect(card.getByText(reason, { exact: true })).toBeVisible()
   await card.getByText(reason, { exact: true }).scrollIntoViewIfNeeded()
   const screenshotPath = testInfo.outputPath('mobile-conduct-history.png')
-  await page.screenshot({ path: screenshotPath, fullPage: true })
+  // The full-suite roster can exceed WebKit's 32767px screenshot limit.
+  // Capture the student's persisted history that this journey verifies.
+  await card.screenshot({ path: screenshotPath })
   await testInfo.attach('mobile-conduct-history.png', { path: screenshotPath, contentType: 'image/png' })
 })

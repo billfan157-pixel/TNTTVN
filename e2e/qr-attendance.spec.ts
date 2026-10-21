@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginAsRole } from './helpers'
+import { authorizedRequest, getRoleSession, injectSession } from './helpers'
 
 // CI-root-cause (2026-09-04): file này từng dùng devices['iPhone 13'] (cần
 // engine webkit) trong khi CI chỉ cài chromium → browserType.launch fail.
@@ -14,7 +14,8 @@ test.use({
 
 test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
   test('Catechist can log in, navigate to attendance, and mark mobile attendance', async ({ page }) => {
-    await loginAsRole(page, 'chunhiem')
+    const session = await getRoleSession(page.request, 'chunhiem')
+    await injectSession(page, session)
     const attendanceResponsePromise = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/attendance'
       && new URL(response.url()).searchParams.get('includeScope') === 'true'
@@ -26,7 +27,7 @@ test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
     await expect(attendanceTab).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByText('Thiếu Nhi E2E', { exact: true })).toBeVisible()
     // Toggle status to guarantee a state change regardless of pre-existing state in shared test DB
-    const studentStatus = page.getByRole('group', { name: /Trạng thái của/ })
+    const studentStatus = page.getByRole('group', { name: 'Trạng thái của Maria Thiếu Nhi E2E', exact: true })
     // The roster can paint before attendance finishes hydrating. Wait for the
     // real row for this fixture/date/session before choosing a different status.
     const attendanceResponse = await attendanceResponsePromise
@@ -44,13 +45,29 @@ test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
       .toHaveAttribute('aria-pressed', 'true')
     const presentBtn = studentStatus.getByRole('button', { name: /Có mặt:/ })
     const isPresent = (await presentBtn.getAttribute('aria-pressed')) === 'true'
+    const expectedStatus = isPresent ? 'AbsentExcused' : 'Present'
     if (isPresent) {
       await studentStatus.getByRole('button', { name: /Vắng có phép:/ }).click()
     } else {
       await presentBtn.click()
     }
     await expect(page.getByRole('button', { name: 'Lưu điểm danh' })).toBeEnabled()
+    const savedResponse = page.waitForResponse(response =>
+      new URL(response.url()).pathname === '/api/attendance/batch'
+      && response.request().method() === 'POST')
     await page.getByRole('button', { name: 'Lưu điểm danh' }).click()
-    await expect(page.getByText('Đã lưu điểm danh cho 1 thiếu nhi.')).toBeVisible({ timeout: 5000 })
+    const saved = await savedResponse
+    expect(saved.status()).toBe(200)
+    const receipt = (await saved.json()).data
+    expect(receipt).toMatchObject({ errorCount: 0, conflictCount: 0 })
+    expect(receipt.results).toContainEqual(expect.objectContaining({ studentId: 'student-e2e-001', status: 'saved' }))
+    // Other journeys may add classmates; the receipt covers the whole roster.
+    await expect(page.getByText(`Đã lưu điểm danh cho ${receipt.successCount} thiếu nhi.`)).toBeVisible()
+    const readBack = await authorizedRequest(page.request, session, 'GET',
+      `/api/attendance?studentId=student-e2e-001&date=${date}&type=${type}`)
+    expect(readBack.status()).toBe(200)
+    expect((await readBack.json()).data).toContainEqual(expect.objectContaining({
+      studentId: 'student-e2e-001', date, type, status: expectedStatus,
+    }))
   })
 })
