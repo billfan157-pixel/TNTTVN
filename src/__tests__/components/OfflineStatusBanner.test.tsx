@@ -82,11 +82,16 @@ describe('OfflineStatusBanner Component', () => {
     expect(screen.getByText(/3 thay đổi chờ gửi/)).toBeDefined()
   })
 
-  it('renders pending-online banner when online with pending changes', () => {
+  it('offers an immediate sync when online without telling the user to wait for a network', async () => {
     mockStore({ status: 'idle', pendingCount: 2 })
     mockOnline(true)
     render(<OfflineStatusBanner />)
     expect(screen.getByText(/Đã lưu trên máy:/)).toBeDefined()
+    expect(screen.queryByText(/khi có mạng/)).not.toBeInTheDocument()
+    await act(async () => {
+      screen.getByRole('button', { name: 'Đồng bộ ngay' }).click()
+    })
+    expect(requestSync).toHaveBeenCalledOnce()
   })
 
   it('renders conflict banner when there are unresolved conflicts', () => {
