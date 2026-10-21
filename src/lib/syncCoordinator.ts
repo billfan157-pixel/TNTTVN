@@ -2,7 +2,7 @@ import { useSyncStore, migrateLegacyQueueOwnership, getOwnUnsettledSyncOperation
 import { api, isAuthenticated } from '../lib/api'
 import { getDB } from '../lib/db'
 import { resetClientData, getLocalPurgeVersion, PURGE_VERSION_KEY } from '../lib/resetClientData'
-import { processOperation, getBackoffMs, isNetworkError } from '../lib/syncProcessor'
+import { processOperation, getBackoffMs, isNetworkError, reconcileDailyEntryAcknowledgement } from '../lib/syncProcessor'
 import { useStudentStore } from '../stores/studentStore'
 import { useGradeStore } from '../stores/gradeStore'
 import { useAttendanceStore } from '../stores/attendanceStore'
@@ -116,7 +116,16 @@ async function processClaimedOperation(op: SyncQueueItem, owner: TenantScopeSnap
   try {
     if (op.serverAcknowledgement) {
       const retained = await readPersistedSyncResult(op)
-      if (retained) return retained as Awaited<ReturnType<typeof processOperation>>
+      if (retained) {
+        // Older clients journaled the daily batch without a top-level id.
+        // Recover from that receipt locally; replaying the POST is unnecessary.
+        if (retained.ok && op.entity === 'daily_entry' && op.operation === 'CREATE') {
+          const payload = await parseQueuePayload(op.payload, true)
+          requireFlowOwner(owner, op)
+          return reconcileDailyEntryAcknowledgement(payload, op.entityId, retained.data)
+        }
+        return retained as Awaited<ReturnType<typeof processOperation>>
+      }
     }
     return await processOperation(op, owner)
   } catch (error) {

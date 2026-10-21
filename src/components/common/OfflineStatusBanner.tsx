@@ -184,8 +184,15 @@ export const OfflineStatusBanner: React.FC<OfflineStatusBannerProps> = ({ onOpen
         <div className="offline-status-banner offline-status-banner--pending bg-parish-info-bg text-parish-info border-b border-parish-info/30 px-4 py-2 text-xs font-semibold flex items-center justify-between">
           <div className="offline-status-banner__content flex items-center gap-2">
             <Wifi size={15} className="text-parish-info shrink-0" />
-            <span>☁ <strong>Đã lưu trên máy:</strong> {pendingCount} thay đổi sẽ tự đồng bộ khi có mạng.</span>
+            <span>☁ <strong>Đã lưu trên máy:</strong> {pendingCount} thay đổi đang chờ gửi lên máy chủ.</span>
           </div>
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="btn btn-primary btn-sm text-xs shrink-0"
+          >
+            Đồng bộ ngay
+          </button>
         </div>
       )}
       {conflictModal}

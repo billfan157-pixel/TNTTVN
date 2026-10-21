@@ -71,6 +71,31 @@ export interface SyncProcessResult {
   data?: any
 }
 
+/** The daily API returns an itemized batch, while CREATE reconciliation needs
+ * a canonical id. Use the same receipt validation for fresh and journaled ACKs. */
+export function reconcileDailyEntryAcknowledgement(
+  data: Record<string, unknown>,
+  targetId: string | undefined,
+  response: unknown,
+): SyncProcessResult {
+  const batch = response && typeof response === 'object' && !Array.isArray(response)
+    ? response as Record<string, unknown> : null
+  const items = batch?.items
+  const first = Array.isArray(items) && items.length === 1 && items[0] && typeof items[0] === 'object'
+    ? items[0] as Record<string, unknown> : null
+  const entryId = String(data.id || targetId || '')
+  if (first?.status === 'error') {
+    return { ok: false, recoverable: false, error: `Client error 409: Daily entry bị từ chối: ${first.reason || 'không rõ lý do'}` }
+  }
+  if (!first || !entryId || !['created', 'duplicate'].includes(String(first.status))
+    || first.id !== entryId || first.studentId !== data.studentId || first.scoreType !== data.scoreType
+    || typeof first.serverScore !== 'number' || !Number.isFinite(first.serverScore)
+    || (batch?.id !== undefined && batch.id !== entryId)) {
+    return { ok: false, recoverable: false, error: 'Client error 409: Thiếu xác nhận hợp lệ cho lần nhập điểm; giữ thao tác để đối chiếu.' }
+  }
+  return { ok: true, data: { ...batch, id: first.id } }
+}
+
 export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSnapshot): Promise<SyncProcessResult> {
   const entityType = (item.entityType || item.type || item.entity || '').toLowerCase()
   const action = (item.action || item.operation || '').toLowerCase()
@@ -229,20 +254,7 @@ export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSn
             date: data.date,
             reason: data.reason,
           }])
-          // Server partial-success trả HTTP 200 kể cả khi item lỗi → không được
-          // coi op là xong, nếu không mutation mất thầm lặng (fail-closed Diagnostics).
-          const first = res?.items?.[0]
-          if (first && first.status === 'error') {
-            return { ok: false, recoverable: false, error: `Daily entry bị từ chối: ${first.reason || 'không rõ lý do'}` }
-          }
-          if (!first || !['created', 'duplicate'].includes(first.status)
-            || first.id !== String(data.id || targetId) || first.studentId !== data.studentId
-            || first.scoreType !== data.scoreType || !Number.isFinite(first.serverScore)) {
-            return { ok: false, recoverable: false, error: 'Thiếu xác nhận hợp lệ cho lần nhập điểm; giữ thao tác để đối chiếu.' }
-          }
-          // The generic CREATE acknowledgement needs a canonical identity.
-          // Daily IDs are stable: use the validated server receipt, not a new ID.
-          return { ok: true, data: { ...res, id: first.id } }
+          return reconcileDailyEntryAcknowledgement(data, targetId, res)
         } else if (action === 'delete') {
           const deletedId = String(data.id || targetId)
           const res = await api.deleteDailyEntry(deletedId)

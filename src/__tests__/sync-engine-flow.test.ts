@@ -19,9 +19,9 @@ import { useStudentStore } from '../stores/studentStore'
 import { runSyncFlow } from '../lib/syncCoordinator'
 import { api, ApiError } from '../lib/api'
 import * as syncService from '../lib/syncService'
-import { decryptQueueValue } from '../lib/offlineCipher'
+import { decryptQueueValue, encryptQueueValue } from '../lib/offlineCipher'
 import { setTenantScope } from '../lib/tenantScope'
-import { readPersistedSyncResult } from '../lib/syncSessionBoundary'
+import { persistSyncResultForOwner, readPersistedSyncResult } from '../lib/syncSessionBoundary'
 import type { GradeRecord, AttendanceRecord } from '../types'
 
 // A-NEW-32: payload queue mã hóa (AAD 'syncQueue') — parse qua decrypt (dual-format).
@@ -120,6 +120,67 @@ describe('Sync Engine — runSyncFlow exit path (audit #1/#4)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it.each(['oral', '15m', '1period'] as const)('retires a new %s daily entry after its itemized server receipt', async (scoreType) => {
+    const entry = { id: 'DG-NEW', studentId: 'ST-DAILY', academicYear: '2026-2027', semester: 1, scoreType, value: 8 }
+    await syncService.syncUpsertDailyEntry(entry)
+    vi.spyOn(api, 'saveDailyEntries').mockResolvedValue({ saved: 1, duplicates: 0, errorCount: 0, total: 1,
+      items: [{ id: entry.id, studentId: entry.studentId, scoreType, status: 'created', serverScore: 8 }] })
+    vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-10-21T12:00:00.000Z', cursorVersion: 1 })
+
+    await runSyncFlow()
+
+    expect(api.saveDailyEntries).toHaveBeenCalledOnce()
+    expect(await getDB().syncQueue.toArray()).toEqual([])
+    expect(useSyncStore.getState()).toMatchObject({ pendingCount: 0, failedCount: 0, status: 'idle', lastError: null })
+  })
+
+  it.each([
+    ['oral', 'created', 'envelope'],
+    ['15m', 'duplicate', 'envelope'],
+    ['1period', 'created', 'raw'],
+  ] as const)('recovers a retained %s/%s %s daily receipt without sending the entry again', async (scoreType, status, format) => {
+    const entry = { id: 'DG-LEGACY', studentId: 'ST-DAILY', academicYear: '2026-2027', semester: 1, scoreType, value: 8 }
+    const opId = await syncService.syncUpsertDailyEntry(entry)
+    const op = (await getDB().syncQueue.get(opId))!
+    const receipt = { saved: status === 'created' ? 1 : 0, duplicates: status === 'duplicate' ? 1 : 0, errorCount: 0, total: 1,
+      items: [{ id: entry.id, studentId: entry.studentId, scoreType, status, serverScore: 8 }] }
+    if (format === 'envelope') await persistSyncResultForOwner(op, { ok: true, data: receipt })
+    else await getDB().syncQueue.update(opId, { status: 'retrying', serverAcknowledgement: await encryptQueueValue(JSON.stringify(receipt)) })
+    vi.spyOn(api, 'saveDailyEntries').mockRejectedValue(new Error('A retained receipt must not resend the entry'))
+    vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-10-21T12:00:00.000Z', cursorVersion: 1 })
+
+    await runSyncFlow()
+
+    expect(api.saveDailyEntries).not.toHaveBeenCalled()
+    expect(await getDB().syncQueue.toArray()).toEqual([])
+    expect(useSyncStore.getState()).toMatchObject({ pendingCount: 0, failedCount: 0, status: 'idle', lastError: null })
+  })
+
+  it.each([
+    { id: 'DG-OTHER' },
+    { studentId: 'ST-OTHER' },
+    { scoreType: '15m' },
+    { status: 'error', reason: 'Học kỳ đã khóa' },
+    { serverScore: null },
+  ])('preserves a retained daily receipt with invalid identity/outcome %j for diagnostics', async (invalid) => {
+    const entry = { id: 'DG-INVALID-ACK', studentId: 'ST-DAILY', academicYear: '2026-2027', semester: 1, scoreType: 'oral', value: 8 }
+    const opId = await syncService.syncUpsertDailyEntry(entry)
+    const op = (await getDB().syncQueue.get(opId))!
+    await persistSyncResultForOwner(op, { ok: true, data: { saved: 1, duplicates: 0, errorCount: 0, total: 1,
+      items: [{ id: entry.id, studentId: entry.studentId, scoreType: 'oral', status: 'created', serverScore: 8, ...invalid }] } })
+    vi.spyOn(api, 'saveDailyEntries').mockRejectedValue(new Error('Invalid retained acknowledgements must not resend'))
+    vi.spyOn(api, 'getSyncWatermark').mockResolvedValue({ serverTime: '2026-10-21T12:00:00.000Z', cursorVersion: 1 })
+
+    await runSyncFlow()
+
+    const retained = (await getDB().syncQueue.get(opId))!
+    expect(retained.status).toBe('failed')
+    expect(retained.serverAcknowledgement).toBeTruthy()
+    expect(await readPayload(retained)).toEqual(entry)
+    expect(api.saveDailyEntries).not.toHaveBeenCalled()
+    expect(useSyncStore.getState().failedCount).toBe(1)
   })
 
   it('daily conduct CREATE reconciles a batch receipt and retires its queue item', async () => {
