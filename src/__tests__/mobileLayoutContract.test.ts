@@ -42,13 +42,15 @@ describe('App-wide mobile layout contract', () => {
       'components/mobile/MobileLeaveRequests.tsx',
       'components/exam/ExamSessionView.tsx',
       'components/exam/ExamResultsTable.tsx',
-      'components/exam/ExamImportModal.tsx',
       'components/desktop/SystemDiagnosticsModal.tsx',
       'components/desktop/ConflictInboxModal.tsx',
     ]
 
     for (const file of dialogs) expect(source(file), file).toContain('ModalPortal')
-    expect(source('components/exam/ExamImportModal.tsx')).toContain('app-modal-layer--nested')
+    // Import uses the shared shell, which owns the portal and modal layer.
+    expect(source('components/exam/ExamImportModal.tsx')).toContain('<ModalShell')
+    expect(source('components/common/ModalShell.tsx')).toContain('<ModalPortal>')
+    expect(source('components/common/ModalShell.tsx')).toContain('app-modal-layer')
     expect(source('components/exam/ExamPaperModal.tsx')).toContain('createPortal')
     expect(source('components/exam/ExamPaperModal.tsx')).toContain('app-modal-layer')
     expect(source('components/mobile/MobileTopBar.tsx')).toContain('ModalPortal')

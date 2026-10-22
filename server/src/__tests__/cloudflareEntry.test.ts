@@ -7,6 +7,12 @@ vi.mock('../cloudflare/pdfJob.js', () => ({ PdfJob: class {} }))
 // Distinct synthetic credentials exercise the two authority boundaries.
 const token = 'o'.repeat(40)
 const proxySecret = 'p'.repeat(40)
+// Independent inventory: operator drain/status must include every owned job.
+const expectedJobKinds = [
+  'notification', 'operation-reminders', 'operation-lifecycle', 'operation-dispatch',
+  'manager-reminders', 'sunday-reminders', 'liturgical-reminders', 'import-maintenance',
+  'receipt-maintenance', 'backup', 'rate-limit-cleanup',
+]
 function environment(traffic = 'yes') {
   const createBackup = vi.fn(async () => ({ objectKey: 'backups/test', rowCount: 7 }))
   const env = {
@@ -53,8 +59,8 @@ describe('production Worker backup admission', () => {
     const result = await worker.fetch(request(), boundEnv)
     expect(result.status).toBe(200)
     const body = await result.json() as { jobs: unknown[] }
-    expect(body.jobs).toHaveLength(10)
-    expect(pause).toHaveBeenCalledTimes(10)
+    expect(body.jobs).toHaveLength(expectedJobKinds.length)
+    expect(pause).toHaveBeenCalledTimes(expectedJobKinds.length)
     pause.mockRejectedValueOnce(new Error('Synthetic drain failure'))
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
     try { expect((await worker.fetch(request(), boundEnv)).status).toBe(503) } finally { log.mockRestore() }
@@ -88,7 +94,7 @@ describe('production Worker backup admission', () => {
     try {
       // One event-loop turn completes the rejected RPC and its promise callbacks.
       await new Promise(resolve => setTimeout(resolve, 0))
-      expect(started).toHaveLength(10)
+      expect([...started].sort()).toEqual(expectedJobKinds.map(kind => `catevia-production-${kind}`).sort())
       expect(returned).toBe(false)
     } finally {
       finish()
