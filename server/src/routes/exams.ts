@@ -6,6 +6,7 @@ import type { JwtPayload } from '../middleware/auth.js'
 import { successResponse, listResponse, errorResponse } from '../utils/response.js'
 import { getClientIp } from '../utils/ip.js'
 import { parseAcademicYear } from '../utils/academicYear.js'
+import { validateAnswerLineCount, validateStructuredAnswer } from '../utils/structuredQuestion.js'
 import {
   createExamSession,
   getExamEditContext,
@@ -119,6 +120,20 @@ function parseQuestions(input: string | undefined): { ok: true; questions?: Pars
       return { ok: false, message: `Câu ${index}: type phải là 'multiple_choice' hoặc 'essay'.` }
     }
     const isEssay = item.type === 'essay'
+    if (item.explanation !== undefined && (typeof item.explanation !== 'string' || item.explanation.length > 8000)) return { ok: false, message: `Câu ${index}: lời giải phải là văn bản tối đa 8000 ký tự.` }
+    if (item.isPlaceholder !== undefined && typeof item.isPlaceholder !== 'boolean') return { ok: false, message: `Câu ${index}: isPlaceholder phải là boolean.` }
+    if (item.answerLineCount !== undefined) {
+      if (!isEssay || item.responseFormat !== undefined) return { ok: false, message: `Câu ${index}: số dòng trả lời chỉ áp dụng cho câu tự luận.` }
+      const error = validateAnswerLineCount(item.answerLineCount)
+      if (error) return { ok: false, message: `Câu ${index}: ${error}` }
+    }
+    if (item.responseFormat !== undefined && (!isEssay || !['fill_blank', 'matching'].includes(String(item.responseFormat)))) {
+      return { ok: false, message: `Câu ${index}: dạng điền khuyết/ghép cột phải dùng phần chấm tay.` }
+    }
+    if (item.responseFormat !== undefined || item.answerData !== undefined) {
+      const error = validateStructuredAnswer((item.responseFormat ?? 'essay') as 'fill_blank' | 'matching' | 'essay', item.answerData)
+      if (error) return { ok: false, message: `Câu ${index}: ${error}` }
+    }
     if (item.points !== undefined && item.points !== null) {
       const pts = Number(item.points)
       if (!Number.isFinite(pts) || pts <= 0 || pts > 100) {

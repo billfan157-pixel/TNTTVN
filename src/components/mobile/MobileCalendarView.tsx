@@ -36,6 +36,7 @@ import { ModalShell } from '../common/ModalShell'
 import { EmptyState } from '../common/StateFeedback'
 import { SegmentedControl, FilterChips, type SelectionItem } from '../common/ui/SelectionControls'
 import { hapticFeedback } from '../../utils/haptics'
+import { LiturgicalReminderSettings } from '../common/LiturgicalReminderSettings'
 
 type CalendarMobileViewMode = 'grid' | 'agenda' | 'solemnities'
 type AgendaFilterType = 'all' | 'solemnities' | 'events'
@@ -246,6 +247,7 @@ export const MobileCalendarView: React.FC = () => {
       />
 
       {/* Month Switcher Toolbar */}
+      <LiturgicalReminderSettings />
       <div className="app-panel p-2 flex items-center justify-between gap-2">
         <button
           type="button"

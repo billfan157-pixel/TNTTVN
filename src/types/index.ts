@@ -225,11 +225,24 @@ export type ExamAnswerVariants = Record<ExamVersionCode, Record<number, Multiple
 /** EXAM-MIXED (2026-08-24): loại từng câu hỏi — đề mixed gồm cả hai loại. */
 export type QuestionType = 'multiple_choice' | 'essay';
 
+/** Response shape is separate from the legacy OMR/manual grading channel. */
+export interface StructuredQuestionData {
+  blanks?: Array<{ id: string; acceptedAnswers: string[] }>;
+  wordBank?: string[];
+  left?: Array<{ id: string; text: string }>;
+  right?: Array<{ id: string; text: string }>;
+  pairs?: Array<{ leftId: string; rightId: string }>;
+  subparts?: Array<{ label: string; text: string; points?: number }>;
+}
+
 export interface ExamQuestion {
   index: number;
   question: string;
   /** Mặc định 'multiple_choice' với dữ liệu cũ không có type. */
   type?: QuestionType;
+  /** Free-text blanks and matching use manual grading, never A–D bubbles. */
+  responseFormat?: 'fill_blank' | 'matching';
+  answerData?: StructuredQuestionData;
   /** Chỉ bắt buộc với câu multiple_choice; câu tự luận KHÔNG có options/correctOption. */
   options?: {
     A: string;
@@ -241,6 +254,10 @@ export interface ExamQuestion {
   explanation?: string;
   /** Điểm của câu hỏi (mặc định 1) — dùng để cộng điểm phần TN / trần phần TL ở đề mixed. */
   points?: number;
+  /** Undefined uses automatic spacing; 0 omits writing lines. */
+  answerLineCount?: number;
+  /** Answer-key-only imports have no real content to capture in the bank. */
+  isPlaceholder?: boolean;
   /** Question Bank provenance copied into the immutable exam snapshot. */
   sourceQuestionId?: string;
   sourceVersionId?: string;

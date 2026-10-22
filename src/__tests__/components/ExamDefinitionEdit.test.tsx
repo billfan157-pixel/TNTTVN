@@ -45,6 +45,31 @@ afterEach(async () => {
 })
 
 describe('editing an ungraded exam from its workspace', () => {
+  it('rejects invalid essay spacing before saving the definition and preserves explicit zero', async () => {
+    const written: ExamSession = { ...session, examType: 'written', questionCount: undefined, answerKey: undefined,
+      questions: [{ index: 1, type: 'essay', question: 'Trình bày ý nghĩa.', points: 10, answerLineCount: 8 }] }
+    useExamStore.setState({ sessions: [written] })
+    vi.mocked(api.getMyExamSessions).mockResolvedValue([written])
+    vi.mocked(api.getExamResults).mockResolvedValue({ session: written, results: [] })
+    vi.mocked(api.getExamEditContext).mockResolvedValue({ session: written, definitionHash: session.definitionHash! })
+    const update = vi.spyOn(api, 'updateExamDefinition').mockImplementation(async (_id, data) => ({ ...written, ...data }))
+    render(<ExamSessionView />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Sửa đề thi' }))
+    const editor = await screen.findByRole('dialog', { name: 'Sửa đề thi' })
+    fireEvent.click(within(editor).getByText('Câu 1 · Trình bày ý nghĩa.'))
+    const lines = within(editor).getByRole('spinbutton', { name: 'Số dòng trả lời · Câu 1' })
+    for (const value of ['-1', '1.5', '101']) {
+      fireEvent.change(lines, { target: { value } })
+      fireEvent.click(within(editor).getByRole('button', { name: 'Lưu đề thi' }))
+      expect(within(editor).getByRole('alert')).toHaveTextContent('số dòng trả lời phải là số nguyên từ 0 đến 100')
+      expect(update).not.toHaveBeenCalled()
+    }
+    fireEvent.change(lines, { target: { value: '0' } })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Lưu đề thi' }))
+    await waitFor(() => expect(update).toHaveBeenCalledOnce())
+    expect(JSON.parse(update.mock.calls[0][1].questions!)[0].answerLineCount).toBe(0)
+  })
+
   it('creates a keys-only exam without requiring an imported file and preserves answers when the selected type is clicked again', async () => {
     const create = vi.spyOn(api, 'createExam').mockResolvedValue({ ...session, id: 'EXS-new-ui', subject: 'Đề mới' })
     render(<ExamSessionView />)

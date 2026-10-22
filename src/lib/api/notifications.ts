@@ -26,8 +26,16 @@ export interface NotificationHistoryResponse {
   }
 }
 
+export interface LiturgicalReminderPreferences {
+  enabled: boolean
+  time: string
+  timeZone: 'Asia/Ho_Chi_Minh'
+}
+
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export const notificationsApi = {
+  getLiturgicalReminder: () => request<LiturgicalReminderPreferences>('GET', '/notifications/liturgical-reminder'),
+  saveLiturgicalReminder: (data: Pick<LiturgicalReminderPreferences, 'enabled' | 'time'>) => request<LiturgicalReminderPreferences>('PUT', '/notifications/liturgical-reminder', data),
   sendReportCards: (data: { students: any[] }) =>
     request<{ sent: number; total: number }>('POST', '/notifications/smart/report-cards', data),
   getHistory: (params?: { status?: string; channel?: string; page?: number; limit?: number }) => {

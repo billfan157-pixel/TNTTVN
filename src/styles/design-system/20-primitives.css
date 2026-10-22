@@ -718,6 +718,65 @@
   line-height: 1.35;
 }
 
+/* Dashboard overview: compact, aligned metrics without changing other cards. */
+.metric-card--dashboard {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 190px;
+  padding: 20px;
+}
+
+.metric-card--dashboard::after { display: none; }
+.metric-card--dashboard:hover { transform: none; }
+
+.dashboard-overview__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.metric-card--dashboard .metric-card__label {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  text-transform: none;
+}
+
+.metric-card--dashboard .metric-card__icon {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--radius-md);
+}
+
+.metric-card--dashboard .metric-card__value {
+  margin: 0;
+  min-height: 44px;
+  font-size: clamp(32px, 2.6vw, 40px);
+  line-height: 1.1;
+}
+
+.metric-card--dashboard .metric-card__value--empty {
+  display: flex;
+  align-items: center;
+  max-width: 22ch;
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+
+.metric-card--dashboard .metric-card__unit { font-size: 14px; }
+.metric-card--dashboard .metric-card__body { min-height: 88px; }
+.metric-card--dashboard .metric-card__meta { margin-top: 10px; font-size: 12px; font-weight: 500; }
+.dashboard-overview__context { margin: 4px 0 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.4; }
+.dashboard-overview__class-count { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
 /* ═══════════════════════════════════════════════════
    TABLES
    Reference: docs/03_DESIGN_SYSTEM.md §6

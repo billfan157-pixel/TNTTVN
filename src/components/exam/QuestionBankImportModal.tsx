@@ -5,6 +5,8 @@ import type { QuestionDifficulty } from '../../types'
 import { parseQuestionBankFile, toQuestionBankImportItems, type QuestionBankFileParseResult } from '../../utils/questionBankImport'
 import { ModalShell } from '../common/ModalShell'
 import { Button, Badge } from '../common/ui'
+import { questionFormatLabel, questionFormatSummary } from '../../utils/structuredQuestions'
+import { StructuredQuestionPreview } from './StructuredQuestionPreview'
 import type { QuestionBranchOption, QuestionBlockOption } from './QuestionEditorModal'
 
 interface QuestionBankImportModalProps {
@@ -288,7 +290,7 @@ export function QuestionBankImportModal({ isOpen, branches, blocks, onClose, onI
                   <h5 className="font-bold text-text-main text-sm truncate max-w-md">{result.fileName}</h5>
                   <p className="text-xs text-text-muted mt-0.5 flex items-center gap-2">
                     <CheckCircle2 className="h-3.5 w-3.5 text-parish-success" />
-                    <span>Nhận diện: <strong>{result.parsed.mcQuestionCount}</strong> câu trắc nghiệm · <strong>{result.parsed.essayQuestionCount}</strong> câu tự luận</span>
+                    <span>Nhận diện: {questionFormatSummary(result.parsed.questions)}</span>
                   </p>
                 </div>
                 <Badge tone={result.parsed.ok ? 'success' : 'warning'}>
@@ -339,9 +341,10 @@ export function QuestionBankImportModal({ isOpen, branches, blocks, onClose, onI
                           Câu {question.index}: {question.question}
                         </span>
                         <span className="shrink-0 font-bold text-parish-primary">
-                          {question.type === 'essay' ? 'Tự luận' : `Đáp án: ${question.correctOption}`}
+                          {question.type === 'essay' ? questionFormatLabel(question) : `Đáp án: ${question.correctOption}`}
                         </span>
                       </div>
+                      <StructuredQuestionPreview question={question} showAnswers />
                     </div>
                   ))}
                 </div>

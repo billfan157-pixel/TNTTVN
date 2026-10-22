@@ -88,14 +88,14 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
       <LiturgicalTodayWidget />
 
       {/* Top Banner Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" data-scroll-story="group">
+      <div className="dashboard-overview grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3.5" data-scroll-story="group" aria-label="Thống kê tổng quan">
         {/* Total Students */}
-        <div className="metric-card">
-          <div className="metric-card__icon">
-            <Users size={23} />
+        <div className="metric-card metric-card--dashboard">
+          <div className="dashboard-overview__heading">
+            <p className="metric-card__label">Tổng thiếu nhi</p>
+            <div className="metric-card__icon"><Users size={20} aria-hidden="true" /></div>
           </div>
           <div className="metric-card__body">
-            <p className="metric-card__label">Tổng thiếu nhi</p>
             <h3 className="metric-card__value">{totalStudents} <span className="metric-card__unit">em</span></h3>
             <p className="metric-card__meta text-parish-success">
               <span className="w-1.5 h-1.5 rounded-full bg-parish-success"></span>
@@ -105,62 +105,68 @@ export const DesktopDashboard: React.FC<DesktopDashboardProps> = ({ onOpenAddStu
         </div>
 
         {/* Attendance Rate */}
-        <div className="metric-card metric-card--success">
-          <div className="metric-card__icon">
-            <CheckCircle2 size={23} />
+        <div className="metric-card metric-card--dashboard metric-card--success">
+          <div className="dashboard-overview__heading">
+            <p className="metric-card__label">Tỷ lệ chuyên cần</p>
+            <div className="metric-card__icon"><CheckCircle2 size={20} aria-hidden="true" /></div>
           </div>
           <div className="metric-card__body">
-            <p className="metric-card__label">Tỷ lệ chuyên cần</p>
             {hasAttendanceRecords ? (
               <h3 className="metric-card__value">{overallAttendanceRate}%</h3>
             ) : (
-              <h3 className="metric-card__value text-base font-bold text-text-muted">Chưa có buổi được ghi nhận</h3>
+              <h3 className="metric-card__value metric-card__value--empty">Chưa có buổi được ghi nhận</h3>
             )}
             <p className="metric-card__meta">
-              {summary.scopeLabel} • Niên học {activeYear} • {attendanceSessionDates} buổi đã ghi
+              {summary.scopeLabel} · {attendanceSessionDates} buổi đã ghi
             </p>
+            <p className="dashboard-overview__context">Niên học {activeYear}</p>
           </div>
         </div>
 
         {/* Academic Excellent */}
-        <div className="metric-card metric-card--gold">
-          <div className="metric-card__icon">
-            <Award size={23} />
+        <div className="metric-card metric-card--dashboard metric-card--gold">
+          <div className="dashboard-overview__heading">
+            <p className="metric-card__label">Học lực khá/giỏi+</p>
+            <div className="metric-card__icon"><Award size={20} aria-hidden="true" /></div>
           </div>
           <div className="metric-card__body">
-            <p className="metric-card__label">Học lực khá/giỏi+</p>
             <h3 className="metric-card__value">{xuatSacCount + gioiCount + khaCount} <span className="metric-card__unit">em</span></h3>
             <p className="metric-card__meta text-parish-gold">HK {selectedSemester === 2 ? 'II' : 'I'}: {xuatSacCount} xuất sắc</p>
           </div>
         </div>
 
         {/* Class Overview */}
-        <div className="metric-card metric-card--info justify-between">
-          <div className="metric-card__body">
+        <div className="metric-card metric-card--dashboard metric-card--info">
+          <div className="dashboard-overview__heading">
             <p className="metric-card__label">Lớp học giáo lý</p>
-            <h3 className="metric-card__value">{classes.length} <span className="metric-card__unit">lớp</span></h3>
+            <div className="metric-card__icon"><School size={20} aria-hidden="true" /></div>
+          </div>
+          <div className="metric-card__body">
+            <div className="dashboard-overview__class-count">
+              <h3 className="metric-card__value">{classes.length} <span className="metric-card__unit">lớp</span></h3>
+              {hasClasses ? (
+                <IconButton
+                  onClick={onOpenAddStudent}
+                  label="Thêm thiếu nhi"
+                  icon={<Plus aria-hidden="true" size={22} />}
+                  variant="secondary"
+                  size="md"
+                  className="shrink-0"
+                  title="Thêm thiếu nhi"
+                />
+              ) : (
+                <Button
+                  onClick={() => navigate({ to: '/students', search: { view: 'classes' } })}
+                  variant="primary"
+                  size="sm"
+                  leadingIcon={<School aria-hidden="true" size={16} />}
+                >
+                  Tạo Lớp
+                </Button>
+              )}
+            </div>
             <p className="metric-card__meta text-parish-primary">5 Ngành TNTT hoạt động</p>
           </div>
-          {hasClasses ? (
-            <IconButton
-              onClick={onOpenAddStudent}
-              label="Thêm thiếu nhi"
-              icon={<Plus aria-hidden="true" size={22} />}
-              variant="primary"
-              size="lg"
-              className="shrink-0"
-              title="Thêm thiếu nhi"
-            />
-          ) : (
-            <Button
-              onClick={() => navigate({ to: '/students', search: { view: 'classes' } })}
-              variant="primary"
-              size="sm"
-              leadingIcon={<School aria-hidden="true" size={16} />}
-            >
-              Tạo Lớp
-            </Button>
-          )}
         </div>
       </div>
 

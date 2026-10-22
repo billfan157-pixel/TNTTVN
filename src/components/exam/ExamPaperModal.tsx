@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
+import { questionFormatLabel } from '../../utils/structuredQuestions'
+import { StructuredQuestionPreview } from './StructuredQuestionPreview'
 import { createPortal } from 'react-dom'
 import {
   X, Printer, Eye, EyeOff, LayoutGrid,
@@ -9,6 +11,7 @@ import {
 } from 'lucide-react'
 import {
   buildExamPaperHtml,
+  getEssayAnswerLineCount,
   buildBatchExamPapersHtml,
   printExamPaper,
   printBatchExamPapers,
@@ -85,6 +88,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     initialDocType === 'exam_paper' && isMobile ? 'question_reader' : initialDocType
   )
   const [showAnswerKey, setShowAnswerKey] = useState(false)
+  const [answerLineOverrides, setAnswerLineOverrides] = useState<Record<number, number | null>>({})
   const [viewAnswerKey, setViewAnswerKey] = useState(false)
   const [includeExplanations, setIncludeExplanations] = useState(true)
   const [layoutColumns, setLayoutColumns] = useState<1 | 2>(2)
@@ -193,10 +197,11 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       return {
         ...q,
         index: qNum,
+        ...(q.type === 'essay' && !q.responseFormat && answerLineOverrides[qNum] !== undefined ? { answerLineCount: answerLineOverrides[qNum] ?? undefined } : {}),
         correctOption: activeKey[qNum] || q.correctOption || 'A',
       }
     })
-  }, [questions, variants, effectiveSelectedVersion, answerKey, manifestSet, docType])
+  }, [questions, variants, effectiveSelectedVersion, answerKey, manifestSet, docType, answerLineOverrides])
 
   const printOptions: ExamPaperPrintOptions = useMemo(() => ({
     parishName,
@@ -228,11 +233,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       const qs = sorted.map((q, idx) => ({
         ...q,
         index: q.index || idx + 1,
+        ...(q.type === 'essay' && !q.responseFormat && answerLineOverrides[q.index || idx + 1] !== undefined ? { answerLineCount: answerLineOverrides[q.index || idx + 1] ?? undefined } : {}),
         correctOption: activeKey[q.index || idx + 1] || q.correctOption || 'A',
       }))
       return { examVersion: code, questions: qs }
     })
-  }, [isAllVariants, applicableVersions, variants, answerKey, manifestSet, docType, questions])
+  }, [isAllVariants, applicableVersions, variants, answerKey, manifestSet, docType, questions, answerLineOverrides])
 
   const sampleStudent: StudentSheetInfo = useMemo(() => ({
     id: 'GENERIC',
@@ -429,6 +435,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       answerVariants,
       answerKey,
       variantManifests,
+      answerLineOverrides,
       includeAnswerKey: showAnswerKey,
 
       includeExplanations,
@@ -454,6 +461,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       answerVariants,
       answerKey,
       variantManifests,
+      answerLineOverrides,
       includeAnswerKey: true,
 
       includeExplanations: true,
@@ -1040,6 +1048,25 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
           </div>
         )}
 
+        {(docType === 'exam_paper' || docType === 'question_reader') && effectiveQuestions.some(q => q.type === 'essay' && !q.responseFormat) && (
+          <details className="shrink-0 mb-2 rounded-lg border border-surface-border bg-surface-card text-sm">
+            <summary className="mobile-touch-target cursor-pointer px-3 py-2 font-bold">Dòng trả lời tự luận</summary>
+            <div className="max-h-48 overflow-y-auto p-3 pt-0">
+              <p className="m-0 mb-2 text-xs text-text-muted">Chỉnh cho lần in hoặc tải này. Để trống để tự động; nhập 0 để không chừa dòng.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {effectiveQuestions.filter(q => q.type === 'essay' && !q.responseFormat).map(q => (
+                  <label key={q.index} className="text-xs font-bold">Dòng in · Câu {q.index}
+                    <input className="form-input w-full mt-1" type="number" min="0" max="100" step="1" placeholder={`Tự động (${getEssayAnswerLineCount({ ...q, answerLineCount: undefined })})`}
+                      value={q.answerLineCount ?? ''} onChange={event => {
+                        const value = event.target.value === '' ? null : Number(event.target.value)
+                        if (value === null || (Number.isInteger(value) && value >= 0 && value <= 100)) setAnswerLineOverrides(current => ({ ...current, [q.index]: value }))
+                      }} />
+                  </label>
+                ))}
+              </div>
+            </div>
+          </details>
+        )}
         {/* Content Viewport Area */}
         <div ref={containerRef} className="flex-1 min-h-0 bg-slate-200 dark:bg-slate-900 rounded-xl overflow-hidden border border-surface-border flex flex-col p-1 sm:p-3">
           
@@ -1077,13 +1104,14 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                             Câu {q.index}: {q.points !== undefined && <span className="font-normal text-xs text-text-muted">({q.points}đ)</span>}
                           </span>
                           {q.type === 'essay' && (
-                            <span className="badge badge-neutral text-[10px]">Tự Luận</span>
+                            <span className="badge badge-neutral text-[10px]">{questionFormatLabel(q)}</span>
                           )}
                         </div>
 
                         <p className="text-sm text-text-main font-medium leading-relaxed m-0 whitespace-pre-line">
                           {q.question}
                         </p>
+                        <StructuredQuestionPreview question={q} showAnswers={showAnswerKey} />
 
                         {isMc && q.options && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">

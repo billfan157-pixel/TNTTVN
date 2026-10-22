@@ -5,6 +5,7 @@ import { processDueOperationEventTransitions } from '../services/operationsEvent
 import { processDueOperationTaskDispatches } from '../services/operationsTaskDispatchService.ts'
 import { processDueManagerPrepReminders } from '../services/operationsManagerReminderService.ts'
 import { runSundayReminderCheck } from '../services/sundayReminderScheduler.ts'
+import { runLiturgicalReminderCheck } from '../services/liturgicalReminderService.ts'
 import { runImportMaintenanceCycle } from '../services/importService.ts'
 import { runOperationsReceiptMaintenance } from '../services/operationsReceiptMaintenance.ts'
 import { runAutoBackupCheck } from '../services/backupScheduler.ts'
@@ -22,6 +23,7 @@ export const MAINTENANCE_INTERVALS_MS = Object.freeze({
   'operation-dispatch': 30_000,
   'manager-reminders': 15 * 60_000,
   'sunday-reminders': 60_000,
+  'liturgical-reminders': 60_000,
   'import-maintenance': 60 * 60_000,
   'receipt-maintenance': 24 * 60 * 60_000,
   backup: 60_000,
@@ -68,6 +70,7 @@ export class MaintenanceJob extends DurableObject {
       if (marker.rows.length > 0) throw new Error('RECOVERY_QUARANTINED')
       const result = await this.run(kind)
       if (kind === 'notification' && result?.queueLength > 0) interval = 1_000
+      if (kind === 'liturgical-reminders' && result?.moreDue) interval = 1_000
       await this.ctx.storage.put('lastSuccessAt', new Date().toISOString())
     } catch (error) {
       await this.ctx.storage.put('lastFailureAt', new Date().toISOString())
@@ -148,6 +151,8 @@ export class MaintenanceJob extends DurableObject {
         return processDueManagerPrepReminders()
       case 'sunday-reminders':
         return runSundayReminderCheck()
+      case 'liturgical-reminders':
+        return runLiturgicalReminderCheck()
       case 'import-maintenance':
         await runImportMaintenanceCycle()
         return { completed: true }

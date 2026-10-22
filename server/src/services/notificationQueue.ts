@@ -8,6 +8,7 @@ import { generateId } from '../utils/id.js'
 import { randomUUID } from 'crypto'
 import { assertDeploymentParishScope, getEnforcedDeploymentParishId } from '../utils/deploymentParish.js'
 import { isCloudflareWorkerRuntime } from '../utils/cloudflareRuntime.js'
+import { isLiturgicalReminderId, liturgicalDeliveryBlockReason } from './liturgicalReminderService.js'
 
 function shouldDrainOnEnqueue(): boolean {
   return !isCloudflareWorkerRuntime() && process.env.CATEVIA_MAINTENANCE_OWNER !== 'cloudflare'
@@ -494,7 +495,12 @@ async function drainQueue(maxItems = Number.POSITIVE_INFINITY): Promise<void> {
 
         // Persisted type remains `web_push` for compatibility; appPushService
         // fans out to configured browser Web Push and native FCM/APNs providers.
-        const payload = { title: childNotification ? 'Catevia' : webPushTitle(item), body: message, url: '/' }
+        const liturgical = isLiturgicalReminderId(item.id)
+        if (liturgical) {
+          const blocked = await liturgicalDeliveryBlockReason(item.parishId, item.id, item.webpushUserIds)
+          if (blocked) { await suppressNotification(item, blocked); queue.shift(); continue }
+        }
+        const payload = { title: liturgical ? 'Lịch phụng vụ hôm nay' : childNotification ? 'Catevia' : webPushTitle(item), body: message, url: liturgical ? '/calendar' : '/' }
         const result = item.deliveredEndpoints && item.deliveredEndpoints.length > 0
           ? await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload, item.deliveredEndpoints)
           : await sendAppPushToUsers(item.parishId, item.webpushUserIds, payload)

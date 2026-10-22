@@ -18,6 +18,7 @@ export async function extractExamDocxText(buffer: ArrayBuffer | Uint8Array) {
     if (element.type === 'text') return element.value ?? ''
     if (element.type === 'tab') return '\t'
     if (element.type === 'break') return element.breakType === 'line' ? '\n' : ''
+    if (element.type === 'tableRow') return `${(element.children ?? []).map(read).map(cell => cell.trim().replace(/\n+/g, ' ')).join('\t')}\n`
     const content = (element.children ?? []).map(read).join('')
     if (element.type !== 'paragraph') return content
     if (!element.numbering) {

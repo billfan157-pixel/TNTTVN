@@ -600,7 +600,7 @@ Hệ thống sử dụng các quy chuẩn chính thống của Giáo hội Công
   - 🌸 **Hồng**: Chúa Nhật III Mùa Vọng (*Gaudete*), Chúa Nhật IV Mùa Chay (*Laetare*).
 
 ### 19.3 Tích Hợp Hệ Thống
-1. **Engine Cục Bộ 100% Offline (`src/utils/liturgicalEngine.ts`)**: Tính toán vĩnh cửu không cần internet, sử dụng thuật toán Meeus Computus cho Lễ Phục Sinh.
+1. **Engine Cục Bộ 100% Offline (`src/utils/liturgicalEngine.ts`)**: entrypoint frontend re-export bộ tính lịch thuần dùng chung tại `server/src/domain/liturgicalEngine.ts`, cùng dữ liệu và kiểu phụng vụ thuần. Trình duyệt vẫn tính offline, không gọi API lịch; scheduler dùng cùng nguồn để soạn thông báo. Thuật toán Meeus Computus cho Lễ Phục Sinh và dữ liệu lịch hiện hữu giữ nguyên.
 2. **Dashboard Widget (`LiturgicalTodayWidget` & `MobileLiturgicalWidget`)**: Hiển thị tên Lễ, bậc lễ, màu áo lễ và câu Lời Chúa tâm niệm trong ngày.
 3. **Trang Lịch Toàn Diện (`/calendar`)**: Lưới lịch tháng/tuần, chấm màu phụng vụ, chi tiết phụng vụ và bản chiếu sự kiện Xứ đoàn ở chế độ chỉ đọc:
    - **Một nơi ghi duy nhất**: tạo/sửa/hủy sự kiện tại `/operations`. DesktopCalendarView và MobileCalendarView chỉ tải/hiển thị; `POST|PUT|DELETE /api/parish-events` luôn trả `405 CALENDAR_READ_ONLY`, kể cả với admin.
@@ -608,6 +608,9 @@ Hệ thống sử dụng các quy chuẩn chính thống của Giáo hội Công
    - **Tối thiểu dữ liệu**: Lịch chỉ mang metadata công khai cần hiển thị/xuất lịch (tên, ngày, giờ, loại, địa điểm); không mang task, assignee, comment, readiness, hậu kiểm hay audit. Khi công khai lần đầu, server ghi durable Web/Native Push cho đúng tập phụ huynh ACTIVE trong cùng giáo xứ; nội dung chỉ dùng metadata công khai.
    - **Đọc khi mất mạng**: Lịch phụng vụ tính cục bộ vẫn hoạt động 100% offline. Bản chiếu Xứ đoàn đã tải thành công được cache mã hóa trong Dexie theo đúng `parishId:userId` để xem và xuất `.ics`; cache không phải nguồn dữ liệu chuẩn và không có mutation API.
 4. **Bộ Chọn Ngày Điểm Danh (`DesktopAttendanceGrid`, `MobileAttendanceView`)**: Tự động hiển thị huy hiệu ngày lễ phụng vụ tương ứng với ngày được chọn.
+5. **Nhắc lịch phụng vụ hằng ngày**: từng tài khoản chủ động bật/tắt tại Lịch hoặc Cài đặt; mặc định tắt, giờ gợi ý `08:00`, cố định múi giờ `Asia/Ho_Chi_Minh` (giờ Việt Nam). Tùy chọn thuộc đúng user/parish từ phiên đăng nhập, không tự đăng ký hay gửi cho cả giáo xứ. Nội dung gồm ngày, tên lễ, mùa phụng vụ, màu áo lễ và Tin Mừng/câu tâm niệm khi nguồn có dữ liệu; bấm thông báo mở `/calendar`.
+   - Máy chủ kiểm tra mỗi phút qua maintenance owner hiện hành (Node hoặc Cloudflare). Chỉ tạo nhắc trong cửa sổ hai giờ kể từ giờ chọn và cùng ngày Việt Nam; quá cửa sổ không gửi bù lịch cũ. Mỗi user/parish/ngày có một outbox ID xác định, nên tick đồng thời, restart hoặc đổi cài đặt không tạo bản nhắc thứ hai trong ngày.
+   - Lưu tùy chọn và audit trong cùng transaction. Producer chỉ chọn tài khoản ACTIVE chưa xóa, tái kiểm tra opt-in trong transaction trước khi ghi outbox. Worker gửi chung Web/Native Push, kiểm lại người nhận, opt-in, ngày và cửa sổ giờ trước mỗi lần gửi; mục đã tắt hoặc hết hạn bị chặn. Cơ chế provider vẫn là at-least-once, không cam kết exactly-once trên thiết bị. Bật lịch nhắc không thay quyền thông báo của thiết bị; người dùng bật quyền tại phần thông báo thiết bị.
 
 ### 19.4 Chuẩn Xuất & Đồng Bộ Lịch iCalendar RFC 5545 (ADR-038)
 Hệ thống hỗ trợ xuất và đồng bộ hai chiều Lịch Phụng Vụ & Lịch Xứ Đoàn:
@@ -647,6 +650,9 @@ Phiếu điểm cá nhân và phiếu điểm hàng loạt bắt buộc phải p
 ## 21. QUY CHẾ QUẢN LÝ, SOẠN THẢO, IMPORT & IN ĐỀ THI TRẮC NGHIỆM THÔNG MINH (ADR-023 / LEVEL 2)
 
 ### 21.1 Bộ Phân Tích Đề Thi Tự Động (Smart Exam Parser - `src/utils/examParser.ts`)
+
+Dạng trả lời được nhận diện riêng với kênh chấm: ngoài chọn A–D, parser hỗ trợ điền từ tự viết và nối / ghép cột. Điền khuyết giữ từng ô có mã và danh sách đáp án chấp nhận được, cùng từ cho sẵn nếu có; ghép cột giữ hai danh sách và đáp án liên kết bằng mã, không suy đoán đáp án theo thứ tự hàng. Thiếu đáp án phải hiện cảnh báo; ngân hàng cho lưu nháp nhưng chặn gửi duyệt/duyệt/kích hoạt khi chưa đủ đáp án. Ý nhỏ tự luận được lưu trong `answerData.subparts` cùng stem gốc và chú thích điểm; không trở thành các câu lớn độc lập. DOCX giữ ranh giới ô bảng để nhận diện hai cột. Đây là phân tích văn bản/tài liệu, không phải OCR ảnh hoặc chữ viết tay.
+
 Hệ thống cung cấp cơ chế phân tích đề thi thông minh Client-side, hoạt động 100% Offline:
 1. **Định dạng Văn Bản / Word / Markdown Paste**:
    - Nhận diện linh hoạt tiền tố câu hỏi: `Câu 1:`, `Câu 1.`, `Bài 1:`, `Question 1:`, `1.`, `1)`, `1:`, `1/`.
@@ -663,16 +669,19 @@ Hệ thống cung cấp cơ chế phân tích đề thi thông minh Client-side,
    - Excel hỗ trợ map cột theo tên header, gồm cột nội dung, loại câu và điểm; bảng chỉ có số thứ tự và nội dung được nhận diện là tự luận nếu không có bằng chứng phương án/đáp án trắc nghiệm.
    - DOCX dùng bộ trích xuất chung cho nhập đề và ngân hàng câu hỏi: Mammoth đọc cây tài liệu ngay trên thiết bị, giữ cấp danh sách tự động rồi đưa văn bản vào parser. Ký hiệu danh sách được chuẩn hóa thành số hoặc dấu đầu dòng vì Mammoth không giữ nguyên kiểu nhãn Word; xem trước phải hiện cảnh báo kiểm tra câu lớn/ý nhỏ. HTML chuyển đổi không được render; ảnh/đối tượng nhúng không được OCR hay tải lên server. Chỉ hỗ trợ `.docx`.
    - Cung cấp sẵn file mẫu chuẩn `.xlsx` để tải về và nhập liệu.
-   - **QB-F1 (2026-08-21)**: ô đáp án TRỐNG hoặc không chứa A/B/C/D → mặc định gán `A` **kèm warning** hiển thị cho người nhập; TUYỆT ĐỐI không suy đoán đáp án từ nội dung phương án (trước đây "Bác Hồ" → B im lặng). Ô dạng dài hợp lệ như `Đáp án: C` vẫn trích được `C`.
+   - **QB-F1 (2026-08-21), chỉ áp dụng câu chọn A–D**: ô đáp án TRỐNG hoặc không chứa A/B/C/D → mặc định gán `A` **kèm warning** hiển thị cho người nhập; TUYỆT ĐỐI không suy đoán đáp án từ nội dung phương án (trước đây "Bác Hồ" → B im lặng). Ô dạng dài hợp lệ như `Đáp án: C` vẫn trích được `C`. Điền tự viết và ghép cột không được gán đáp án mặc định.
 3. **Giới Hạn & Ràng Buộc**:
    - File tối đa 5 MB; parser nhận tối đa 50 câu. Bản xem trước nêu hình thức TN/TL/kết hợp và hiển thị toàn bộ cảnh báo phân tích trước khi áp dụng. Người nhập cần kiểm tra đáp án bị mặc định, câu bị bỏ qua và phần bị lọc theo ô TN/TL.
    - Tự động đồng bộ số câu `questionCount` (tối đa 50 câu) và bảng đáp án `answerKey` vào phiên chấm bài.
-   - **UI-POLISH (2026-08-25) — Import theo hình thức**: form tạo phiên chọn Hình thức TRƯỚC — `mixed`: 2 ô import riêng (Phần Trắc Nghiệm / Phần Tự Luận); `multiple_choice`: chỉ ô Trắc Nghiệm; `written` (tô điểm): không import đề; đổi hình thức tự dọn phần không phù hợp. `scopeExamParseResult()` lọc kết quả parse theo scope, bỏ phần không thuộc scope kèm warning, đánh lại index 1..N trên phần giữ lại; ghép 2 phần: TN 1..N + TL N+1..N+M (giữ ràng buộc MC contiguous §21.5). Chỉ nạp TL mà chưa có TN → chặn submit với thông báo; chỉ TN → `multiple_choice`; có cả hai → `mixed`.
+   - **Import theo dạng câu và kênh chấm**: nút Nhập toàn bộ đề kiểm tra có ở mọi hình thức, tự chọn kênh chấm theo nội dung: chỉ A–D → `multiple_choice`, A–D cộng câu chấm tay → `mixed`, chỉ câu chấm tay → `written`. Ô Phần Trắc Nghiệm nhận A–D, điền khuyết và ghép cột; ô Phần Tự Luận nhận tự luận. Bộ lọc vẫn cảnh báo phần bị bỏ qua và đánh lại số câu. Khi ghép, A–D luôn ở index 1..N khớp OMR; điền tự viết, ghép cột và tự luận ở sau. Đổi hình thức có thể làm mất nội dung vẫn cần xác nhận.
 4. **Hợp đồng lưu trữ ngân hàng câu hỏi (QB-F2/F3, 2026-08-21)**:
-   - Server validate `questions` ở `POST /api/exams`: mảng 1–50 ExamQuestion, mỗi câu có `index` 1..50, `question` 1..2000 ký tự, đủ `options.A–D` (≤500 ký tự), `correctOption ∈ A/B/C/D`; chuỗi ≤200KB. Vi phạm → 400 ngay tại create.
+   - Khi tạo phiên bằng `POST /api/exams`, các câu có nội dung thật chưa có trong ngân hàng cùng giáo xứ được tự lưu thành câu nháp (`provenance=import`), gắn ngành và khối từ lớp. Phiên, câu nháp, phiên bản đầu và audit cùng một transaction: lỗi ở bất kỳ bước nào phải hoàn tác toàn bộ. Phiên chỉ có bảng đáp án hoặc câu được đánh dấu `isPlaceholder=true` không tạo câu ngân hàng; tạo ngoại tuyến chỉ thêm câu sau khi đồng bộ thành công.
+   - Đối chiếu với phiên bản hiện hành ở mọi trạng thái ngân hàng: chuẩn hóa Unicode và khoảng trắng, so dạng câu và nội dung. Câu A–D so nội dung các phương án và nội dung đáp án đúng nên đảo chữ cái không tạo bản sao; điền khuyết/ghép cột so thêm cấu trúc và đáp án. Vị trí, điểm, rubric, phân loại và số dòng in không tạo danh tính mới. Retry hoặc tạo nhiều đề cùng câu không thêm bản sao; không ghi đè hoặc tự duyệt câu hiện có. Sửa định nghĩa đề không tự sửa ngân hàng.
+   - Khi có `questions` ở `POST /api/exams`, server validate mảng 1–50 ExamQuestion, mỗi câu có `index` 1..50 và `question` 1..2000 ký tự; chuỗi ≤200KB. Câu chọn A–D cần đủ `options.A–D` (≤500 ký tự) và `correctOption ∈ A/B/C/D`; câu chấm tay không được mang options/correctOption. Cấu trúc điền khuyết, ghép cột và ý nhỏ được kiểm riêng. Vi phạm → 400 ngay tại create.
    - `questions[].correctOption` là **bản chiếu của key mã A**: khi admin đổi answer-key (`PATCH /:id/answer-key`), server tự sync `correctOption` theo key mới (câu nào có trong key). Questions hỏng/không parse được → bỏ qua silently, rescore vẫn chạy. Renderers (ExamPaperModal/ExamExportModal) vẫn remap theo activeKey khi hiển thị — questions JSON trong DB giờ luôn nhất quán với key mã A.
 
 ### 21.2 Bản In Đề Thi A4 Chuẩn Nhà Xứ (`src/utils/examSheets.ts` - `buildExamPaperHtml`)
+- **Số dòng trả lời tự luận**: từng câu tự luận được lưu `answerLineCount` tùy chọn, là số nguyên 0–100. Để trống dùng cách ước lượng tự động hiện hữu theo điểm, độ dài và số ý nhỏ; 0 không chừa dòng. Có thể chỉnh khi tạo/sửa đề hoặc trong câu ngân hàng (`answerData.answerLineCount`). Màn hình xem/in cho ghi đè số dòng riêng cho lần xuất, không đổi định nghĩa đề hay manifest đã lưu. Bản in, Word và Excel giữ số dòng; Excel có cột `Số dòng trả lời`. Câu điền khuyết và ghép cột giữ bố cục riêng.
 - **Nhận diện Giáo Xứ**: Header trang trọng gồm Giáo phận, Giáo xứ, Xứ đoàn TNTT, Tên lớp, Niên khóa, Tên bài kiểm tra và thời gian làm bài.
 - **Bố Cục Trang In A4**:
   - Tùy chọn 2 cột (tiết kiệm giấy A4) hoặc 1 cột.
@@ -725,6 +734,8 @@ Hệ thống cung cấp tính năng xuất đề thi và bảng đáp án đa đ
    - **Desktop Mode**: Chế độ máy tính đóng vai trò trung tâm học vụ và in ấn đầy đủ; nút mở hiển thị `[In Đề & Phiếu]` (`<Printer size={14} />`), modal hỗ trợ toàn diện các tùy chọn in trực tiếp (`printBatchExamPapers`, `printBatchAnswerSheets`, `printQrSheet`) và xuất bản đa định dạng (Word .doc, Excel .xlsx, HTML độc lập, PDF vector).
 
 ### 21.5 Đề Kết Hợp Trắc Nghiệm + Tự Luận — EXAM-MIXED (ADR-053, 2026-08-24)
+
+Các câu điền tự viết và ghép cột dùng kênh chấm tay hiện hữu: `type='essay'` kèm `responseFormat='fill_blank'|'matching'` và `answerData` có cấu trúc. Tên dạng câu vẫn hiển thị riêng trong nhập, sửa, ngân hàng và bản in. `essayScore` ở phiên mixed là tổng điểm giáo lý viên nhập cho toàn bộ câu chấm tay, gồm các dạng này; trần điểm vẫn do máy chủ tính. Chọn A–D để điền vào một chỗ trống vẫn là câu OMR thông thường. `questionCount`, answer key và mã QR chỉ đếm câu A–D. Không đổi hình học phiếu, khóa đề sau khi bắt đầu chấm, OCC hay luồng hoàn tất điểm.
 
 Phiên `exam_type = 'mixed'` gồm CẢ phần trắc nghiệm (chấm tự động OMR/QR) và phần tự luận (nhập tay):
 

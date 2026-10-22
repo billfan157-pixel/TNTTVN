@@ -49,6 +49,7 @@ import {
 import { buildQuestionBlockOptions } from '../../utils/questionBlock'
 import { XUAN_LOC_LEVELS, XUAN_LOC_REVIEWED_ON, XUAN_LOC_SOURCES, xuanLocReference, type XuanLocReference } from '../../constants/xuanLocCurriculum'
 import { EmptyState } from '../common/StateFeedback'
+import { StructuredQuestionPreview } from './StructuredQuestionPreview'
 
 const TYPE_LABELS: Record<QuestionBankType, string> = {
   multiple_choice: 'Trắc nghiệm',
@@ -897,6 +898,9 @@ export function QuestionBankView() {
                     </Button>
                   </div>
 
+                  <StructuredQuestionPreview question={{ index: 1, question: preview.current.stem, type: 'essay',
+                    responseFormat: preview.current.questionType === 'fill_blank' || preview.current.questionType === 'matching' ? preview.current.questionType : undefined,
+                    answerData: preview.current.answerData }} showAnswers />
                   {/* Danh sách đáp án */}
                   {preview.current.questionType === 'multiple_choice' && (
                     <div className="space-y-2">
@@ -1182,6 +1186,8 @@ export function QuestionBankView() {
                             }
                           >
                             <option value="multiple_choice">Trắc nghiệm</option>
+                            <option value="fill_blank">Điền khuyết</option>
+                            <option value="matching">Nối / Ghép cột</option>
                             <option value="essay">Tự luận</option>
                           </select>
                         </div>
@@ -1773,6 +1779,9 @@ export function QuestionBankView() {
               <h3 className="text-base font-bold text-text-main">{preview.current.stem}</h3>
             </div>
 
+            <StructuredQuestionPreview question={{ index: 1, question: preview.current.stem, type: 'essay',
+              responseFormat: preview.current.questionType === 'fill_blank' || preview.current.questionType === 'matching' ? preview.current.questionType : undefined,
+              answerData: preview.current.answerData }} showAnswers />
             {preview.current.questionType === 'multiple_choice' && (
               <div className="space-y-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Các đáp án:</span>

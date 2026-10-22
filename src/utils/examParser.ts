@@ -2,6 +2,7 @@ import { loadXlsx } from '../lib/xlsxLoader'
 import type { ExamQuestion, MultipleChoiceOption } from '../types'
 import { extractExamDocxText } from './examDocxText'
 import { formatEssaySubparts, SUBPART_START_REGEX } from './essayStructure'
+import { detectResponseFormat, extractEssaySubparts, isObjectiveQuestion, parseStructuredQuestion, type ResponseFormat } from './structuredQuestions'
 
 export interface ExamParseResult {
   ok: boolean
@@ -116,7 +117,7 @@ export function normalizeExamText(raw: string): string {
     .map(line => {
       let out = line.trimEnd()
       out = out.replace(/^\s{0,3}#{1,6}\s+/, '')          // "# Tiêu đề" / "## Phần II"
-      out = out.replace(/\*\*/g, '').replace(/__/g, '')    // **đậm** / __đậm__
+      out = out.replace(/\*\*/g, '').replace(/__([^\s_](?:[^_\n]*[^\s_])?)__/g, '$1')
       return out.replace(/^\s*[-+*]\s+(?=(?:câu|bài|question)\s*\d|\d{1,2}\s*[.:)\-/–—])/i, '')
     })
     .join('\n')
@@ -211,6 +212,8 @@ interface SectionRange {
   startLine: number
   endLine: number
   points?: number
+  responseFormat?: ResponseFormat
+  heading?: string
 }
 
 /** Cắt văn bản thành các phần theo tiêu đề phần; không có tiêu đề → 1 phần 'auto'. */
@@ -219,13 +222,14 @@ function buildSectionRanges(lines: string[]): SectionRange[] {
   let current: SectionRange | null = null
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
-    const mode = line ? detectSectionMode(line) : null
+    const responseFormat = line && /^(?:phần|part|[IVX]+[.)])\s/iu.test(line) ? detectResponseFormat(line) : undefined
+    const mode = responseFormat ? 'essay' : line ? detectSectionMode(line) : null
     if (mode) {
       if (current) {
         current.endLine = i
         ranges.push(current)
       }
-      current = { mode, startLine: i + 1, endLine: lines.length, points: extractPointsHint(line) }
+      current = { mode, startLine: i + 1, endLine: lines.length, points: extractPointsHint(line), responseFormat, heading: line }
       continue
     }
     if (!current) current = { mode: 'auto', startLine: 0, endLine: lines.length }
@@ -257,7 +261,7 @@ const isEssayQuestion = (q: ExamQuestion): boolean => (q.type ?? 'multiple_choic
 export function scopeExamParseResult(result: ExamParseResult, scope: ExamImportScope): ExamParseResult {
   if (scope === 'both') return result
 
-  const kept = result.questions.filter(q => scope === 'essay' ? isEssayQuestion(q) : !isEssayQuestion(q))
+  const kept = result.questions.filter(q => scope === 'essay' ? !isObjectiveQuestion(q) : isObjectiveQuestion(q))
   const dropped = result.questions.length - kept.length
   const scopeLabel = scope === 'essay' ? 'tự luận' : 'trắc nghiệm'
   const otherLabel = scope === 'essay' ? 'trắc nghiệm' : 'tự luận'
@@ -377,6 +381,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
   // hỏi. Trước đây chỉ cắt khi có bảng đáp án TN; khối biểu điểm của đề tự luận
   // bị decode thành câu hỏi rác (VD "Câu 1: 4 điểm" thành 1 câu hỏi).
   const endKeyMap: Record<number, MultipleChoiceOption> = {}
+  const endStructuredKeys: Record<number, string> = {}
   let hasEndKeySection = false
 
   const endKeyHeaderRegex = /(?:bảng\s+đáp\s+án|đáp\s+án\s+trắc\s+nghiệm|đáp\s+án\s+toàn\s+bộ|tổng\s+hợp\s+đáp\s+án|bảng\s+key|answer\s*key)/i
@@ -391,6 +396,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
     }
     // Hoặc dòng chứa nhiều hơn 2 cặp số-đáp án (VD: "1A 2B 3C 4D...")
     const pairMatches = Array.from(line.matchAll(/(\d+)\s*[:.\-/)]?\s*([A-D])/gi))
+    if (/^(?:đáp\s*án|đ\/a)\s*:/iu.test(line) && lines.slice(0, i).some(value => detectResponseFormat(value) === 'matching')) continue
     if (pairMatches.length >= 3 && !line.toLowerCase().startsWith('câu') && !line.toLowerCase().startsWith('bài')) {
       endKeyLineIndex = i
       break
@@ -398,6 +404,10 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
   }
 
   if (endKeyLineIndex !== -1) {
+    for (const line of lines.slice(endKeyLineIndex + 1)) {
+      const key = line.match(/^\s*(?:câu|question)\s*(\d+)\s*[:.)]\s*(.+)$/iu)
+      if (key) endStructuredKeys[Number(key[1])] = key[2]
+    }
     const endKeyText = lines.slice(endKeyLineIndex).join(' ')
     // Tìm các cặp số-chữ như "1A", "1. A", "1: A", "1-A", "1/A"
     const pairRegex = /(\d+)\s*[:.\-/)]?\s*([A-D])/gi
@@ -415,7 +425,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
   // 2. Phân đoạn các câu hỏi (Questions Segmentation)
   const questionBlocks: string[][] = []
   // EXAM-MIXED: mỗi block ghi lại mode phần tại thời điểm bắt đầu.
-  interface QuestionBlockMeta { mode: 'multiple_choice' | 'essay' }
+  interface QuestionBlockMeta { mode: 'multiple_choice' | 'essay'; responseFormat?: ResponseFormat }
   const blockMetas: QuestionBlockMeta[] = []
   // Điểm khai báo ở TIÊU ĐỀ PHẦN "(6 điểm)" → chia đều cho các câu của phần đó
   // nếu câu không tự khai báo điểm riêng.
@@ -453,6 +463,13 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
     sectionHints.push({ mode, fromBlockIndex: questionBlocks.length, points: range.points })
     const sectionLines = parseLines.slice(range.startLine, range.endLine)
     const nonEmpty = sectionLines.map(line => line.trim()).filter(line => line.length > 0)
+    if (range.responseFormat && !nonEmpty.some(line => /^(?:câu\s*hỏi|câu|bài|question)\s*\d/iu.test(line))) {
+      const stem = range.heading?.replace(/^(?:phần|part)\s*(?:[IVX]+|\d+)[.):-]?\s*/iu, '').replace(POINTS_ANNOTATION_REGEX, '').trim() ?? ''
+      questionBlocks.push([`Câu ${questionBlocks.length + 1}: ${stem}`, ...sectionLines])
+      blockMetas.push({ mode: 'essay', responseFormat: range.responseFormat })
+      warnings.push('Phần điền khuyết/ghép cột không có mốc câu lớn; đã giữ nguyên cả phần trong một câu để kiểm tra.')
+      continue
+    }
     const bareIndent = Math.min(...sectionLines.filter(line => BARE_NUMBER_START_REGEX.test(line.trim())).map(line => line.search(/\S/)))
     // Phần tự luận KHÔNG có mốc câu nào (giáo viên chỉ ngăn cách bằng dòng trống)
     // → mỗi đoạn văn được coi là 1 câu hỏi.
@@ -476,7 +493,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
     const flushBlock = () => {
       if (currentBlock.length === 0) return
       questionBlocks.push(currentBlock)
-      blockMetas.push({ mode })
+      blockMetas.push({ mode, responseFormat: range.responseFormat })
       currentBlock = []
     }
 
@@ -522,10 +539,11 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
           }
         }
       } else if (startMatch) {
+        const structuredParent = currentBlock.length > 0 && (range.responseFormat || detectResponseFormat(currentBlock[0]))
         // Đề trắc nghiệm: số trần vẫn là mốc câu mới (giữ nguyên hành vi cũ).
         const isEssaySubpart = intent === 'essay' && explicitSeen && currentBlock.length > 0
           && !hasMultipleChoiceEvidence(currentBlock, true)
-        if (!isEssaySubpart) {
+        if (!isEssaySubpart && !structuredParent) {
           isNewQuestion = true
           explicitSeen = true
           const markerNumber = parseInt(startMatch[2], 10)
@@ -573,6 +591,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
         fallbackQuestions.push({
           index: i,
           question: `Câu hỏi ${i}`,
+          isPlaceholder: true,
           type: 'multiple_choice',
           options: { A: 'Phương án A', B: 'Phương án B', C: 'Phương án C', D: 'Phương án D' },
           correctOption: endKeyMap[i] || 'A',
@@ -628,6 +647,26 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
       ? (startMatch[startMatch.length - 1] || '').trim()
       : firstLine
 
+    const format = blockMetas[bIndex]?.responseFormat ?? detectResponseFormat(block.join('\n'))
+    // A gap accompanied by four answer choices remains an ordinary OMR item.
+    if (format && (format === 'matching' || collectEvidence(block).optionMarkers < 4)) {
+      const text = [questionText, ...block.slice(1)].join('\n')
+      const duplicateNumber = questionBlocks.filter(lines => Number(lines[0].match(QUESTION_START_REGEX)?.[1] ?? lines[0].match(QUESTION_START_REGEX)?.[2]) === questionIndex).length > 1
+      const structured = parseStructuredQuestion(text, format,
+        !duplicateNumber && !/^\s*(?:đáp\s*án|đ\/a|hướng\s*dẫn\s*chấm)\s*:/imu.test(text) ? endStructuredKeys[questionIndex] ?? '' : '')
+      if (duplicateNumber && endStructuredKeys[questionIndex]) warnings.push(`Câu ${questionIndex}: số câu trùng giữa các phần; chưa gắn đáp án cuối đề, cần kiểm tra thủ công.`)
+      const question: ExamQuestion = {
+        index: questionIndex, type: 'essay', responseFormat: format,
+        question: structured.question.replace(POINTS_ANNOTATION_REGEX, '').trim(), answerData: structured.answerData,
+        ...(extractPointsHint(firstLine) !== undefined ? { points: extractPointsHint(firstLine) } : {}),
+        ...(structured.explanation ? { explanation: structured.explanation } : {}),
+      }
+      warnings.push(...structured.warnings.map(warning => `Câu ${questionIndex}: ${warning}`))
+      parsedQuestions.push(question)
+      blockToQuestion[bIndex] = question
+      continue
+    }
+
     // ── EXAM-MIXED: câu TỰ LUẬN — toàn bộ khối là nội dung câu hỏi ──
     if (blockMode === 'essay') {
       // ESSAY-DECODE: giữ nguyên cấu trúc dòng (câu hỏi con a)/b), "1." "2." nằm
@@ -669,6 +708,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
         index: questionIndex,
         question: cleanedText || `Câu tự luận số ${questionIndex}`,
         type: 'essay',
+        ...(extractEssaySubparts(cleanedText).length ? { answerData: { subparts: extractEssaySubparts(cleanedText) } } : {}),
         ...(ownPoints !== undefined ? { points: ownPoints } : {}),
         ...(rubricLines.length > 0 ? { explanation: rubricLines.join('\n') } : {}),
       }
@@ -806,6 +846,11 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
 
   // Giới hạn tối đa 50 câu (khớp mẫu phiếu OMR)
   const clampedQuestions = parsedQuestions.slice(0, MAX_EXAM_QUESTIONS)
+  if (clampedQuestions.some(q => q.type === 'essay') && clampedQuestions.some(q => q.type !== 'essay')) {
+    const original = [...clampedQuestions]
+    clampedQuestions.sort((a, b) => Number(a.type === 'essay') - Number(b.type === 'essay'))
+    if (clampedQuestions.some((q, i) => q !== original[i])) warnings.push('Đã đưa các câu A–D lên đầu để khớp số ô OMR; điền khuyết, ghép cột và tự luận giữ cùng câu lớn ở phần chấm tay.')
+  }
   if (parsedQuestions.length > MAX_EXAM_QUESTIONS) {
     warnings.push(`Đề thi có ${parsedQuestions.length} câu. Hệ thống đã giới hạn lấy ${MAX_EXAM_QUESTIONS} câu đầu tiên.`)
   }
@@ -837,7 +882,7 @@ export function parseExamFromText(rawText: string, options: ExamParseOptions = {
   }
 
   return {
-    ok: clampedQuestions.length > 0,
+    ok: clampedQuestions.length > 0 && errors.length === 0,
     questions: clampedQuestions,
     answerKey: finalAnswerKey,
     questionCount: clampedQuestions.length,
@@ -916,6 +961,7 @@ export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array, optio
       answer: number        // đáp án đúng
       type?: number         // loại câu (TN/TL)
       points?: number       // điểm câu
+      answerLines?: number
     }
     let columnMap: ColumnMap | null = null
     const firstRowStr = JSON.stringify(rows[0] || []).toLowerCase()
@@ -939,6 +985,7 @@ export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array, optio
       const answerCol = findCol(/đáp\s*án|dap\s*an|answer|key/)
       const typeCol = findCol(/loại|loai|question\s*type|^type$/)
       const pointsCol = findCol(/điểm|^diem|point/)
+      const answerLinesCol = findCol(/số\s*dòng|so\s*dong|answer\s*lines/)
       if (questionCol !== -1) {
         columnMap = {
           question: questionCol,
@@ -949,6 +996,7 @@ export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array, optio
           answer: answerCol !== -1 ? answerCol : 6,
           ...(typeCol !== -1 ? { type: typeCol } : {}),
           ...(pointsCol !== -1 ? { points: pointsCol } : {}),
+          ...(answerLinesCol !== -1 ? { answerLines: answerLinesCol } : {}),
         }
       }
     }
@@ -1025,16 +1073,33 @@ export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array, optio
         : (sheetHasMcEvidence ? 'multiple_choice' : 'essay')
       const rowPoints = cols.points !== undefined ? parsePointsCell(row[cols.points]) : undefined
 
+      const responseFormat = detectResponseFormat(cols.type !== undefined ? String(row[cols.type] ?? '') : '') ?? detectResponseFormat(qText)
+      const hasFourOptions = [cols.optionA, cols.optionB, cols.optionC, cols.optionD].every(col => String(row[col] ?? '').trim())
+      if (responseFormat && (responseFormat === 'matching' || !hasFourOptions)) {
+        const result = parseStructuredQuestion(qText, responseFormat, String(row[cols.answer] ?? '').trim())
+        parsedQuestions.push({ index: finalIndex, type: 'essay', responseFormat, question: result.question, answerData: result.answerData,
+          ...(rowPoints !== undefined ? { points: rowPoints } : {}), ...(result.explanation ? { explanation: result.explanation } : {}) })
+        warnings.push(...result.warnings.map(warning => `Dòng ${r + 1}: ${warning}`))
+        if (parsedQuestions.length >= MAX_EXAM_QUESTIONS) break
+        continue
+      }
+
       if (rowType === 'essay') {
         // Câu tự luận: không cần A–D/đáp án; chỉ cần nội dung câu hỏi.
         if (!rawQuestionCell) {
           warnings.push(`Dòng ${r + 1}: câu tự luận thiếu nội dung (cột "Nội dung") — bỏ qua.`)
           continue
         }
+        const rawLines = cols.answerLines === undefined ? '' : String(row[cols.answerLines] ?? '').trim()
+        const answerLines = rawLines === '' ? undefined : Number(rawLines)
+        const validLines = answerLines !== undefined && Number.isInteger(answerLines) && answerLines >= 0 && answerLines <= 100
+        if (answerLines !== undefined && !validLines) warnings.push(`Dòng ${r + 1}: số dòng trả lời không hợp lệ (0–100); đã dùng chế độ tự động.`)
         parsedQuestions.push({
           index: finalIndex,
           question: qText,
           type: 'essay',
+          ...(validLines ? { answerLineCount: answerLines } : {}),
+          ...(extractEssaySubparts(qText).length ? { answerData: { subparts: extractEssaySubparts(qText) } } : {}),
           ...(rowPoints !== undefined ? { points: rowPoints } : {}),
         })
         if (parsedQuestions.length >= MAX_EXAM_QUESTIONS) {
@@ -1082,11 +1147,12 @@ export async function parseExamFromExcel(buffer: ArrayBuffer | Uint8Array, optio
     }
 
     // Chuẩn hóa index liên tục 1..N sau khi bỏ qua dòng lỗi.
+    parsedQuestions.sort((a, b) => Number(a.type === 'essay') - Number(b.type === 'essay'))
+    for (const key of Object.keys(parsedAnswerKey)) delete parsedAnswerKey[Number(key)]
     parsedQuestions.forEach((q, idx) => {
       const finalIdx = idx + 1
       if ((q.type ?? 'multiple_choice') === 'multiple_choice' && q.correctOption) {
         parsedAnswerKey[finalIdx] = q.correctOption
-        if (q.index !== finalIdx) delete parsedAnswerKey[q.index]
       }
       q.index = finalIdx
     })

@@ -9,6 +9,7 @@ import { getParishTimeZone } from './utils/parishTimeZone.js'
 import { seedIfEmpty } from './seed.js'
 import { initNotificationQueue, stopNotificationQueue } from './services/notificationQueue.js'
 import { initSundayReminderScheduler, stopSundayReminderScheduler } from './services/sundayReminderScheduler.js'
+import { initLiturgicalReminderScheduler, stopLiturgicalReminderScheduler } from './services/liturgicalReminderService.js'
 import { initOperationsReminderScheduler, stopOperationsReminderScheduler } from './services/operationsReminderService.js'
 import { initOperationsEventLifecycleScheduler, stopOperationsEventLifecycleScheduler } from './services/operationsEventLifecycleService.js'
 import { initOperationsTaskDispatchScheduler, stopOperationsTaskDispatchScheduler } from './services/operationsTaskDispatchService.js'
@@ -104,6 +105,7 @@ if (nodeOwnsMaintenance) {
 if (nodeOwnsMaintenance) {
   await initNotificationQueue()
   initSundayReminderScheduler()
+  initLiturgicalReminderScheduler()
   initOperationsReminderScheduler()
   initOperationsEventLifecycleScheduler()
   initOperationsTaskDispatchScheduler()
@@ -176,6 +178,7 @@ const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {
       stopRateLimitCleanup()
       const backupStopped = stopBackupScheduler()
       const sundayStopped = stopSundayReminderScheduler()
+      const liturgicalStopped = stopLiturgicalReminderScheduler()
       stopOperationsReminderScheduler()
       stopOperationsEventLifecycleScheduler()
       stopOperationsTaskDispatchScheduler()
@@ -185,7 +188,7 @@ const gracefulShutdown = (signal: string, exitCode = 0): Promise<void> => {
         server.close((error) => error ? reject(error) : resolve())
       })
 
-      await Promise.all([backupStopped, sundayStopped, httpClosed])
+      await Promise.all([backupStopped, sundayStopped, liturgicalStopped, httpClosed])
       await stopNotificationQueue()
       await closeBrowser()
       try { await client.execute('PRAGMA wal_checkpoint(TRUNCATE)') } catch {}

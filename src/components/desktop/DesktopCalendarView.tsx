@@ -29,6 +29,7 @@ import { PageHeader } from '../common/PageHeader'
 import { DesktopAppShell } from './DesktopAppShell'
 import { useParishEventStore } from '../../stores/parishEventStore'
 import { useAuthStore } from '../../stores/authStore'
+import { LiturgicalReminderSettings } from '../common/LiturgicalReminderSettings'
 
 export const DesktopCalendarView: React.FC = () => {
   const navigate = useNavigate()
@@ -166,6 +167,7 @@ export const DesktopCalendarView: React.FC = () => {
       />
 
       {/* Main Grid + Detail Sidebar */}
+      <LiturgicalReminderSettings />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Calendar Grid (8 cols) */}
         <div className="lg:col-span-8 app-panel p-5 flex flex-col gap-3">

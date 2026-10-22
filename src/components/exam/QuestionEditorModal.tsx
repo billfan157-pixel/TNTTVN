@@ -4,6 +4,8 @@ import { ModalShell } from '../common/ModalShell'
 import type { QuestionBranchOption, QuestionForm } from '../../utils/questionEditorModel'
 import type { QuestionBlockOption } from '../../utils/questionBlock'
 import type { QuestionDifficulty } from '../../types'
+import { extractEssaySubparts, parseStructuredQuestion } from '../../utils/structuredQuestions'
+import { StructuredQuestionPreview } from './StructuredQuestionPreview'
 
 export type { QuestionBranchOption, QuestionForm }
 export type { QuestionBlockOption }
@@ -58,6 +60,8 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
               onChange={event => set('questionType', event.target.value as QuestionForm['questionType'])}
             >
               <option value="multiple_choice">Trắc nghiệm 4 đáp án (A, B, C, D)</option>
+              <option value="fill_blank">Điền từ vào chỗ trống</option>
+              <option value="matching">Nối ý / Ghép cột</option>
               <option value="essay">Tự luận / Trả lời mở</option>
             </select>
           </div>
@@ -121,6 +125,37 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
               </div>
             </div>
           )}
+
+          {(form.questionType === 'fill_blank' || form.questionType === 'matching') && (
+            <div className="space-y-3 rounded-xl border border-surface-border p-3">
+              <p className="text-xs text-text-muted">{form.questionType === 'fill_blank'
+                ? 'Đánh dấu ô trống bằng (1) ___, (2) ___ hoặc {{1}}, {{2}}. Đáp án: 1: từ đúng | cách viết khác; 2: từ đúng.'
+                : 'Nhập hai cột dưới nội dung: 1. Ý thứ nhất | A. Nội dung A, rồi xuống dòng 2. Ý thứ hai | B. Nội dung B. Đáp án: 1-B; 2-A.'}</p>
+              {form.questionType === 'fill_blank' && <div className="form-group">
+                <label className="form-label" htmlFor="qe-word-bank">Từ cho sẵn (tùy chọn)</label>
+                <input id="qe-word-bank" className="form-input min-h-11 w-full" value={form.wordBank} onChange={event => set('wordBank', event.target.value)} placeholder="Các từ cách nhau bằng dấu phẩy" />
+              </div>}
+              <div className="form-group">
+                <label className="form-label" htmlFor="qe-structured-answers">Đáp án từng ô / cặp ghép</label>
+                <textarea id="qe-structured-answers" className="form-input min-h-24 w-full" value={form.structuredAnswers} onChange={event => set('structuredAnswers', event.target.value)} />
+              </div>
+              <p className="text-xs text-text-muted">Các dạng này được chấm bằng nhập điểm. Có thể lưu nháp khi chưa nhập đủ đáp án; cần hoàn thiện trước khi gửi duyệt.</p>
+              {(() => {
+                const result = parseStructuredQuestion(form.stem, form.questionType, form.structuredAnswers)
+                return <><StructuredQuestionPreview question={{ index: 1, type: 'essay', responseFormat: form.questionType, question: result.question, answerData: result.answerData }} showAnswers />
+                  {result.warnings.map(warning => <p key={warning} className="text-xs text-parish-warning">{warning}</p>)}</>
+              })()}
+            </div>
+          )}
+          {form.questionType === 'essay' && <p className="text-xs text-text-muted">
+            Dùng a), b), 1.1 hoặc i), ii) cho các ý nhỏ trong cùng câu. Điểm từng ý ghi (0,5 điểm). Đã nhận diện {extractEssaySubparts(form.stem).length} ý nhỏ.
+          </p>}
+          {form.questionType === 'essay' && <div className="form-group">
+            <label className="form-label" htmlFor="qe-answer-lines">Số dòng trả lời</label>
+            <input id="qe-answer-lines" className="form-input w-full" type="number" min="0" max="100" step="1" placeholder="Tự động"
+              value={form.answerLineCount} onChange={event => set('answerLineCount', event.target.value)} />
+            <p className="text-xs text-text-muted">Để trống để tự động; 0 để không chừa dòng trên đề in.</p>
+          </div>}
 
           <div className="form-group">
             <label className="form-label" htmlFor="qe-explanation">

@@ -16,6 +16,7 @@ import {
 import { generateExamVariantManifest, type VariantQuestion } from './examVariantManifest.js'
 import { generateId } from '../utils/id.js'
 import { deriveQuestionBlockLabel } from '../utils/questionBlock.js'
+import { validateStructuredAnswer } from '../utils/structuredQuestion.js'
 import { resolveWritableAcademicYear } from './academicYearService.js'
 
 export const QUESTION_TYPES = ['multiple_choice', 'true_false', 'multiple_select', 'short_answer', 'fill_blank', 'matching', 'essay'] as const
@@ -127,14 +128,16 @@ function validateAnswerData(type: QuestionType, data: Record<string, unknown>): 
     if (typeof data.correct !== 'boolean') throw new QuestionBankError('True/False cần trường correct dạng boolean.')
     return
   }
-  if (type === 'short_answer' || type === 'fill_blank') {
+  if (type === 'fill_blank' || type === 'matching' || type === 'essay') {
+    const error = validateStructuredAnswer(type, data)
+    if (error) throw new QuestionBankError(error)
+    return
+  }
+  if (type === 'short_answer') {
     if (!Array.isArray(data.acceptedAnswers) || data.acceptedAnswers.length < 1 || data.acceptedAnswers.some(item => typeof item !== 'string' || !item.trim())) {
       throw new QuestionBankError('Câu trả lời ngắn/điền khuyết cần ít nhất một đáp án chấp nhận được.')
     }
     return
-  }
-  if (type === 'matching') {
-    if (!Array.isArray(data.pairs) || data.pairs.length < 2) throw new QuestionBankError('Câu nối cặp cần ít nhất hai cặp.')
   }
 }
 
@@ -188,28 +191,88 @@ async function knowledgeBlockMatchValues(
   return [...values]
 }
 
-export async function createQuestion(input: QuestionContentInput, userId: string, parishId: string) {
+async function insertDraftQuestion(tx: DbTransaction, input: QuestionContentInput, userId: string, parishId: string): Promise<string> {
   validateAnswerData(input.questionType, input.answerData)
   const id = generateId('QBI')
   const versionId = generateId('QBV')
   const now = new Date().toISOString()
   const meta = metadata(input)
   const contentHash = hash({ questionType: input.questionType, stem: input.stem.trim(), answerData: input.answerData, explanation: clean(input.explanation), metadata: meta })
-  await runDbTransaction(async tx => {
-    await assertBranchInParish(tx, parishId, input.branchId)
-    await tx.insert(questionBankItems).values({
-      id, parishId, status: 'draft', currentVersion: 1,
-      ...meta, tags: JSON.stringify(meta.tags), provenance: input.provenance ?? 'human',
-      createdBy: userId, createdAt: now, updatedAt: now,
-    })
-    await tx.insert(questionBankVersions).values({
-      id: versionId, parishId, questionId: id, version: 1, questionType: input.questionType,
-      stem: input.stem.trim(), answerData: JSON.stringify(input.answerData), explanation: clean(input.explanation),
-      metadataSnapshot: JSON.stringify(meta), changeNote: clean(input.changeNote), contentHash, createdBy: userId, createdAt: now,
-    })
-    await audit(tx, { userId, parishId, action: 'QUESTION_CREATE', entityType: 'question_bank_item', entityId: id, summary: { version: 1, questionType: input.questionType, contentHash, provenance: input.provenance ?? 'human' } })
+  await assertBranchInParish(tx, parishId, input.branchId)
+  await tx.insert(questionBankItems).values({
+    id, parishId, status: 'draft', currentVersion: 1,
+    ...meta, tags: JSON.stringify(meta.tags), provenance: input.provenance ?? 'human',
+    createdBy: userId, createdAt: now, updatedAt: now,
   })
+  await tx.insert(questionBankVersions).values({
+    id: versionId, parishId, questionId: id, version: 1, questionType: input.questionType,
+    stem: input.stem.trim(), answerData: JSON.stringify(input.answerData), explanation: clean(input.explanation),
+    metadataSnapshot: JSON.stringify(meta), changeNote: clean(input.changeNote), contentHash, createdBy: userId, createdAt: now,
+  })
+  await audit(tx, { userId, parishId, action: 'QUESTION_CREATE', entityType: 'question_bank_item', entityId: id, summary: { version: 1, questionType: input.questionType, contentHash, provenance: input.provenance ?? 'human' } })
+  return id
+}
+
+export async function createQuestion(input: QuestionContentInput, userId: string, parishId: string) {
+  const id = await runDbTransaction(tx => insertDraftQuestion(tx, input, userId, parishId))
   return getQuestion(id, parishId)
+}
+
+/** Content identity excludes placement, print settings, taxonomy and teacher notes. */
+function examQuestionIdentity(input: Pick<QuestionContentInput, 'questionType' | 'stem' | 'answerData'>): string {
+  const normalize = (value: unknown) => String(value ?? '').normalize('NFC').replace(/\s+/gu, ' ').trim()
+  const list = (value: unknown): Record<string, unknown>[] => Array.isArray(value) ? value : []
+  const strings = (value: unknown) => [...new Set(Array.isArray(value) ? value.map(normalize) : [])].sort()
+  const data = input.answerData
+  let answer: unknown = null
+  if (input.questionType === 'multiple_choice') {
+    const options = list(data.options)
+    answer = {
+      options: options.map(option => normalize(option.text)).sort(),
+      correct: options.filter(option => Array.isArray(data.correctOptionIds) && data.correctOptionIds.includes(option.id)).map(option => normalize(option.text)).sort(),
+    }
+  } else if (input.questionType === 'fill_blank') {
+    const blanks = data.blanks ?? [{ id: '1', acceptedAnswers: data.acceptedAnswers }]
+    answer = { blanks: list(blanks).map(blank => ({ id: normalize(blank.id), answers: strings(blank.acceptedAnswers) })).sort((a, b) => a.id.localeCompare(b.id)), wordBank: strings(data.wordBank) }
+  } else if (input.questionType === 'matching') {
+    const column = (value: unknown) => list(value).map(item => ({ id: normalize(item.id), text: normalize(item.text) })).sort((a, b) => a.id.localeCompare(b.id))
+    answer = { left: column(data.left), right: column(data.right), pairs: list(data.pairs).map(pair => [normalize(pair.leftId), normalize(pair.rightId)]).sort() }
+  }
+  return hash({ type: input.questionType, stem: normalize(input.stem), answer })
+}
+
+/** Called after the session insert acquires the write lock, in that same transaction. */
+export async function captureMissingExamQuestions(
+  tx: DbTransaction,
+  questions: (VariantQuestion & { isPlaceholder?: boolean })[],
+  context: { userId: string; parishId: string; classId: string; subject: string; sessionId: string; answerKey: Record<string, string> },
+): Promise<number> {
+  const candidates = questions.filter(question => !question.isPlaceholder)
+  if (!candidates.length) return 0
+  const [classRow] = await tx.select({ name: classes.name, branchId: classes.branchId }).from(classes).where(and(eq(classes.parishId, context.parishId), eq(classes.id, context.classId))).limit(1)
+  if (!classRow) throw new QuestionBankError('Lớp học không tồn tại.', 404, 'CLASS_NOT_FOUND')
+  const existing = await tx.select({ questionType: questionBankVersions.questionType, stem: questionBankVersions.stem, answerData: questionBankVersions.answerData })
+    .from(questionBankItems).innerJoin(questionBankVersions, and(
+      eq(questionBankVersions.parishId, questionBankItems.parishId), eq(questionBankVersions.questionId, questionBankItems.id), eq(questionBankVersions.version, questionBankItems.currentVersion),
+    )).where(eq(questionBankItems.parishId, context.parishId))
+  const identities = new Set(existing.map(row => examQuestionIdentity({ ...row, answerData: parseJson<Record<string, unknown>>(row.answerData) })))
+  let added = 0
+  for (const question of candidates) {
+    const questionType = question.type === 'essay' ? question.responseFormat ?? 'essay' : 'multiple_choice'
+    const answerData = questionType === 'multiple_choice'
+      ? { options: Object.entries(question.options ?? {}).map(([id, text]) => ({ id, text })), correctOptionIds: [context.answerKey[String(question.index)] ?? question.correctOption] }
+      : { ...question.answerData, ...(question.explanation ? { rubric: question.explanation } : {}), ...(questionType === 'essay' && question.answerLineCount !== undefined ? { answerLineCount: question.answerLineCount } : {}) }
+    const input: QuestionContentInput = { questionType, stem: question.question, answerData, explanation: question.explanation,
+      branchId: classRow.branchId, curriculumLevel: deriveQuestionBlockLabel(classRow.name), provenance: 'import',
+      source: `Đề thi: ${context.subject}`, changeNote: `Tự lưu từ đề ${context.sessionId}` }
+    validateAnswerData(questionType, answerData)
+    const identity = examQuestionIdentity(input)
+    if (identities.has(identity)) continue
+    await insertDraftQuestion(tx, input, context.userId, context.parishId)
+    identities.add(identity)
+    added++
+  }
+  return added
 }
 
 export async function importQuestions(
@@ -419,6 +482,13 @@ export async function transitionQuestion(id: string, action: keyof typeof transi
     if (!item) throw new QuestionBankError('Không tìm thấy câu hỏi.', 404, 'QUESTION_NOT_FOUND')
     if (action === 'submit' && actor.role !== 'admin' && item.createdBy !== actor.userId) throw new QuestionBankError('Bạn chỉ được gửi duyệt câu hỏi do mình tạo.', 403, 'FORBIDDEN')
     if (!transition.from.includes(item.status)) throw new QuestionBankError(`Không thể chuyển từ ${item.status} bằng hành động ${action}.`, 409, 'LIFECYCLE_CONFLICT')
+    if (action === 'submit' || action === 'approve' || action === 'activate') {
+      const [version] = await tx.select().from(questionBankVersions).where(and(eq(questionBankVersions.parishId, actor.parishId), eq(questionBankVersions.questionId, id), eq(questionBankVersions.version, item.currentVersion))).limit(1)
+      if (version && (version.questionType === 'fill_blank' || version.questionType === 'matching')) {
+        const error = validateStructuredAnswer(version.questionType, parseJson(version.answerData), true)
+        if (error) throw new QuestionBankError(error)
+      }
+    }
     const now = new Date().toISOString()
     await tx.update(questionBankItems).set({
       status: transition.to, updatedAt: now,
@@ -489,7 +559,17 @@ type VersionRow = { item: typeof questionBankItems.$inferSelect; version: typeof
 
 function toExamQuestion(row: VersionRow, index: number): VariantQuestion & { sourceQuestionId: string; sourceVersionId: string } {
   const answer = parseJson<Record<string, unknown>>(row.version.answerData)
-  if (row.version.questionType === 'essay') return { index, question: row.version.stem, type: 'essay', explanation: row.version.explanation ?? undefined, points: row.points, sourceQuestionId: row.item.id, sourceVersionId: row.version.id }
+  if (['essay', 'fill_blank', 'matching'].includes(row.version.questionType)) {
+    const format = row.version.questionType as 'essay' | 'fill_blank' | 'matching'
+    const error = validateStructuredAnswer(format, answer, true)
+    if (error) throw new QuestionBankError(error, 422, 'QUESTION_STRUCTURE_INVALID')
+    if (format === 'fill_blank' && !answer.blanks && Array.isArray(answer.acceptedAnswers)) answer.blanks = [{ id: '1', acceptedAnswers: answer.acceptedAnswers }]
+    const answerLineCount = answer.answerLineCount
+    delete answer.answerLineCount
+    return { index, question: row.version.stem, type: 'essay', ...(format !== 'essay' ? { responseFormat: format } : {}), answerData: answer,
+      ...(format === 'essay' && typeof answerLineCount === 'number' ? { answerLineCount } : {}),
+      explanation: row.version.explanation ?? undefined, points: row.points, sourceQuestionId: row.item.id, sourceVersionId: row.version.id }
+  }
   if (row.version.questionType !== 'multiple_choice') throw new QuestionBankError(`Smart Exam hiện chưa hỗ trợ loại ${row.version.questionType}; câu ${row.item.id} không được materialize.`, 422, 'QUESTION_TYPE_NOT_SUPPORTED')
   const options = answer.options
   const correct = answer.correctOptionIds
@@ -619,8 +699,8 @@ export async function buildExamFromBank(input: {
     blueprintSnapshot = { ...blueprint, generatedWithSeed: seed }
   }
   if (selected.length < 1 || selected.length > 50) throw new QuestionBankError('Đề phải có từ 1 đến 50 câu.')
-  const mcRows = selected.filter(row => row.version.questionType !== 'essay')
-  const essayRows = selected.filter(row => row.version.questionType === 'essay')
+  const mcRows = selected.filter(row => !['essay', 'fill_blank', 'matching'].includes(row.version.questionType))
+  const essayRows = selected.filter(row => ['essay', 'fill_blank', 'matching'].includes(row.version.questionType))
   const ordered = [...mcRows, ...essayRows]
   const questions = ordered.map((row, index) => toExamQuestion(row, index + 1))
   const questionCount = mcRows.length

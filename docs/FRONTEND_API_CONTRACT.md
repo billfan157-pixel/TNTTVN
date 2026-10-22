@@ -314,6 +314,8 @@ Client: `src/lib/pushManager.ts` (`initPushSubscription`/`disablePushSubscriptio
 
 | Method & Path | Purpose | Auth | Success `data` | Errors |
 | :--- | :--- | :--- | :--- | :--- |
+| `GET /api/notifications/liturgical-reminder` | Tùy chọn nhắc phụng vụ của chính tài khoản; chưa có trả mặc định tắt lúc 08:00 | auth, mọi role | `{ enabled: boolean, time: 'HH:mm', timeZone: 'Asia/Ho_Chi_Minh' }` | 401 khi chưa đăng nhập |
+| `PUT /api/notifications/liturgical-reminder` | Lưu riêng `{ enabled: boolean, time: 'HH:mm' }`; HH:mm hợp lệ 00:00–23:59, body strict, user/parish lấy từ JWT, settings + audit atomic | auth, mọi role | cùng cấu trúc GET | 400 giờ/body không hợp lệ; 403 khi không còn quyền tài khoản |
 | `GET /api/notifications/vapid-public-key` | VAPID public key để client `PushManager.subscribe` | auth (mọi role) | `{ publicKey: string \| null, configured: boolean }` — 200 ngay cả khi chưa cấu hình (`{ publicKey: null, configured:false }` để tránh browser log 501 spam; client skip debug, không lỗi) — legacy 501 `VAPID_NOT_CONFIGURED` vẫn được client bắt để tương thích deploy cũ |
 | `POST /api/notifications/subscribe` | Lưu PushSubscription (endpoint + p256dh + auth) | auth | `{ ok: true }` | — (idempotent, endpoint UNIQUE) |
 | `POST /api/notifications/unsubscribe` | Xóa subscription theo endpoint | auth | `{ ok: true }` | — |
@@ -321,6 +323,10 @@ Client: `src/lib/pushManager.ts` (`initPushSubscription`/`disablePushSubscriptio
 | `POST /api/notifications/native/unregister` | Xóa installation chỉ khi thuộc đúng user + parish hiện tại; delete + audit cùng transaction | auth | `{ ok: true }` | 400 validation |
 | `POST /api/notifications/send` | Fan-out ngay Web Push + FCM/APNs cho toàn giáo xứ; `url` bắt buộc là route nội bộ `/...` | admin | `{ configured,sent,failed,total,removed,skipped,channels }` | 501 `PUSH_PROVIDER_NOT_CONFIGURED` |
 | `GET /api/notifications/subscriptions` | Đếm binding theo giáo xứ, không trả endpoint/token | admin | `{ count, web, native }` | 401/403 |
+
+### Nhắc lịch phụng vụ cá nhân
+
+Daily liturgical reminders use the existing durable Web/Native Push queue and the shared pure calendar source. Only explicitly opted-in ACTIVE, undeleted accounts are candidates. The scheduler uses Vietnam local date/time, a same-day two-hour catch-up window and one deterministic outbox ID per user/parish/date; retries or preference changes do not create a second daily item. Worker batches are bounded with backlog continuation, and delivery rechecks current opt-in/date/time and active account authority, including after restart. Push title is `Lịch phụng vụ hôm nay`, body contains public calendar information only, and the internal link is `/calendar`. Provider acknowledgement is not proof of OS receipt. Calendar/Settings expose the personal toggle and default 08:00; device permission remains a separate user action. Failed/offline preference writes retain the draft and never claim a saved schedule; account switches discard old preference state and late responses.
 
 ### Smart notifications (`/api/notifications/smart/*` — F8 drift bổ sung)
 Kích hoạt tự động gửi thông báo theo sự kiện bằng Web/Native Push có chủ đích cho staff/phụ huynh. Tất cả dưới `use('/smart/*', roleMiddleware('admin','chunhiem'))`.
@@ -677,12 +683,18 @@ UI canonical (ADR-090, amendment 2026-09-02): desktop/mobile dùng một mục `
 
 ### Question Bank contract (QB-F1/F2/F3 — 2026-08-21)
 
+`POST /api/exams` atomically captures missing real questions as bank drafts in the caller's parish, with class-derived branch/khối and `provenance=import`. Content comparison spans current versions in every bank status and ignores placement, points, taxonomy, notes and print spacing. It normalizes Unicode/whitespace and compares question type/stem plus choice content/correct answer or structured answers. Retry and repeated papers do not duplicate matching content. Existing bank records are unchanged; the response shape stays the same. A session without `questions`, or a question marked `isPlaceholder: true` by an answer-key-only import, adds no bank content. `isPlaceholder`, when present, must be boolean. The client clears this marker when the prompt is replaced with actual content. Definition edits do not capture or revise bank records.
+
+True essay questions accept optional `answerLineCount: number` in create/edit definitions: integer 0–100, absent means automatic spacing and 0 means no writing lines. Values outside this range, fractions, strings/null, or use on A–D/fill/matching questions return 400. Bank essay create/revise/import store this setting under `answerData.answerLineCount`; bank builds project it onto session questions and immutable snapshots/manifests. Clearing the form omits the property. Excel import/export maps the optional `Số dòng trả lời` column. Print-preview overrides are local presentation settings, including for Word/Excel exports, and never change the stored definition.
+
+Structured ExamQuestion fields are additive: manual questions may include `responseFormat: 'fill_blank'|'matching'` with `type: 'essay'` and `answerData`. Fill data is `{blanks: [{id, acceptedAnswers: string[]}], wordBank?: string[]}`; matching data is `{left: [{id,text}], right: [{id,text}], pairs: [{leftId,rightId}]}`; essay parts use `{subparts: [{label,text,points?}]}`. The server rejects duplicate blank/column IDs, invalid pair references and OMR/manual ambiguity. Existing bank fill records with `acceptedAnswers` remain readable; new authoring uses per-gap answers. Bank create/import/revise may save incomplete answer lists as drafts; submit/approve/activate require complete keys. Bank build supports these formats through the existing manual channel and snapshots all structured content. `essayScore` includes all manual questions in mixed exams; no new result endpoint or scoring field is introduced. Whole-paper import is available for written, OMR and mixed sessions; only A–D questions enter `questionCount` and `answerKey`. Text/Word/Excel previews and output retain columns and subparts; student output with answer keys disabled omits accepted answers and pair mappings.
+
 | Endpoint | Thay đổi | Lỗi/Response mới |
 | :--- | :--- | :--- |
-| `POST /api/exams` — `questions` | Bắt buộc mảng JSON 1–50 ExamQuestion hợp lệ: `index` 1..50 (integer), `question` string 1..2000, `options.{A,B,C,D}` string ≤500, `correctOption` ∈ A/B/C/D; chuỗi ≤200KB | 400 validation kèm message chỉ câu/index lỗi |
+| `POST /api/exams` — `questions` | Nếu có, phải là mảng JSON 1–50 ExamQuestion: `index` 1..50 (integer), `question` string 1..2000, chuỗi ≤200KB. Câu chọn A–D cần `options.{A,B,C,D}` string ≤500 và `correctOption` ∈ A/B/C/D; câu chấm tay không mang hai trường này, cấu trúc mới theo mô tả trên | 400 validation kèm message chỉ câu/index lỗi |
 | `PATCH /api/exams/:id/answer-key` | Sau khi đổi key, server **tự sync** `questions[].correctOption` theo key mã A mới (câu nào có trong key); questions hỏng → bỏ qua silently | Response shape không đổi |
 
-Client import Excel (`examParser.parseExamFromExcel`): ô đáp án trống/không hợp lệ → mặc định `A` + warning hiển thị trong preview import (không còn suy đoán từ nội dung phương án).
+Client import Excel (`examParser.parseExamFromExcel`), chỉ với câu chọn A–D: ô đáp án trống/không hợp lệ → mặc định `A` + warning hiển thị trong preview import (không còn suy đoán từ nội dung phương án). Điền tự viết/ghép cột giữ đáp án thiếu và cảnh báo, không gán key A–D.
 
 ## 17. CSP VIOLATION REPORT (`POST /api/csp-report`) — OBS-1 (2026-08-24)
 

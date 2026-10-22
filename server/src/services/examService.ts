@@ -10,6 +10,7 @@ import { getActiveAcademicYearId, resolveWritableAcademicYear } from './academic
 import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './classAccessQueryService.js'
 import type { ActorRole } from '../types/actor.js'
 import { assertCreateReplayMatches, createIntentHash, normalizeJsonCreateField, readCreateIntentHash } from './createIdempotency.js'
+import { captureMissingExamQuestions } from './questionBankService.js'
 
 async function assertExamWriter(tx: DbExecutor, userId: string, parishId: string, classId: string,
   expected?: AcademicWriteExpectation, roles: readonly ActorRole[] = ['admin', 'chunhiem', 'phuta']) {
@@ -535,13 +536,17 @@ export async function createExamSession(data: ExamSessionData, userId: string, p
       const canonicalYear = await resolveWritableAcademicYear(parishId, explicitYear, tx, data.classId)
       const nextRow = { ...row, academicYear: canonicalYear }
       await tx.insert(examSessions).values(nextRow)
+      const bankQuestionsAdded = await captureMissingExamQuestions(tx, data.questions ? JSON.parse(data.questions) : [], {
+        userId, parishId, classId: data.classId, subject: data.subject, sessionId: id,
+        answerKey: data.answerKey ? JSON.parse(data.answerKey) : {},
+      })
       await audit(tx as DbTransaction, {
         userId, parishId, ip, userAgent,
         action: 'EXAM_CREATE',
         entityType: 'exam_session',
         entityId: id,
         oldValue: null,
-        newValue: JSON.stringify({ ...nextRow, createIntentHash: createIntentHash(requestedIntent) }),
+        newValue: JSON.stringify({ ...nextRow, bankQuestionsAdded, createIntentHash: createIntentHash(requestedIntent) }),
       })
       return nextRow
     })

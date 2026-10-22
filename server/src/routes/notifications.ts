@@ -13,11 +13,25 @@ import { generateId } from '../utils/id.js'
 import { getClientIp } from '../utils/ip.js'
 import { successResponse, errorResponse } from '../utils/response.js'
 import { isValidIsoDate } from '../utils/date.js'
+import { getLiturgicalReminderPreferences, saveLiturgicalReminderPreferences, LiturgicalReminderError } from '../services/liturgicalReminderService.js'
 
 const notificationsRouter = new Hono()
 
 notificationsRouter.use('*', authMiddleware)
 notificationsRouter.use('/smart/*', roleMiddleware('admin', 'chunhiem'))
+
+notificationsRouter.get('/liturgical-reminder', async c => {
+  const user = c.get('user') as JwtPayload
+  return successResponse(c, await getLiturgicalReminderPreferences(user.parishId, user.userId))
+})
+notificationsRouter.put('/liturgical-reminder', zValidator('json', z.object({ enabled: z.boolean(), time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/) }).strict()), async c => {
+  const user = c.get('user') as JwtPayload
+  try { return successResponse(c, await saveLiturgicalReminderPreferences(user.parishId, user.userId, c.req.valid('json'))) }
+  catch (error) {
+    if (error instanceof LiturgicalReminderError) return errorResponse(c, 'LITURGICAL_REMINDER_INVALID', error.message, error.status as 400 | 403)
+    throw error
+  }
+})
 
 const subscribeSchema = z.object({
   endpoint: z.string().trim().min(1),

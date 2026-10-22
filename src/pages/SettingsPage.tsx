@@ -19,6 +19,7 @@ import { BackupRestoreModal } from '../components/common/BackupRestoreModal'
 import { PurgeDataModal } from '../components/common/PurgeDataModal'
 import { BiometricLockSettings } from '../components/auth/BiometricLockSettings'
 import { NativePushSettings } from '../components/auth/NativePushSettings'
+import { LiturgicalReminderSettings } from '../components/common/LiturgicalReminderSettings'
 import { useSettingsStore } from '../stores/settingsStore'
 
 const ROLE_LABELS: Record<string, string> = {
@@ -234,6 +235,7 @@ const SettingsPage: React.FC = () => {
 
           <BiometricLockSettings />
           <NativePushSettings />
+          <LiturgicalReminderSettings />
         </div>
 
         {/* ─── CỘT PHẢI: giao diện & tiện ích ─── */}

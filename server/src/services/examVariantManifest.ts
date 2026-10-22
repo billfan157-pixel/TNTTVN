@@ -11,10 +11,14 @@ export interface VariantQuestion {
   index: number
   question: string
   type?: 'multiple_choice' | 'essay'
+  responseFormat?: 'fill_blank' | 'matching'
+  answerData?: Record<string, unknown>
   options?: Record<OptionCode, string>
   correctOption?: OptionCode
   explanation?: string
   points?: number
+  answerLineCount?: number
+  isPlaceholder?: boolean
   /** Immutable Question Bank provenance. Legacy/imported questions omit these. */
   sourceQuestionId?: string
   sourceVersionId?: string

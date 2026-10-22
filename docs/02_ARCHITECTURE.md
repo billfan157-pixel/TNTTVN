@@ -26,8 +26,8 @@ Bulk transfer of students across classes within the same academic year is perfor
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 26 source page modules                                    │
-│  Components: 164 (audit: 5, auth: 5, common: 34,                  │
-│  desktop: 24, exam: 15, finance: 4, landing: 11, mobile: 18,      │
+│  Components: 166 (audit: 5, auth: 5, common: 35,                  │
+│  desktop: 24, exam: 16, finance: 4, landing: 11, mobile: 18,      │
 │  operations: 30, parish: 13, ui: 5)                               │
 │  Router: TanStack Router (27 policy paths, 6 public + 21 protected)│
 │  State: 26 Zustand stores (12 persist, 14 in-memory)               │
@@ -44,8 +44,8 @@ Bulk transfer of students across classes within the same academic year is perfor
 │  Auth: JWT (access 15m, refresh 7d), bcrypt, RBAC enforced       │
 │  Routes: 32 route modules under server/src/routes/                │
 │  Repositories: 6 (2 projection read models + 4 Drizzle write)    │
-│  Services: 60 under server/src/services/                          │
-│  Domain: 13 under server/src/domain/                              │
+│  Services: 61 under server/src/services/                          │
+│  Domain: 16 under server/src/domain/                              │
 │  Middleware: 4 (auth, security, logger, metrics)                  │
 │  DB: SQLite/Turso via @libsql/client, Drizzle ORM (76 tables)    │
 │     (WAL mode local; TURSO_URL → managed libSQL, ADR-041)        │
@@ -117,6 +117,10 @@ Bulk transfer of students across classes within the same academic year is perfor
 
 ## 2. Layer Boundaries & Dependency Rules
 
+Liturgical calculation is shared as pure domain modules (`server/src/domain/liturgicalEngine.ts`, `liturgicalCalendar.ts`, `liturgicalTypes.ts`). Existing frontend utils/constants/types entrypoints re-export these pure modules; they do not import backend persistence, HTTP, providers or Node APIs. Browser calculation remains offline and unchanged. The Tailwind entrypoint explicitly scans the shared liturgical color map to retain generated color utilities. `liturgicalReminderService` owns per-account opt-in settings and the deterministic daily notification producer. The personal preference API binds user/parish from JWT and writes settings plus audit atomically. Due production rechecks active ownership/opt-in in a transaction and inserts into the existing durable notification outbox; no second delivery system or schema migration is introduced.
+
+A minute-cadence liturgical maintenance job runs under the existing Node/Cloudflare maintenance-owner gate and participates in shutdown/pause/recovery. Vietnam time is explicit regardless of host timezone. Cloudflare batches at most five due users, excludes existing daily outbox rows and immediately continues a backlog. The shared delivery worker revalidates current preference/date/time before provider dispatch and opens `/calendar`; reminders cannot target a parish-wide audience. Delivery retains the queue's existing at-least-once semantics. `LiturgicalReminderSettings` is reused by both calendar layouts and personal Settings, with account-bound state and no durable offline preference writes.
+
 | Layer | Can Import From | Cannot Import From |
 | :--- | :--- | :--- |
 | `pages/` | `components/`, `stores/`, `hooks/`, `utils/`, `lib/` | `server/` |
@@ -179,9 +183,13 @@ For the historical consolidated ADR log, see [`docs/ADR_ARCHITECTURE_DECISION_RE
 
 ## 6. Question Bank to Smart Exam Boundary (ADR-096)
 
+Structured response data is additive JSON inside the existing immutable question versions, exam definitions, snapshots and variant manifests. Bank `fill_blank` and `matching` materialize into the existing manual grading channel (`type=essay`) with an explicit `responseFormat` and structured `answerData`; essay subparts remain in one parent question. The server validates column IDs, pair references, blank IDs and subpart values; incomplete structured answers may remain drafts but cannot enter review/approval/activation. Only A–D questions contribute to the OMR count/key; manual points retain existing server authority. A shared preview renders these formats in authoring, imports and paper previews. No table migration, new scoring writer or sync entity is added.
+
 `QuestionBankView → /api/question-bank → questionBankService` is the authoring and blueprint path. The service owns lifecycle, immutable versions, tenant scope, deterministic selection and one transaction that checks class assignment, reads active/current bank versions and materializes a normal `exam_sessions` record. Build commands carry a client-stable `buildCommandId`; the service derives a stable seed when absent and persists a canonical request hash with the session, so response-loss retry returns the same materialization while key reuse with different input conflicts. Every create/revise/import/blueprint path validates optional `branch_id` against the same tenant inside its write transaction. `examQuestionSnapshots` binds every session position to the exact bank version and content hash; grading, variants, OMR and finalization continue through existing Exam services.
 
-The dependency direction is one-way: Question Bank may create an Exam, but an Exam never reads mutable current bank content while rendering or scoring. Blueprint shortage and unsupported materialization types fail before session insert. Authoring/build are online-only; no new client sync entity or second scoring authority is introduced.
+Question Bank may build an Exam; ordinary Exam creation also captures missing real questions into bank drafts through the bank service's shared draft writer. The session insert acquires the write lock before reading current tenant bank versions and comparing normalized content; session, new items/versions and audits commit together. Replay returns the existing session without repeating capture. Captured drafts inherit class branch/khối and retain the bank review lifecycle; existing bank versions are never overwritten. Exams render and score their own persisted definitions/manifests, without reading mutable current bank content. Blueprint shortage and unsupported materialization types fail before session insert. Explicit bank authoring/build remain online-only; ordinary offline session creation captures questions when its existing queue commits on the server. No new sync entity or scoring authority is introduced.
+
+Essay writing space is an additive JSON setting: bank versions store optional `answerData.answerLineCount`, projected to `ExamQuestion.answerLineCount` and copied into snapshots/manifests. The renderer honors integer 0–100 or uses the existing automatic estimate. Presentation overrides are applied after resolving each variant for preview/print/Word/Excel and never mutate saved manifests or grading state. No schema migration is required.
 
 Branch/khối selection reuses the existing class catalog without coupling reusable content to a year-specific roster row: the bank UI derives khối options (e.g. "Thiếu Nhi 1" grouping lớp 1A/1B) from the catalog and persists `branch_id + curriculum_level` as the khối label. Filters and blueprint selection expand a requested khối to the member class names, so legacy items tagged per lớp (`Thiếu Nhi 1A/1B`) keep matching without re-import; only the Exam build tab selects a concrete lớp for OMR. Direct `.xlsx|.xls|.csv|.docx` imports are parsed and previewed client-side; only normalized question JSON crosses the API boundary. `POST /questions/import` validates the whole batch and tenant branch references, then writes draft items, immutable versions and audit metadata in one database transaction.
 

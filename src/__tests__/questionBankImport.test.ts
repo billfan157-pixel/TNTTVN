@@ -59,7 +59,7 @@ describe('Question Bank document import', () => {
     const [item] = toQuestionBankImportItems(result, { branchId: 'branch-thieu', curriculumLevel: 'Thiếu Nhi 1', difficulty: 'understanding' })
     expect(item.questionType).toBe('essay')
     expect(item.stem).toBe('Trình bày:\na) Ý nghĩa.\nb) Liên hệ.')
-    expect(item.answerData).toEqual({ rubric: 'a) Đúng khái niệm.\nb) Có ví dụ.' })
+    expect(item.answerData).toEqual({ rubric: 'a) Đúng khái niệm.\nb) Có ví dụ.', subparts: [{ label: 'a)', text: 'Ý nghĩa.' }, { label: 'b)', text: 'Liên hệ.' }] })
     expect(item.explanation).toBe('a) Đúng khái niệm.\nb) Có ví dụ.')
   })
 

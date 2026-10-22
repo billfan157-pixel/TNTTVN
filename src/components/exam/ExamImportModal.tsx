@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import {
-  X, Upload, FileText,  AlertTriangle,
+  Upload, FileText,  AlertTriangle,
   Download, Eye, Sparkles, HelpCircle, Check, ListChecks
 } from 'lucide-react'
 import {
@@ -15,8 +15,9 @@ import {
   type ExamImportScope,
 } from '../../utils/examParser'
 import type { ExamQuestion, MultipleChoiceOption } from '../../types'
-import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
-import { ModalPortal } from '../common/ModalPortal'
+import { questionFormatLabel, questionFormatSummary } from '../../utils/structuredQuestions'
+import { StructuredQuestionPreview } from './StructuredQuestionPreview'
+import { ModalShell } from '../common/ModalShell'
 
 interface ExamImportModalProps {
   isOpen: boolean
@@ -45,7 +46,7 @@ const SCOPE_META: Record<ExamImportScope, { title: string; subtitle: string }> =
   },
   multiple_choice: {
     title: 'Import Phần Trắc Nghiệm',
-    subtitle: 'Chỉ nhận câu hỏi A/B/C/D + đáp án (dán Word/Text hoặc Excel) — phần tự luận (nếu có) sẽ được bỏ qua',
+    subtitle: 'Nhận câu A–D, điền khuyết và nối / ghép cột. Điền tự viết và ghép cột được chấm bằng nhập điểm.',
   },
   essay: {
     title: 'Import Phần Tự Luận',
@@ -54,7 +55,6 @@ const SCOPE_META: Record<ExamImportScope, { title: string; subtitle: string }> =
 }
 
 export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport, scope = 'both' }) => {
-  const { dialogRef: trapRef } = useAccessibleDialog(isOpen, onClose)
   const [activeTab, setActiveTab] = useState<'text' | 'file'>('text')
   const [rawText, setRawText] = useState('')
   const [previewResult, setPreviewResult] = useState<ExamParseResult | null>(null)
@@ -74,9 +74,9 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
 
     // Tự động nhận diện môn học nếu dòng đầu tiên có chữ "ĐỀ KIỂM TRA..."
     const firstLine = textToParse.trim().split('\n')[0] || ''
-    if (firstLine.length > 5 && firstLine.length < 80 && !firstLine.toLowerCase().startsWith('câu')) {
+    if (firstLine.length > 5 && firstLine.length < 80 && /^(?:đề|bài)\s*(?:kiểm\s*tra|thi)\b/iu.test(firstLine)) {
       setDetectedSubject(firstLine.replace(/^[#*_\-\s]+/, '').trim())
-    }
+    } else setDetectedSubject('')
   }
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -164,29 +164,19 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
   }
 
   return (
-    <ModalPortal>
-    <div role="dialog" aria-modal="true" aria-labelledby="exam-import-title" className="app-modal-layer--nested fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={onClose}>
-      <div ref={trapRef} className="bg-surface-card rounded-2xl p-6 w-full max-w-4xl shadow-2xl max-h-[92vh] flex flex-col border border-surface-border" onClick={e => e.stopPropagation()}>
-        
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-surface-border pb-4 mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-parish-primary-light text-parish-primary flex items-center justify-center font-bold">
-              <Sparkles size={20} />
-            </div>
-            <div>
-              <h3 id="exam-import-title" className="font-black text-lg text-parish-primary m-0">{SCOPE_META[scope].title}</h3>
-              <p className="text-xs text-text-muted m-0 mt-0.5">{SCOPE_META[scope].subtitle}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-xl text-text-muted hover:text-text-main hover:bg-surface-hover transition-colors">
-            <X size={20} />
-          </button>
+    <ModalShell isOpen={isOpen} onClose={onClose} title={SCOPE_META[scope].title}
+      subtitle={SCOPE_META[scope].subtitle} icon={<Sparkles size={20} />} maxWidth="980px"
+      footer={<div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs text-text-muted">{previewResult?.ok ? `${previewResult.questionCount} câu sẵn sàng áp dụng` : 'Kiểm tra nội dung trước khi áp dụng'}</span>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onClose} className="btn btn-secondary">Hủy</button>
+          <button type="button" onClick={handleApply} disabled={!previewResult?.ok || !previewResult.questions.length} className="btn btn-primary"><Check size={14} /> Áp Dụng Vào Phiên Chấm</button>
         </div>
+      </div>}>
 
         {/* Mode Selector Tabs */}
-        <div className="flex items-center justify-between gap-3 mb-4">
-          <div className="flex bg-surface-hover p-1 rounded-xl border border-surface-border">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div className="flex flex-wrap bg-surface-hover p-1 rounded-xl border border-surface-border">
             <button
               type="button"
               onClick={() => setActiveTab('text')}
@@ -230,7 +220,8 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
         </div>
 
         {/* Content Body */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0 overflow-hidden">
+        <p className="text-xs text-text-muted">Điền khuyết: dùng (1) ___ hoặc {'{{1}}'}; đáp án 1: từ đúng. Ghép cột: mỗi hàng “1. Ý trái | A. Ý phải”; đáp án 1-B; 2-A. Ý nhỏ tự luận: a), b), 1.1 hoặc i), ii).</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 min-w-0">
           
           {/* Input Panel */}
           <div className="flex flex-col gap-2 min-h-0">
@@ -250,7 +241,8 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                         ? `Dán PHẦN TRẮC NGHIỆM tại đây...\n\nVí dụ:\nPHẦN I. TRẮC NGHIỆM (3 điểm)\nCâu 1: Bí tích Thánh Thể là gì?\nA. Là bí tích tình yêu\n*B. Là của ăn đàng\nC. Là dấu chỉ hiệp thông\nD. Tất cả đều đúng`
                         : `Dán đề thi tại đây...\n\nVí dụ đề KẾT HỢP:\nPHẦN I. TRẮC NGHIỆM (3 điểm)\nCâu 1: Bí tích Thánh Thể là gì?\nA. Là bí tích tình yêu\n*B. Là của ăn đàng\nC. Là dấu chỉ hiệp thông\nD. Tất cả đều đúng\n\nPHẦN II. TỰ LUẬN (7 điểm)\nCâu 5 (4 điểm): Trình bày ý nghĩa của Bí tích Thánh Thể...`
                   }
-                  className="w-full flex-1 p-3 bg-surface-app border border-surface-border rounded-xl font-mono text-xs text-text-main resize-none focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
+                  aria-label="Nội dung đề thi"
+                  className="w-full min-h-56 lg:min-h-96 p-3 bg-surface-app border border-surface-border rounded-xl font-mono text-xs text-text-main resize-y focus:outline-hidden focus:ring-2 focus:ring-parish-primary"
                 />
               </>
             ) : (
@@ -285,11 +277,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
               </span>
             {previewResult && previewResult.ok && (
               <span className="text-xs font-extrabold text-emerald-600 px-2 py-0.5 bg-emerald-500/10 rounded-full">
-                {scope === 'essay'
-                  ? `${previewResult.essayQuestionCount} câu TL · ${previewResult.totalPoints}đ`
-                  : scope === 'multiple_choice'
-                    ? `${previewResult.mcQuestionCount} câu TN · ${previewResult.totalPoints}đ`
-                    : `${previewResult.mcQuestionCount} câu TN${previewResult.essayQuestionCount > 0 ? ` + ${previewResult.essayQuestionCount} câu TL` : ''} · ${previewResult.totalPoints}đ`}
+                {previewResult.questions.length} câu · {previewResult.totalPoints}đ
               </span>
             )}
             </div>
@@ -298,7 +286,7 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
               <div role="status" aria-live="polite" className="text-[11px] text-text-muted">
                 Hệ thống nhận diện nội dung là{' '}
                 <strong className="text-text-main">
-                  {previewResult.detectedForm === 'multiple_choice' ? 'trắc nghiệm' : previewResult.detectedForm === 'essay' ? 'tự luận' : 'đề kết hợp'}
+                  {questionFormatSummary(previewResult.questions) || (previewResult.detectedForm === 'multiple_choice' ? 'trắc nghiệm' : previewResult.detectedForm === 'essay' ? 'tự luận' : 'đề kết hợp')}
                 </strong>
                 {scope !== 'both' && ` · Đang nạp phạm vi ${scope === 'essay' ? 'tự luận' : 'trắc nghiệm'}`}
               </div>
@@ -334,9 +322,9 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                         <strong className="text-parish-primary font-black text-xs">{q.correctOption}</strong>
                       </div>
                     ))}
-                    {scope === 'both' && previewResult.essayQuestionCount > 0 && (
+                    {previewResult.essayQuestionCount > 0 && (
                       <div className="p-1 rounded bg-violet-500/10 border border-violet-500/40 text-[10px] text-violet-600 dark:text-violet-300 font-bold col-span-full">
-                        + {previewResult.essayQuestionCount} câu tự luận ({previewResult.essayPoints}đ) — chấm bằng nhập tay
+                        + {previewResult.essayQuestionCount} câu chấm tay ({previewResult.essayPoints}đ) — điền khuyết, ghép cột hoặc tự luận
                       </div>
                     )}
                   </div>
@@ -353,10 +341,11 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
                       <span className="whitespace-pre-line">{q.question}</span>
                       {(q.type ?? 'multiple_choice') === 'essay' && (
                         <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-600 dark:text-violet-300 text-[10px] font-black border border-violet-500/30">
-                          TỰ LUẬN{q.points !== undefined ? ` · ${q.points}đ` : ''}
+                          {questionFormatLabel(q)}{q.points !== undefined ? ` · ${q.points}đ` : ''}
                         </span>
                       )}
                     </div>
+                    <StructuredQuestionPreview question={q} showAnswers />
                     {(q.type ?? 'multiple_choice') === 'multiple_choice' && qOptions && (
                       <div className="grid grid-cols-2 gap-1.5 pl-3">
                         {(['A', 'B', 'C', 'D'] as const).map(opt => (
@@ -387,31 +376,6 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-surface-border pt-4 mt-4">
-          <div className="flex items-center gap-2 text-xs text-text-muted">
-            {previewResult?.ok && (
-              <span>Sẵn sàng áp dụng cho <strong>{previewResult.questionCount} câu hỏi</strong></span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={onClose} className="btn btn-secondary btn-sm">
-              Hủy
-            </button>
-            <button
-              type="button"
-              onClick={handleApply}
-              disabled={!previewResult || !previewResult.ok || previewResult.questions.length === 0}
-              className="btn btn-primary btn-sm flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Check size={14} /> Áp Dụng Vào Phiên Chấm
-            </button>
-          </div>
-        </div>
-
-      </div>
-    </div>
-    </ModalPortal>
+    </ModalShell>
   )
 }

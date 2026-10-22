@@ -1,6 +1,7 @@
 import { generateExamQrSvg, generateExamQrDataUrl, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
 import { PARISH_LOGO_DATA_URI } from './parishLogo'
 import type { ExamVersionCode } from '../types'
+import { printableQuestionPrompt, structuredQuestionText } from './structuredQuestions'
 import { getExamVersionNumericAlias } from '../lib/examVariants'
 import { generateBarcodeSvg, getBarcodeViewBoxWidth } from '../lib/barcode'
 import {
@@ -908,7 +909,8 @@ export function getExamPaperStyles(): string {
  * thường cần nhắc lại/giải thích nhiều hơn nên mỗi 120 ký tự tăng thêm một
  * dòng. Mỗi ý thêm sau ý đầu được chừa thêm 3 dòng, kể cả vượt 8 dòng.
  */
-export function getEssayAnswerLineCount(question: Pick<ExamQuestion, 'question' | 'points'>): number {
+export function getEssayAnswerLineCount(question: Pick<ExamQuestion, 'question' | 'points' | 'answerLineCount'>): number {
+  if (typeof question.answerLineCount === 'number' && Number.isInteger(question.answerLineCount) && question.answerLineCount >= 0 && question.answerLineCount <= 100) return question.answerLineCount
   const pointLines = Math.ceil(question.points ?? 1) + 2
   const contentLines = Math.floor((question.question?.trim().length ?? 0) / 120)
   const extraParts = Math.max(0, countEssaySubparts(question.question) - 1)
@@ -949,6 +951,15 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
     if (q.type === 'essay') {
       const lineCount = getEssayAnswerLineCount(q)
       const isFirstEssay = questionPosition === mcQuestions.length
+      if (q.responseFormat) {
+        const data = q.answerData
+        const table = q.responseFormat === 'matching' && data?.left && data.right
+          ? `<table style="width:100%;table-layout:fixed;border-collapse:collapse"><thead><tr><th style="border:1px solid #999;padding:5px">Cột A</th><th style="border:1px solid #999;padding:5px">Cột B</th></tr></thead><tbody>${Array.from({ length: Math.max(data.left.length, data.right.length) }, (_, i) => `<tr>${[data.left?.[i], data.right?.[i]].map(item => `<td style="border:1px solid #999;padding:5px;vertical-align:top;overflow-wrap:anywhere">${item ? `${escapeHtml(item.id)}. ${escapeHtml(item.text)}` : ''}</td>`).join('')}</tr>`).join('')}</tbody></table><p>Trả lời: ${data.left.map(item => `${escapeHtml(item.id)} – ……`).join('; ')}</p>` : ''
+        const key = showAnswerKey ? structuredQuestionText(q, true).split('\n').filter(line => line.startsWith('Đáp án:')).map(line => `<p class="answer-key">${escapeHtml(line)}</p>`).join('') : ''
+        return `<div class="question-block structured-question-block" data-response-format="${q.responseFormat}">
+          <div class="question-title"><strong>Câu ${q.index} (${q.responseFormat === 'fill_blank' ? 'Điền khuyết' : 'Nối / ghép cột'}):</strong> ${escapeHtml(printableQuestionPrompt(q)).replace(/\r?\n/g, '<br>')}${q.points !== undefined ? ` <em>(${q.points} điểm)</em>` : ''}</div>
+          ${data?.wordBank?.length ? `<p>Từ cho sẵn: ${escapeHtml(data.wordBank.join(' · '))}</p>` : ''}${table}${key}</div>`
+      }
       return `
       ${isFirstEssay ? `<div class="essay-section-title">PHẦN ${mcQuestions.length > 0 ? 'II' : 'I'}. TỰ LUẬN</div>` : ''}
       <div class="question-block essay-question-block${lineCount > 8 ? ' essay-question-block--long' : ''}" data-essay-answer-lines="${lineCount}">

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseExamFromDocx } from '../../utils/examParser'
 import { parseQuestionBankFile, toQuestionBankImportItems } from '../../utils/questionBankImport'
+import JSZip from 'jszip'
 
 // Use the actual browser adapter selected by Vite: Node Mammoth accepts Buffer,
 // whereas production consumes File.arrayBuffer(). No extraction output is mocked.
@@ -11,6 +12,22 @@ vi.mock('mammoth', async () => ({ default: await vi.importActual<typeof import('
 const docx = Uint8Array.from(Buffer.from('UEsDBBQAAAAIABV0Sl0cQqjhkQAAAO4AAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbHXPMQ7CMAwF0KtUWVHrioEBtV2AG3CBKLhtROJYsUHh9qilE4LZ//8nd9cXo1QlBpLezKp8BBA3Y7TSJEYqMYwpR6vSpDwBW3e3E8K+bQ/gEimS1rpsmKE742gfQatLUSTxiXqTMYipTp/gYvXGMgfvrPpE8KTbl1JvQpMxrBmZPcuuxGDgp7Bc/gNbD9Y3hzdQSwMEFAAAAAgAFXRKXWF7L0OKAAAA8gAAAAsAAABfcmVscy8ucmVsc43PMQ4CIRAF0KuQOcDOamFhgMpmW7MXIDC7EIEhgHG9vY3Faixsf37ez5dXiqYHzs2H0sSWYm4KfO/ljNisp2TawIXyluLCNZneBq4rFmNvZiU8juMJ694ALfemmJyCOrkDiPlZ6B+blyVYurC9J8r9x8RXA8Rs6kpdwYOrQ/eOhy1FQC3x46J+AVBLAwQUAAAACAAVdEpdDw4UI4oAAADpAAAAHAAAAHdvcmQvX3JlbHMvZG9jdW1lbnQueG1sLnJlbHONzzsOwjAQRdGtWLOATKCgQHEqmrQoGzDO+CM8tmU7ktk9HQoSBe0rztOd7hRU8ylW53MVnUOsElxr+YpYtSNWdUiZYudgUmHV6pCKxaz0U1nC8zhesBwNmKejKZZNQlm2E4j1lekfOxnjNd2S3pli+3GBcecHFR8tiFUVS03CZxo6B8B5wq+y+Q1QSwMEFAAAAAgAFXRKXQPS0oIaAQAAuQIAABEAAAB3b3JkL2RvY3VtZW50LnhtbK2Sv07DMBDGX+WUqSxxghBDlIaBBaQq6lAeIP+ILcV25DhNOzMwIt4AFQmJqgNzIsTgvojfpHLSwsIUWH5nnf3dfdad33gpT2qaMQkrWrDKa6YWlrL0EKoSnNGosnmZsRUt7rmgkaxsLnLUcJGWgidZVRGW0wKdO84lohFhVuA3XszTtYmlgTCQwfxGt28hLHT3AbM73e5CmFzA/pno7oGe+ci8MRQ9e+WAeV+A1XQ4kGJZQOMto2JqORY63t2mp5xrcuhbYGoNwqOPhVA7hiFWL2tvXFd3RNdQbWtQn8ByvH+PbJi4f/y6O8LEjKgtA6y7R4h1+8pAYrVh/2BmzByu1aY2Xp4ISKLbrxIkzvjVLwbQaaHQz7IGB1BLAwQUAAAACAAVdEpdLbAt2K8AAAA6AQAAEgAAAHdvcmQvbnVtYmVyaW5nLnhtbG2QTQrDIBCFryIeINouupAky0Kh9A7G2ESY0TCamOOX/EFTuplhHu97PKbMyo/YWHK+YzOCjypXvE9pUEJE01vUsQiD9TPCOxDqFItAnciB2oGCsTE63yGIq5Q3gdp5XpdZ6SYm0ia9RmSn69FWXK4WmIBl5WCCQ/Ej3jGxrCYNFW+tcaiBi7oUq/sXuvyBIGRLT5uSpW9QnDrsGFvnUmhLOrU8AuUe4xds29uz6g9QSwECFAAUAAAACAAVdEpdHEKo4ZEAAADuAAAAEwAAAAAAAAAAAAAAgAEAAAAAW0NvbnRlbnRfVHlwZXNdLnhtbFBLAQIUABQAAAAIABV0Sl1hey9DigAAAPIAAAALAAAAAAAAAAAAAACAAcIAAABfcmVscy8ucmVsc1BLAQIUABQAAAAIABV0Sl0PDhQjigAAAOkAAAAcAAAAAAAAAAAAAACAAXUBAAB3b3JkL19yZWxzL2RvY3VtZW50LnhtbC5yZWxzUEsBAhQAFAAAAAgAFXRKXQPS0oIaAQAAuQIAABEAAAAAAAAAAAAAAIABOQIAAHdvcmQvZG9jdW1lbnQueG1sUEsBAhQAFAAAAAgAFXRKXS2wLdivAAAAOgEAABIAAAAAAAAAAAAAAIABggMAAHdvcmQvbnVtYmVyaW5nLnhtbFBLBQYAAAAABQAFAEMBAABhBAAAAAA=', 'base64'))
 
 describe('DOCX list hierarchy', () => {
+  it('keeps real Word table cell boundaries for matching columns', async () => {
+    const zip = await JSZip.loadAsync(docx)
+    const p = (text: string) => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`
+    zip.file('word/document.xml', `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+      ${p('PHẦN I. NỐI CỘT (2 điểm)')}${p('Câu 1: Nối nội dung hai cột.')}
+      <w:tbl><w:tr><w:tc>${p('Cột A')}</w:tc><w:tc>${p('Cột B')}</w:tc></w:tr>
+      <w:tr><w:tc>${p('1. Mục một')}</w:tc><w:tc>${p('A. Mục hai')}</w:tc></w:tr>
+      <w:tr><w:tc>${p('2. Mục hai')}</w:tc><w:tc>${p('B. Mục một')}</w:tc></w:tr></w:tbl>
+      ${p('Đáp án: 1-B; 2-A')}</w:body></w:document>`)
+    const result = await parseExamFromDocx(await zip.generateAsync({ type: 'uint8array' }))
+    expect(result.questions).toHaveLength(1)
+    expect(result.questions[0]).toMatchObject({ responseFormat: 'matching', answerData: {
+      left: [{ id: '1', text: 'Mục một' }, { id: '2', text: 'Mục hai' }],
+      right: [{ id: 'A', text: 'Mục hai' }, { id: 'B', text: 'Mục một' }], pairs: [{ leftId: '1', rightId: 'B' }, { leftId: '2', rightId: 'A' }],
+    } })
+  })
   it('keeps real automatic Word sublists in their parent question and allocates parent points', async () => {
     const result = await parseExamFromDocx(docx, { intent: 'essay' })
     expect(result.errors).toEqual([])

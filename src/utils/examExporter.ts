@@ -4,6 +4,7 @@ import { useToastStore } from '../stores/toastStore'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../lib/examPrintSafety'
 import { loadXlsx } from '../lib/xlsxLoader'
+import { questionFormatLabel, structuredQuestionText } from './structuredQuestions'
 
 export interface ExamExportOptions {
   subject: string
@@ -17,6 +18,8 @@ export interface ExamExportOptions {
   answerKey?: Record<number, MultipleChoiceOption>
   answerVariants?: Partial<ExamAnswerVariants>
   variantManifests?: ExamVariantManifestSet | string
+  /** Presentation overrides; null restores automatic spacing without editing the session. */
+  answerLineOverrides?: Record<number, number | null>
   selectedVersion?: ExamVersionCode | 'ALL'
   includeAnswerKey?: boolean
   includeExplanations?: boolean
@@ -87,7 +90,8 @@ function resolveQuestionsForVersion(options: ExamExportOptions, version: ExamVer
   assertContiguousQuestionIndexes(questions)
   const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
   return {
-    questions: [...questions].sort((a, b) => a.index - b.index),
+    questions: [...questions].sort((a, b) => a.index - b.index).map(q => q.type === 'essay' && !q.responseFormat && options.answerLineOverrides?.[q.index] !== undefined
+      ? { ...q, answerLineCount: options.answerLineOverrides[q.index] ?? undefined } : q),
     answerKey: entry?.answerKey || variants[version] || options.answerKey || {},
   }
 }
@@ -262,28 +266,30 @@ export async function generateExamExcelWorkbook(options: ExamExportOptions): Pro
   const questions = resolved.questions
   const activeCodes = configuredExportVersions(options)
   const baseKey = resolved.answerKey
+  const includeKeys = options.includeAnswerKey !== false
 
   const wb = XLSX.utils.book_new()
 
   // 1. Sheet 1: Danh sách câu hỏi chi tiết (chuẩn format để import lại được vào app)
   // EXAM-MIXED: thêm cột "Loại" (Trắc nghiệm/Tự luận) — parser import map theo tên header.
   const questionsData = [
-    ['Câu Số', 'Loại', 'Nội Dung Câu Hỏi', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng (A/B/C/D)', 'Điểm', 'Giải Thích Chi Tiết'],
+    ['Câu Số', 'Loại', 'Nội Dung Câu Hỏi', 'Lựa Chọn A', 'Lựa Chọn B', 'Lựa Chọn C', 'Lựa Chọn D', 'Đáp Án Đúng (A/B/C/D)', 'Điểm', 'Giải Thích Chi Tiết', 'Số dòng trả lời'],
     ...questions.map((q, idx) => {
       const qNum = q.index || idx + 1
       const isEssay = q.type === 'essay'
       return [
         qNum,
-        isEssay ? 'Tự luận' : 'Trắc nghiệm',
-        q.question || '',
+        questionFormatLabel(q),
+        structuredQuestionText(q),
         q.options?.A || '',
         q.options?.B || '',
         q.options?.C || '',
         q.options?.D || '',
-         isEssay ? '' : (baseKey[qNum] || q.correctOption || 'A'),
+        !includeKeys ? '' : isEssay ? (q.responseFormat ? structuredQuestionText(q, true).split('\n').find(line => line.startsWith('Đáp án:'))?.replace(/^Đáp án:\s*/, '') ?? '' : '') : (baseKey[qNum] || q.correctOption || 'A'),
 
         q.points ?? 1,
-        q.explanation || '',
+        includeKeys ? q.explanation || '' : '',
+        q.type === 'essay' && !q.responseFormat ? q.answerLineCount ?? '' : '',
       ]
     }),
   ]
@@ -300,6 +306,7 @@ export async function generateExamExcelWorkbook(options: ExamExportOptions): Pro
     { wch: 20 },
     { wch: 8 },
     { wch: 35 },
+    { wch: 18 },
   ]
   XLSX.utils.book_append_sheet(wb, wsQuestions, 'Danh_Sach_Cau_Hoi')
 
@@ -310,7 +317,7 @@ export async function generateExamExcelWorkbook(options: ExamExportOptions): Pro
   const sourceOrder = matrixSourceOrder(options, selectedVersion, questions)
   for (const sourceIndex of sourceOrder) {
     const row: (string | number)[] = [sourceIndex]
-    for (const code of activeCodes) row.push(answerForSourceQuestion(options, code, sourceIndex))
+    for (const code of activeCodes) row.push(includeKeys ? answerForSourceQuestion(options, code, sourceIndex) : '')
     matrixRows.push(row)
   }
 
@@ -398,7 +405,7 @@ export function exportExamToText(options: ExamExportOptions): string {
     const qNum = q.index || idx + 1
     // EXAM-MIXED: câu tự luận không in phương án — in dòng trống trình bày.
     if (q.type === 'essay') {
-      text += `Câu ${qNum}${q.points !== undefined ? ` (${q.points} điểm)` : ''}: ${q.question}\n\n`
+      text += `Câu ${qNum}${q.points !== undefined ? ` (${q.points} điểm)` : ''}: ${structuredQuestionText(q, includeKey)}\n\n`
       return
     }
     text += `Câu ${qNum}: ${q.question}\n`
@@ -494,7 +501,7 @@ export function exportExamToMarkdown(options: ExamExportOptions): string {
     const qNum = q.index || idx + 1
     // EXAM-MIXED: câu tự luận không in phương án.
     if (q.type === 'essay') {
-      md += `#### Câu ${qNum}${q.points !== undefined ? ` (${q.points} điểm)` : ''}: ${q.question}\n\n`
+      md += `#### Câu ${qNum}${q.points !== undefined ? ` (${q.points} điểm)` : ''}: ${structuredQuestionText(q, includeKey)}\n\n`
       return
     }
     md += `#### Câu ${qNum}: ${q.question}\n`
@@ -575,7 +582,14 @@ export function generateExamJsonString(options: ExamExportOptions): string {
   const includeKey = options.includeAnswerKey !== false
   const exportedQuestions = includeKey
     ? questions
-    : questions.map(({ correctOption: _correctOption, ...question }) => question)
+    : questions.map(({ correctOption: _correctOption, explanation: _explanation, answerData, ...question }) => ({ ...question,
+        ...(answerData ? { answerData: {
+          ...(answerData.blanks ? { blanks: answerData.blanks.map(blank => ({ id: blank.id, acceptedAnswers: [] })) } : {}),
+          ...(answerData.wordBank ? { wordBank: answerData.wordBank } : {}),
+          ...(answerData.left ? { left: answerData.left } : {}), ...(answerData.right ? { right: answerData.right } : {}),
+          ...(answerData.subparts ? { subparts: answerData.subparts } : {}),
+        } } : {}),
+      }))
   const payload = {
     version: '1.0',
     exportedAt: new Date().toISOString(),

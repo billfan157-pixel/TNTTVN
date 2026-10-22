@@ -65,10 +65,10 @@ export function toQuestionBankImportItems(
   return result.parsed.questions.map(question => {
     const isEssay = (question.type ?? 'multiple_choice') === 'essay'
     return {
-      questionType: isEssay ? 'essay' : 'multiple_choice',
+      questionType: question.responseFormat ?? (isEssay ? 'essay' : 'multiple_choice'),
       stem: question.question,
       answerData: isEssay
-        ? { rubric: question.explanation ?? null }
+        ? { ...question.answerData, rubric: question.explanation ?? null, ...(!question.responseFormat && question.answerLineCount !== undefined ? { answerLineCount: question.answerLineCount } : {}) }
         : {
             options: (['A', 'B', 'C', 'D'] as const).map(id => ({ id, text: question.options?.[id] ?? '' })),
             correctOptionIds: [question.correctOption ?? 'A'],
