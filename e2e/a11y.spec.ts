@@ -119,14 +119,17 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
     }
   })
 
-  test('protected route viewport/theme matrix', async ({ page }, testInfo) => {
-    const failedObservations: string[] = []
-    await installUiBoot(page)
-    await injectSession(page, await getAdminSession(page.request))
-    await page.goto('/dashboard')
+  // Preserve every route/axe check, but give each viewport/theme pair a fresh
+  // browser and its own timeout so one slow pair cannot consume the budget
+  // for the other combinations.
+  for (const viewportName of Object.keys(matrixViewports) as MatrixViewportName[]) {
+    for (const theme of ['light', 'dark'] as const) {
+      test(`protected route viewport/theme matrix · ${viewportName} · ${theme}`, async ({ page }, testInfo) => {
+        const failedObservations: string[] = []
+        await installUiBoot(page)
+        await injectSession(page, await getAdminSession(page.request))
+        await page.goto('/dashboard')
 
-    for (const viewportName of Object.keys(matrixViewports) as MatrixViewportName[]) {
-      for (const theme of ['light', 'dark'] as const) {
         await setThemeThroughHeader(page, theme)
         for (const route of representativeProtectedRoutes) {
           await openProtectedObservation(page, route, viewportName, `${viewportName}/${theme}`)
@@ -147,6 +150,7 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
               failedObservations.push(`[${artifactName}-record-editor]\n${formatViolations(modalResults.violations)}`)
             }
             await dialog.getByRole('button', { name: 'Đóng' }).click()
+            await expect(dialog).toBeHidden()
           }
 
           if (route === '/dashboard' && viewportName === 'desktop' && theme === 'light') {
@@ -166,11 +170,11 @@ test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () 
             await expect(input).toHaveValue('Nguyen')
           }
         }
-      }
-    }
 
-    expect(failedObservations, failedObservations.join('\n\n')).toEqual([])
-  })
+        expect(failedObservations, failedObservations.join('\n\n')).toEqual([])
+      })
+    }
+  }
 
   for (const publicRoute of publicDesignRoutes) {
     for (const viewportName of Object.keys(matrixViewports) as MatrixViewportName[]) {

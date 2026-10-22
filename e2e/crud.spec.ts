@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { loginAsAdmin } from './helpers'
+import { loginAsAdmin, waitForBootstrapBaseline } from './helpers'
 
 test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
   test.beforeEach(async ({ page }) => {
@@ -41,6 +41,15 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
     // This case starts with an injected marker, not an activated browser session.
     // Auth and roster hydration are separate stages of the cold browser boot.
     // Wait for real responses before measuring the availability of admin actions.
+    //
+    // The default 30s case budget is too tight for the real cold boot: the app
+    // only pulls the roster after it established its generation baseline
+    // (src/lib/syncCoordinator.ts probes /api/system/purge-version first and
+    // only then pulls material data), so the probe plus the roster pull can
+    // exceed the default budget on a loaded CI runner. Give this case the same
+    // headroom the other cross-layer specs in this suite already use, and wait
+    // for the real baseline instead of assuming the pull lands in time.
+    test.setTimeout(90_000)
     const bootstrap = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/auth/me' && response.request().method() === 'GET',
     )
@@ -49,9 +58,10 @@ test.describe('E2E Student Roster & User Admin CRUD Flow', () => {
     )
     await page.goto('/students')
     expect((await bootstrap).status()).toBe(200)
+    await waitForBootstrapBaseline(page, 45_000)
     expect((await roster).status()).toBe(200)
     // Data hydration can finish before the lazy route module. Readiness belongs
-    // to browser setup; keep the action assertions and the 30s case budget intact.
+    // to browser setup; keep the action assertions intact.
     await page.locator('#main-content .product-view').first().waitFor({ state: 'visible' })
     await expect(page.getByRole('heading', { name: 'Danh Sách Thiếu Nhi' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Import Excel' })).toBeVisible()
