@@ -158,6 +158,9 @@ export async function openProtectedObservation(
   await expect(page, `${route} must resolve to its canonical route`).toHaveURL(new RegExp(`${route}$`))
   await expect(navItem, `${route} must be the active desktop destination`).toHaveAttribute('aria-current', 'page')
 
+  // The sidebar becomes active before its native view transition finishes.
+  // Resizing that snapshot can close WebKit's page; settle it before changing shells.
+  await settleFiniteAnimations(page)
   await page.setViewportSize(matrixViewports[viewportName])
   const main = page.locator('#main-content')
   await expect(main, `${route} must expose the shared main landmark for ${observationName}`).toBeVisible({ timeout: 15_000 })
