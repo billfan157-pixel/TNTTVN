@@ -81,6 +81,33 @@ const analyzeOnce = async (page: Page, testInfo: TestInfo, artifactName: string)
 test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () => {
   test.describe.configure({ timeout: 240_000 })
 
+  for (const theme of ['light', 'dark'] as const) {
+    test(`empty academic year warning retains AA contrast · compact · ${theme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize(matrixViewports.compact)
+      await installUiBoot(page, theme)
+      await injectSession(page, await getAdminSession(page.request))
+      // Keep the empty state visible instead of relying on the short initial
+      // academic-year fetch, which exposed this contrast defect only sometimes.
+      await page.route('**/api/classes/academic-years', route => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data: [] }),
+      }))
+      await page.goto('/students')
+      const catalog = page.getByRole('region', { name: 'Lớp học và phân lớp', exact: true })
+      await expect(catalog.getByText('Chưa có năm học nào', { exact: true })).toBeVisible()
+      await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /\bdark\b/ : /^(?!.*\bdark\b)/)
+      await settleFiniteAnimations(page)
+      const results = await new AxeBuilder({ page })
+        .include('section[aria-label="Lớp học và phân lớp"]')
+        .withTags(wcagTags).analyze()
+      await testInfo.attach(`axe-empty-academic-year-${theme}.json`, {
+        body: Buffer.from(JSON.stringify(results, null, 2)), contentType: 'application/json',
+      })
+      expect(results.violations, formatViolations(results.violations)).toEqual([])
+    })
+  }
+
   test('failed sync banner retains AA contrast in mobile themes and retry hover @critical', async ({ page }, testInfo) => {
     await page.setViewportSize(matrixViewports.mobile)
     await installUiBoot(page)

@@ -71,7 +71,11 @@ test('desktop grade pagination preserves keyboard edits through real sync and re
   // sync interval; prove the backend outcome through that cycle as well.
   }, { timeout: 60_000 }).toEqual(expect.arrayContaining(expectedGrades))
 
-  await page.reload()
+  // Reload the same URL through a full document navigation. WebKit's reload
+  // command can abort before receiving the document response on the CI runner.
+  const previousDocument = await page.evaluate(() => performance.timeOrigin)
+  await page.goto(page.url())
+  expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(previousDocument)
   await page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' }).selectOption(classId)
   await expect(page.getByRole('textbox', { name: firstLabel, exact: true })).toHaveValue('9.4')
   await page.getByRole('navigation', { name: 'Phân trang bảng điểm' }).getByRole('button', { name: 'Trang sau' }).click()

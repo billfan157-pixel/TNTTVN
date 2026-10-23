@@ -233,7 +233,7 @@ export function DesktopClasses({
           <Calendar size={20} className="text-parish-warning shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-bold text-parish-warning-hover m-0">Chưa có năm học nào</p>
-            <p className="text-sm text-parish-warning mt-0.5 m-0 font-medium">
+            <p className="text-sm text-parish-warning-hover mt-0.5 m-0 font-medium">
               Hãy tạo năm học trước, sau đó mới tạo lớp học và nhập danh sách học sinh.
               {canEdit && (
                 <button className="btn btn-link btn-sm px-1 font-bold text-parish-primary underline" onClick={() => navigate({ to: '/academic-years' })}>
