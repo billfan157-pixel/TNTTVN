@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Archive,
   ArrowRight,
   BookOpenCheck,
   CheckCircle2,
@@ -16,7 +15,6 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Send,
   Sparkles,
   Trash2,
   X,
@@ -90,6 +88,7 @@ const DIFFICULTY_TONES: Record<QuestionDifficulty, BadgeTone> = {
 }
 
 type ViewTab = 'questions' | 'blueprints' | 'builder' | 'curriculum'
+type QuestionAction = 'submit' | 'approve' | 'activate' | 'archive' | 'reject'
 
 export function QuestionBankView() {
   const effectiveMode = useEffectiveMode()
@@ -110,6 +109,8 @@ export function QuestionBankView() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<QuestionForm>(EMPTY_QUESTION)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [editorError, setEditorError] = useState<string | null>(null)
+  const [openingEditorId, setOpeningEditorId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
   // Filters
@@ -123,7 +124,7 @@ export function QuestionBankView() {
   const [saving, setSaving] = useState(false)
   // UX-FEEDBACK-1: các thao tác không nằm trong `saving` (duyệt/kích hoạt câu hỏi,
   // kích hoạt ma trận) trước đây bấm nút không thấy phản hồi gì.
-  const [transitioning, setTransitioning] = useState<{ id: string; action: 'submit' | 'approve' | 'activate' | 'archive' | 'reject' } | null>(null)
+  const [transitioning, setTransitioning] = useState<{ id: string; action: QuestionAction } | null>(null)
   const [creatingBlueprint, setCreatingBlueprint] = useState(false)
   const [activatingBlueprintId, setActivatingBlueprintId] = useState<string | null>(null)
   const [message, setMessage] = useState<{ text: string; tone: 'success' | 'warning' | 'info' } | null>(null)
@@ -259,11 +260,14 @@ export function QuestionBankView() {
   const draftCount = useMemo(() => questions.filter(q => q.status === 'draft').length, [questions])
 
   const saveQuestion = async () => {
+    if (saving) return
     if (!online) {
+      setEditorError('Tạo/sửa câu hỏi cần kết nối mạng. Vui lòng kết nối lại để lưu.')
       setMessage({ text: 'Tạo/sửa câu hỏi cần kết nối mạng để khóa version trên server.', tone: 'warning' })
       return
     }
     setSaving(true)
+    setEditorError(null)
     setMessage(null)
     try {
       const result = editingId
@@ -273,21 +277,23 @@ export function QuestionBankView() {
       setEditingId(null)
       setEditorOpen(false)
       setPreview(result)
+      if (editingId) setSelected(current => new Set([...current].filter(id => id !== editingId)))
       setMessage({
         text: editingId
-          ? 'Đã tạo phiên bản mới; các đề lịch sử không thay đổi.'
+          ? 'Đã lưu câu hỏi và đáp án thành bản nháp để duyệt lại. Các đề thi đã tạo giữ nguyên.'
           : 'Đã tạo câu hỏi mới ở trạng thái nháp.',
         tone: 'success',
       })
       await loadQuestions()
     } catch (error) {
+      setEditorError((error as Error).message)
       setMessage({ text: (error as Error).message, tone: 'warning' })
     } finally {
       setSaving(false)
     }
   }
 
-  const lifecycle = async (item: QuestionBankItem, action: 'submit' | 'approve' | 'activate' | 'archive' | 'reject') => {
+  const lifecycle = async (item: QuestionBankItem, action: QuestionAction) => {
     if (!online) {
       setMessage({ text: 'Quy trình duyệt câu hỏi yêu cầu kết nối mạng.', tone: 'warning' })
       return
@@ -429,6 +435,59 @@ export function QuestionBankView() {
     } catch (error) {
       setMessage({ text: (error as Error).message, tone: 'warning' })
     }
+  }
+
+  const openQuestionEditor = async (item: QuestionBankItem) => {
+    if (!online || openingEditorId || saving || transitioning) return
+    setOpeningEditorId(item.id)
+    setEditorError(null)
+    try {
+      const current = await api.getQuestionBankItem(item.id)
+      if (current.status === 'archived') throw new Error('Câu hỏi đã lưu trữ, không thể chỉnh sửa.')
+      setPreview(current)
+      setForm(questionFormFromItem(current, blockOptions))
+      setEditingId(current.id)
+      setMobilePreviewOpen(false)
+      setEditorOpen(true)
+    } catch (error) {
+      setMessage({ text: (error as Error).message, tone: 'warning' })
+    } finally {
+      setOpeningEditorId(null)
+    }
+  }
+
+  const renderQuestionActions = (item: QuestionBankItem, includeArchive = true) => {
+    const canRevise = item.status !== 'archived' && (role === 'admin' || (item.createdBy === user?.id && item.status === 'draft'))
+    const actions: Array<{ action: QuestionAction; label: string; variant: 'primary' | 'secondary' | 'danger' }> = []
+    if (item.status === 'draft' && (role === 'admin' || item.createdBy === user?.id)) actions.push({ action: 'submit', label: 'Gửi duyệt', variant: 'primary' })
+    if (role === 'admin' && item.status === 'in_review') actions.push(
+      { action: 'approve', label: 'Phê duyệt', variant: 'primary' },
+      { action: 'reject', label: 'Trả về nháp', variant: 'secondary' },
+    )
+    if (role === 'admin' && item.status === 'approved') actions.push({ action: 'activate', label: 'Kích hoạt sử dụng', variant: 'primary' })
+    if (includeArchive && role === 'admin' && (item.status === 'active' || item.status === 'approved')) actions.push({ action: 'archive', label: 'Lưu trữ', variant: 'danger' })
+    if (!canRevise && !actions.length) return null
+    const busy = saving || openingEditorId !== null || transitioning !== null
+    return <div className="flex flex-wrap gap-2">
+      {canRevise && <Button size="sm" variant="secondary" leadingIcon={<FilePlus2 className="h-4 w-4" />}
+        disabled={!online || busy} loading={openingEditorId === item.id} loadingLabel="Đang mở…" onClick={() => void openQuestionEditor(item)}>
+        Sửa câu hỏi và đáp án
+      </Button>}
+      {actions.map(({ action, label, variant }) => <Button key={action} size="sm" variant={variant}
+        disabled={!online || busy} loading={transitioning?.id === item.id && transitioning.action === action} loadingLabel="Đang xử lý…"
+        onClick={() => void lifecycle(item, action)}>{label}</Button>)}
+    </div>
+  }
+
+  const renderTextAnswer = (item: QuestionBankItem) => {
+    const answer = item.current.answerData
+    if (item.current.questionType === 'true_false') return <p className="rounded-xl border border-surface-border bg-surface-sunken p-3 text-sm text-text-main">Đáp án đúng: <strong>{answer.correct === true ? 'Đúng' : 'Sai'}</strong></p>
+    if (item.current.questionType === 'short_answer') return <div className="rounded-xl border border-surface-border bg-surface-sunken p-3 text-sm text-text-main">
+      <strong>Các đáp án được chấp nhận:</strong>
+      <ul className="mt-2 list-disc pl-5">{(Array.isArray(answer.acceptedAnswers) ? answer.acceptedAnswers : []).map((value, index) => <li key={index}>{String(value)}</li>)}</ul>
+    </div>
+    if (item.current.questionType === 'essay' && !item.current.explanation && typeof answer.rubric === 'string') return <p className="whitespace-pre-line text-sm text-text-main">Hướng dẫn chấm: {answer.rubric}</p>
+    return null
   }
 
   return (
@@ -762,6 +821,7 @@ export function QuestionBankView() {
                 return (
                   <Surface
                     as="article"
+                    aria-label={item.current.stem}
                     variant="entity"
                     key={item.id}
                     className={`p-4 transition-colors ${
@@ -841,6 +901,7 @@ export function QuestionBankView() {
                         </div>
                       </div>
                     </div>
+                    <div className="mt-3">{renderQuestionActions(item, false)}</div>
                   </Surface>
                 )
               })}
@@ -901,8 +962,9 @@ export function QuestionBankView() {
                   <StructuredQuestionPreview question={{ index: 1, question: preview.current.stem, type: 'essay',
                     responseFormat: preview.current.questionType === 'fill_blank' || preview.current.questionType === 'matching' ? preview.current.questionType : undefined,
                     answerData: preview.current.answerData }} showAnswers />
+                  {renderTextAnswer(preview)}
                   {/* Danh sách đáp án */}
-                  {preview.current.questionType === 'multiple_choice' && (
+                  {(preview.current.questionType === 'multiple_choice' || preview.current.questionType === 'multiple_select') && (
                     <div className="space-y-2">
                       <span className="text-xs font-bold uppercase tracking-wider text-text-muted">
                         Các phương án trả lời:
@@ -956,91 +1018,9 @@ export function QuestionBankView() {
                     </div>
                   )}
 
-                  {/* Các nút hành động quy trình duyệt */}
                   <div className="border-t border-surface-border pt-3 space-y-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-text-muted block">
-                      Thao tác nghiệp vụ:
-                    </span>
-                    <div className="flex flex-wrap gap-2">
-                      {(role === 'admin' || (preview.createdBy === user?.id && preview.status === 'draft')) &&
-                        preview.status !== 'archived' && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            leadingIcon={<FilePlus2 className="h-4 w-4" />}
-                            onClick={() => {
-                              setEditingId(preview.id)
-                              setForm(questionFormFromItem(preview, blockOptions))
-                              setEditorOpen(true)
-                            }}
-                          >
-                            Tạo phiên bản mới
-                          </Button>
-                        )}
-                      {preview.status === 'draft' && (role === 'admin' || preview.createdBy === user?.id) && (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          leadingIcon={<Send className="h-4 w-4" />}
-                          disabled={transitioning !== null}
-                          loading={transitioning?.id === preview.id && transitioning.action === 'submit'}
-                          loadingLabel="Đang gửi…"
-                          onClick={() => void lifecycle(preview, 'submit')}
-                        >
-                          Gửi duyệt
-                        </Button>
-                      )}
-                      {role === 'admin' && preview.status === 'in_review' && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            disabled={transitioning !== null}
-                            loading={transitioning?.id === preview.id && transitioning.action === 'approve'}
-                            loadingLabel="Đang duyệt…"
-                            onClick={() => void lifecycle(preview, 'approve')}
-                          >
-                            Phê duyệt
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={transitioning !== null}
-                            loading={transitioning?.id === preview.id && transitioning.action === 'reject'}
-                            loadingLabel="Đang trả về…"
-                            onClick={() => void lifecycle(preview, 'reject')}
-                          >
-                            Trả về nháp
-                          </Button>
-                        </>
-                      )}
-                      {role === 'admin' && preview.status === 'approved' && (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          leadingIcon={<CheckCircle2 className="h-4 w-4" />}
-                          disabled={transitioning !== null}
-                          loading={transitioning?.id === preview.id && transitioning.action === 'activate'}
-                          loadingLabel="Đang kích hoạt…"
-                          onClick={() => void lifecycle(preview, 'activate')}
-                        >
-                          Kích hoạt sử dụng
-                        </Button>
-                      )}
-                      {role === 'admin' && (preview.status === 'active' || preview.status === 'approved') && (
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          leadingIcon={<Archive className="h-4 w-4" />}
-                          disabled={transitioning !== null}
-                          loading={transitioning?.id === preview.id && transitioning.action === 'archive'}
-                          loadingLabel="Đang lưu trữ…"
-                          onClick={() => void lifecycle(preview, 'archive')}
-                        >
-                          Lưu trữ
-                        </Button>
-                      )}
-                    </div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-text-muted block">Thao tác câu hỏi:</span>
+                    {renderQuestionActions(preview)}
                   </div>
                 </Surface>
               ) : (
@@ -1716,6 +1696,7 @@ export function QuestionBankView() {
 
       {/* Modal soạn câu hỏi */}
       <QuestionEditorModal
+        error={editorError}
         isOpen={editorOpen}
         editing={Boolean(editingId)}
         form={form}
@@ -1728,6 +1709,7 @@ export function QuestionBankView() {
             setEditorOpen(false)
             setEditingId(null)
             setForm(EMPTY_QUESTION)
+            setEditorError(null)
           }
         }}
         onSave={() => void saveQuestion()}
@@ -1782,7 +1764,8 @@ export function QuestionBankView() {
             <StructuredQuestionPreview question={{ index: 1, question: preview.current.stem, type: 'essay',
               responseFormat: preview.current.questionType === 'fill_blank' || preview.current.questionType === 'matching' ? preview.current.questionType : undefined,
               answerData: preview.current.answerData }} showAnswers />
-            {preview.current.questionType === 'multiple_choice' && (
+            {renderTextAnswer(preview)}
+            {(preview.current.questionType === 'multiple_choice' || preview.current.questionType === 'multiple_select') && (
               <div className="space-y-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-text-muted">Các đáp án:</span>
                 {((preview.current.answerData.options ?? []) as Array<{ id: string; text: string }>).map(opt => {
@@ -1817,106 +1800,9 @@ export function QuestionBankView() {
               </div>
             )}
 
-            <div className="border-t border-surface-border pt-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-text-muted block mb-2">
-                Thao tác quy trình:
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {(role === 'admin' || (preview.createdBy === user?.id && preview.status === 'draft')) &&
-                  preview.status !== 'archived' && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      leadingIcon={<FilePlus2 className="h-4 w-4" />}
-                      onClick={() => {
-                        setMobilePreviewOpen(false)
-                        setEditingId(preview.id)
-                        setForm(questionFormFromItem(preview, blockOptions))
-                        setEditorOpen(true)
-                      }}
-                    >
-                      Sửa / Tạo bản mới
-                    </Button>
-                  )}
-                {preview.status === 'draft' && (role === 'admin' || preview.createdBy === user?.id) && (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    leadingIcon={<Send className="h-4 w-4" />}
-                    disabled={transitioning !== null}
-                    loading={transitioning?.id === preview.id && transitioning.action === 'submit'}
-                    loadingLabel="Đang gửi…"
-                    onClick={() => {
-                      setMobilePreviewOpen(false)
-                      void lifecycle(preview, 'submit')
-                    }}
-                  >
-                    Gửi duyệt
-                  </Button>
-                )}
-                {role === 'admin' && preview.status === 'in_review' && (
-                  <>
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      disabled={transitioning !== null}
-                      loading={transitioning?.id === preview.id && transitioning.action === 'approve'}
-                      loadingLabel="Đang duyệt…"
-                      onClick={() => {
-                        setMobilePreviewOpen(false)
-                        void lifecycle(preview, 'approve')
-                      }}
-                    >
-                      Duyệt
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={transitioning !== null}
-                      loading={transitioning?.id === preview.id && transitioning.action === 'reject'}
-                      loadingLabel="Đang trả về…"
-                      onClick={() => {
-                        setMobilePreviewOpen(false)
-                        void lifecycle(preview, 'reject')
-                      }}
-                    >
-                      Trả về nháp
-                    </Button>
-                  </>
-                )}
-                {role === 'admin' && preview.status === 'approved' && (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    leadingIcon={<CheckCircle2 className="h-4 w-4" />}
-                    disabled={transitioning !== null}
-                    loading={transitioning?.id === preview.id && transitioning.action === 'activate'}
-                    loadingLabel="Đang kích hoạt…"
-                    onClick={() => {
-                      setMobilePreviewOpen(false)
-                      void lifecycle(preview, 'activate')
-                    }}
-                  >
-                    Kích hoạt
-                  </Button>
-                )}
-                {role === 'admin' && (preview.status === 'active' || preview.status === 'approved') && (
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    leadingIcon={<Archive className="h-4 w-4" />}
-                    disabled={transitioning !== null}
-                    loading={transitioning?.id === preview.id && transitioning.action === 'archive'}
-                    loadingLabel="Đang lưu trữ…"
-                    onClick={() => {
-                      setMobilePreviewOpen(false)
-                      void lifecycle(preview, 'archive')
-                    }}
-                  >
-                    Lưu trữ
-                  </Button>
-                )}
-              </div>
+            <div className="border-t border-surface-border pt-3 space-y-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-text-muted block">Thao tác câu hỏi:</span>
+              {renderQuestionActions(preview)}
             </div>
           </div>
         )}

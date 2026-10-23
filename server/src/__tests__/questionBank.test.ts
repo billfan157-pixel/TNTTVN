@@ -260,10 +260,18 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
 
   it('creates a new bank version without mutating the historical exam snapshot', async () => {
     const before = await db.select().from(examQuestionSnapshots).where(and(eq(examQuestionSnapshots.parishId, parishA), eq(examQuestionSnapshots.questionId, mcId)))
-    const revised = await req(`/questions/${mcId}`, { method: 'PUT', auth: adminToken, body: mc('Ai thiết lập Bí tích Thánh Thể?') })
+    const body = mc('Ai thiết lập Bí tích Thánh Thể?')
+    body.answerData.options[3].text = 'Phương án D đã sửa'
+    body.answerData.correctOptionIds = ['D']
+    expect((await req(`/questions/${mcId}`, { method: 'PUT', auth: teacherToken, body })).status).toBe(403)
+    expect((await req(`/questions/${mcId}`, { method: 'PUT', auth: otherTenantToken, body })).status).toBe(404)
+    const revised = await req(`/questions/${mcId}`, { method: 'PUT', auth: adminToken, body })
     expect(revised.status).toBe(200)
     expect(revised.data.currentVersion).toBe(2)
     expect(revised.data.status).toBe('draft')
+    expect(revised.data.current.answerData.correctOptionIds).toEqual(['D'])
+    expect(revised.data.current.answerData.options[3].text).toBe('Phương án D đã sửa')
+    expect(revised.data.versions.find((version: { version: number }) => version.version === 1).answerData.correctOptionIds).toEqual(['B'])
     const after = await db.select().from(examQuestionSnapshots).where(and(eq(examQuestionSnapshots.parishId, parishA), eq(examQuestionSnapshots.questionId, mcId)))
     expect(after[0].snapshotJson).toBe(before[0].snapshotJson)
     expect(after[0].questionVersionId).toBe(before[0].questionVersionId)

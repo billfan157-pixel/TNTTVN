@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { QuestionEditorModal } from '../components/exam/QuestionEditorModal'
-import { EMPTY_QUESTION, mutationFromQuestionForm } from '../utils/questionEditorModel'
+import { EMPTY_QUESTION, mutationFromQuestionForm, questionFormFromItem } from '../utils/questionEditorModel'
+import type { QuestionBankItem } from '../types'
 
 vi.mock('../hooks/useFocusTrap', () => ({
   useFocusTrap: () => ({ current: null }),
@@ -26,6 +27,25 @@ const props = {
 }
 
 describe('QuestionEditorModal', () => {
+  it.each([
+    { questionType: 'true_false', answerData: { correct: false } },
+    { questionType: 'short_answer', answerData: { acceptedAnswers: ['Chúa Giêsu', 'Đức Giêsu'] } },
+    { questionType: 'multiple_select', answerData: { options: [{ id: 'A', text: 'Một' }, { id: 'B', text: 'Hai' }, { id: 'E', text: 'Năm' }], correctOptionIds: ['A', 'E'] } },
+    { questionType: 'multiple_choice', answerData: { options: ['A', 'B', 'C', 'D', 'E'].map(id => ({ id, text: `Phương án ${id}` })), correctOptionIds: ['E'] } },
+  ])('preserves the bank question type and every answer while editing $questionType', input => {
+    const item = { current: { ...input, stem: 'Nội dung gốc', explanation: null }, tags: [], book: 'Giáo lý 1' } as unknown as QuestionBankItem
+    const form = questionFormFromItem(item, [])
+    const revised = mutationFromQuestionForm({ ...form, stem: 'Nội dung đã sửa' })
+    expect(revised).toMatchObject({ questionType: input.questionType, stem: 'Nội dung đã sửa', book: 'Giáo lý 1' })
+    expect(revised.answerData).toEqual(input.answerData)
+  })
+
+  it('keeps the essay rubric when it is stored in the answer instead of the explanation', () => {
+    const item = { current: { questionType: 'essay', stem: 'Trình bày.', explanation: null, answerData: { rubric: 'Đủ hai ý', answerLineCount: 12 } }, tags: [] } as unknown as QuestionBankItem
+    const revised = mutationFromQuestionForm(questionFormFromItem(item, []))
+    expect(revised.answerData).toMatchObject({ rubric: 'Đủ hai ý', answerLineCount: 12 })
+  })
+
   it('lets a teacher set and clear the essay answer line count through the form', () => {
     const save = vi.fn()
     function Editor() {

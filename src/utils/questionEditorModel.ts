@@ -1,5 +1,5 @@
 import type { QuestionBankMutationInput } from '../lib/api'
-import type { QuestionBankItem, QuestionDifficulty } from '../types'
+import type { QuestionBankItem, QuestionBankType, QuestionDifficulty } from '../types'
 import { findQuestionBlockForLevel, type QuestionBlockOption } from './questionBlock'
 import { extractEssaySubparts, parseStructuredQuestion, structuredQuestionText } from './structuredQuestions'
 
@@ -16,17 +16,17 @@ export interface QuestionBranchOption {
 }
 
 export type QuestionForm = {
-  questionType: 'multiple_choice' | 'essay' | 'fill_blank' | 'matching'
+  questionType: QuestionBankType
   stem: string
-  optionA: string
-  optionB: string
-  optionC: string
-  optionD: string
-  correctOption: 'A' | 'B' | 'C' | 'D'
+  options: Array<{ id: string; text: string }>
+  correctOptionIds: string[]
+  trueFalseAnswer: boolean
+  acceptedAnswers: string
   explanation: string
   branchId: string
   blockId: string
   curriculumLevel: string
+  book: string
   chapter: string
   lesson: string
   lessonOrder: string
@@ -42,15 +42,15 @@ export type QuestionForm = {
 export const EMPTY_QUESTION: QuestionForm = {
   questionType: 'multiple_choice',
   stem: '',
-  optionA: '',
-  optionB: '',
-  optionC: '',
-  optionD: '',
-  correctOption: 'A',
+  options: ['A', 'B', 'C', 'D'].map(id => ({ id, text: '' })),
+  correctOptionIds: ['A'],
+  trueFalseAnswer: true,
+  acceptedAnswers: '',
   explanation: '',
   branchId: '',
   blockId: '',
   curriculumLevel: '',
+  book: '',
   chapter: '',
   lesson: '',
   lessonOrder: '',
@@ -69,13 +69,16 @@ export function mutationFromQuestionForm(form: QuestionForm): QuestionBankMutati
   return {
     questionType: form.questionType,
     stem: structured?.question ?? form.stem,
-    answerData: form.questionType === 'multiple_choice'
-      ? { options: ['A', 'B', 'C', 'D'].map(id => ({ id, text: form[`option${id}` as keyof QuestionForm] })), correctOptionIds: [form.correctOption] }
+    answerData: form.questionType === 'multiple_choice' || form.questionType === 'multiple_select'
+      ? { options: form.options.map(option => ({ ...option })), correctOptionIds: [...form.correctOptionIds] }
+      : form.questionType === 'true_false' ? { correct: form.trueFalseAnswer }
+      : form.questionType === 'short_answer' ? { acceptedAnswers: form.acceptedAnswers.split('\n').map(answer => answer.trim()).filter(Boolean) }
       : structured ? { ...structured.answerData, rubric: form.explanation || undefined }
         : { rubric: form.explanation || undefined, subparts: extractEssaySubparts(form.stem), ...(form.answerLineCount !== '' ? { answerLineCount: Number(form.answerLineCount) } : {}) },
     explanation: form.explanation || null,
     branchId: form.branchId || null,
     curriculumLevel: form.curriculumLevel || null,
+    book: form.book || null,
     chapter: form.chapter || null,
     lesson: form.lesson || null,
     lessonOrder: form.lessonOrder ? Number(form.lessonOrder) : null,
@@ -90,21 +93,19 @@ export function mutationFromQuestionForm(form: QuestionForm): QuestionBankMutati
 export function questionFormFromItem(item: QuestionBankItem, blocks: QuestionBlockOption[]): QuestionForm {
   const answer = item.current.answerData
   const options = Array.isArray(answer.options) ? answer.options as Array<{ id: string; text: string }> : []
-  const option = (id: string) => options.find(value => value.id === id)?.text ?? ''
-  const correct = Array.isArray(answer.correctOptionIds) ? String(answer.correctOptionIds[0] ?? 'A') : 'A'
   const matchedBlock = findQuestionBlockForLevel(blocks, item.curriculumLevel)
   return {
-    questionType: ['essay', 'fill_blank', 'matching'].includes(item.current.questionType) ? item.current.questionType as QuestionForm['questionType'] : 'multiple_choice',
+    questionType: item.current.questionType,
     stem: item.current.questionType === 'matching' ? structuredQuestionText({ index: 1, question: item.current.stem, type: 'essay', responseFormat: 'matching', answerData: answer }) : item.current.stem,
-    optionA: option('A'),
-    optionB: option('B'),
-    optionC: option('C'),
-    optionD: option('D'),
-    correctOption: /^[A-D]$/.test(correct) ? correct as 'A' | 'B' | 'C' | 'D' : 'A',
-    explanation: item.current.explanation ?? '',
+    options: options.length ? options.map(option => ({ ...option })) : EMPTY_QUESTION.options.map(option => ({ ...option })),
+    correctOptionIds: Array.isArray(answer.correctOptionIds) ? answer.correctOptionIds.map(String) : ['A'],
+    trueFalseAnswer: answer.correct === true,
+    acceptedAnswers: Array.isArray(answer.acceptedAnswers) ? answer.acceptedAnswers.join('\n') : '',
+    explanation: item.current.explanation ?? (typeof answer.rubric === 'string' ? answer.rubric : ''),
     branchId: item.branchId ?? '',
     blockId: matchedBlock?.id ?? '',
     curriculumLevel: matchedBlock?.label ?? item.curriculumLevel ?? '',
+    book: item.book ?? '',
     chapter: item.chapter ?? '',
     lesson: item.lesson ?? '',
     lessonOrder: item.lessonOrder == null ? '' : String(item.lessonOrder),

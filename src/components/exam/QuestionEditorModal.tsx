@@ -1,4 +1,4 @@
-import { FilePlus2 } from 'lucide-react'
+import { FilePlus2, Plus, X } from 'lucide-react'
 import { Button } from '../common/ui'
 import { ModalShell } from '../common/ModalShell'
 import type { QuestionBranchOption, QuestionForm } from '../../utils/questionEditorModel'
@@ -18,11 +18,12 @@ interface QuestionEditorModalProps {
   branches: QuestionBranchOption[]
   blocks: QuestionBlockOption[]
   saving: boolean
+  error?: string | null
   onClose: () => void
   onSave: () => void
 }
 
-export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, blocks, saving, onClose, onSave }: QuestionEditorModalProps) {
+export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, blocks, saving, error, onClose, onSave }: QuestionEditorModalProps) {
   const blockOptions = blocks.filter(block => !form.branchId || block.branchId === form.branchId)
   const set = <K extends keyof QuestionForm>(key: K, value: QuestionForm[K]) => setForm(current => ({ ...current, [key]: value }))
 
@@ -30,8 +31,8 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
     <ModalShell
       isOpen={isOpen}
       onClose={onClose}
-      title={editing ? 'Tạo phiên bản câu hỏi mới' : 'Tạo câu hỏi nháp'}
-      subtitle="Nội dung sẽ được lưu dưới dạng bản nháp và chỉ được sử dụng sau quy trình phê duyệt."
+      title={editing ? 'Chỉnh sửa câu hỏi và đáp án' : 'Tạo câu hỏi nháp'}
+      subtitle={editing ? 'Thay đổi được lưu thành bản nháp để duyệt lại. Các đề thi đã tạo giữ nguyên nội dung và đáp án.' : 'Nội dung sẽ được lưu dưới dạng bản nháp và chỉ được sử dụng sau quy trình phê duyệt.'}
       icon={<FilePlus2 className="h-5 w-5 text-parish-primary" />}
       maxWidth="960px"
       closeOnOverlay={!saving}
@@ -41,11 +42,12 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
             Hủy
           </Button>
           <Button loading={saving} disabled={!form.stem.trim()} onClick={onSave}>
-            {editing ? 'Lưu phiên bản mới' : 'Lưu câu hỏi nháp'}
+            {editing ? 'Lưu thay đổi' : 'Lưu câu hỏi nháp'}
           </Button>
         </div>
       }
     >
+      {error && <p role="alert" className="mb-4 rounded-xl border border-parish-danger/30 bg-parish-danger-bg p-3 text-sm text-text-main">{error}</p>}
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.3fr)_minmax(290px,0.7fr)]">
         {/* Cột trái: Nội dung câu hỏi & Đáp án */}
         <div className="space-y-4">
@@ -57,9 +59,15 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
               id="qe-question-type"
               className="form-select min-h-11 w-full"
               value={form.questionType}
-              onChange={event => set('questionType', event.target.value as QuestionForm['questionType'])}
+              onChange={event => setForm(current => ({ ...current,
+                questionType: event.target.value as QuestionForm['questionType'],
+                correctOptionIds: event.target.value === 'multiple_choice' ? current.correctOptionIds.slice(0, 1) : current.correctOptionIds,
+              }))}
             >
-              <option value="multiple_choice">Trắc nghiệm 4 đáp án (A, B, C, D)</option>
+              <option value="multiple_choice">Trắc nghiệm một đáp án</option>
+              <option value="multiple_select">Trắc nghiệm nhiều đáp án</option>
+              <option value="true_false">Đúng / Sai</option>
+              <option value="short_answer">Trả lời ngắn</option>
               <option value="fill_blank">Điền từ vào chỗ trống</option>
               <option value="matching">Nối ý / Ghép cột</option>
               <option value="essay">Tự luận / Trả lời mở</option>
@@ -81,17 +89,17 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
             />
           </div>
 
-          {form.questionType === 'multiple_choice' && (
+          {(form.questionType === 'multiple_choice' || form.questionType === 'multiple_select') && (
             <div className="space-y-2">
               <label className="form-label">
                 Các phương án lựa chọn &amp; Đáp án đúng
               </label>
               <p className="text-xs text-text-muted">
-                Tick chọn nút tròn phương án đúng. Phiên bản trắc nghiệm chuẩn OMR yêu cầu đủ 4 đáp án A, B, C, D.
+                {form.questionType === 'multiple_select' ? 'Đánh dấu tất cả phương án đúng.' : 'Chọn một phương án đúng. Đề trắc nghiệm chấm OMR yêu cầu đúng 4 phương án A, B, C, D.'}
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
-                {(['A', 'B', 'C', 'D'] as const).map(id => {
-                  const isCorrect = form.correctOption === id
+                {form.options.map(({ id, text }) => {
+                  const isCorrect = form.correctOptionIds.includes(id)
                   return (
                     <div
                       key={id}
@@ -103,28 +111,50 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
                     >
                       <label className="flex cursor-pointer items-center gap-1.5 font-bold text-text-main shrink-0">
                         <input
-                          type="radio"
+                          type={form.questionType === 'multiple_select' ? 'checkbox' : 'radio'}
                           name="qe-correct-option"
                           aria-label={`Đáp án đúng ${id}`}
                           checked={isCorrect}
-                          onChange={() => set('correctOption', id)}
+                          onChange={() => setForm(current => ({ ...current, correctOptionIds: current.questionType === 'multiple_select'
+                            ? current.correctOptionIds.includes(id) ? current.correctOptionIds.filter(value => value !== id) : [...current.correctOptionIds, id]
+                            : [id] }))}
                           className="h-4 w-4 text-parish-primary focus:ring-parish-primary"
                         />
                         <span>{id}</span>
                       </label>
                       <input
                         className="form-input min-h-10 min-w-0 flex-1 text-sm"
-                        value={form[`option${id}`]}
-                        onChange={event => set(`option${id}`, event.target.value)}
+                        value={text}
+                        onChange={event => setForm(current => ({ ...current, options: current.options.map(option => option.id === id ? { ...option, text: event.target.value } : option) }))}
                         placeholder={`Nội dung phương án ${id}`}
                         aria-label={`Nội dung phương án ${id}`}
                       />
+                      <Button variant="ghost" size="sm" aria-label={`Xóa phương án ${id}`} disabled={form.options.length <= 2}
+                        onClick={() => setForm(current => ({ ...current, options: current.options.filter(option => option.id !== id), correctOptionIds: current.correctOptionIds.filter(value => value !== id) }))}>
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
                   )
                 })}
               </div>
+              <Button size="sm" variant="secondary" leadingIcon={<Plus className="h-4 w-4" />} disabled={form.options.length >= 8}
+                onClick={() => setForm(current => ({ ...current, options: [...current.options, { id: 'ABCDEFGH'.split('').find(id => !current.options.some(option => option.id === id))!, text: '' }] }))}>
+                Thêm phương án
+              </Button>
             </div>
           )}
+
+          {form.questionType === 'true_false' && <div className="form-group">
+            <label className="form-label" htmlFor="qe-true-false">Đáp án đúng</label>
+            <select id="qe-true-false" className="form-select min-h-11 w-full" value={String(form.trueFalseAnswer)} onChange={event => set('trueFalseAnswer', event.target.value === 'true')}>
+              <option value="true">Đúng</option><option value="false">Sai</option>
+            </select>
+          </div>}
+          {form.questionType === 'short_answer' && <div className="form-group">
+            <label className="form-label" htmlFor="qe-accepted-answers">Các đáp án được chấp nhận</label>
+            <textarea id="qe-accepted-answers" className="form-input min-h-24 w-full" value={form.acceptedAnswers} onChange={event => set('acceptedAnswers', event.target.value)} />
+            <p className="text-xs text-text-muted">Mỗi dòng là một cách trả lời được chấp nhận.</p>
+          </div>}
 
           {(form.questionType === 'fill_blank' || form.questionType === 'matching') && (
             <div className="space-y-3 rounded-xl border border-surface-border p-3">
@@ -234,6 +264,10 @@ export function QuestionEditorModal({ isOpen, editing, form, setForm, branches, 
             </select>
           </div>
 
+          <div className="form-group">
+            <label className="form-label text-xs" htmlFor="qe-book">Sách giáo lý</label>
+            <input id="qe-book" className="form-input min-h-10 w-full text-sm" value={form.book} onChange={event => set('book', event.target.value)} />
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="form-group">
               <label className="form-label text-xs" htmlFor="qe-chapter">Chương</label>
