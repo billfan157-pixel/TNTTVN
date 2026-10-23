@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState, useEffect } from 'react'
+import React, { useCallback, useMemo, useState, useEffect, useRef } from 'react'
 import { useStudentStore } from '../../stores/studentStore'
 import { normalizeExamSessionClassFilter, scopeExamWorkspaceClasses } from '../../lib/examSessionScope'
 import { useFilterStore } from '../../stores/filterStore'
@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import type { ExamScoreType, ExamQuestion, ExamType, ExamSession } from '../../types'
 import { ModalShell } from '../common/ModalShell'
-import type { ExamImportScope } from '../../utils/examParser'
+import { MAX_EXAM_QUESTIONS, type ExamImportScope } from '../../utils/examParser'
 import { parseQuickAnswerString } from '../../utils/examQuickKeyParser'
 import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
@@ -33,6 +33,7 @@ import { Tabs, TabPanel } from '../common/ui/SelectionControls'
 import { lazyWithRetry } from '../../utils/lazyWithRetry'
 import { extractEssaySubparts, isObjectiveQuestion, parseStructuredQuestion, questionFormatLabel, questionFormatSummary, structuredQuestionText } from '../../utils/structuredQuestions'
 import { StructuredQuestionPreview } from './StructuredQuestionPreview'
+import { EmptyState } from '../common/StateFeedback'
 
 // Dùng lazyWithRetry (thay vì React.lazy trần) để tự retry khi Vite dev trả
 // 504 "Outdated Optimize Dep" cho qrcode-generator/jsqr trong lúc optimizer
@@ -44,6 +45,7 @@ const GuidedGradeModal = lazyWithRetry<typeof import('./GuidedGradeModal').Guide
 const ExamScanModal = lazyWithRetry<typeof import('./ExamScanModal').ExamScanModal>(() => import('./ExamScanModal').then(module => ({ default: module.ExamScanModal })))
 const ExamImportModal = lazyWithRetry<typeof import('./ExamImportModal').ExamImportModal>(() => import('./ExamImportModal').then(module => ({ default: module.ExamImportModal })))
 const ExamPaperModal = lazyWithRetry<typeof import('./ExamPaperModal').ExamPaperModal>(() => import('./ExamPaperModal').then(module => ({ default: module.ExamPaperModal })))
+const ExamDraftPreviewModal = lazyWithRetry<typeof import('./ExamPaperModal').ExamDraftPreviewModal>(() => import('./ExamPaperModal').then(module => ({ default: module.ExamDraftPreviewModal })))
 const ExamBatchScanModal = lazyWithRetry<typeof import('./ExamBatchScanModal').ExamBatchScanModal>(() => import('./ExamBatchScanModal').then(module => ({ default: module.ExamBatchScanModal })))
 const ExamAnalyticsPanel = lazyWithRetry<typeof import('./ExamAnalyticsPanel').ExamAnalyticsPanel>(() => import('./ExamAnalyticsPanel').then(module => ({ default: module.ExamAnalyticsPanel })))
 const ExamVariantsModal = lazyWithRetry<typeof import('./ExamVariantsModal').ExamVariantsModal>(() => import('./ExamVariantsModal').then(module => ({ default: module.ExamVariantsModal })))
@@ -68,6 +70,10 @@ const VALID_MC_OPTIONS = new Set(['A', 'B', 'C', 'D'])
 interface ExamPartSummary {
   questions: ExamQuestion[]
   totalPoints: number
+}
+
+function summarizeExamPart(questions: ExamQuestion[]): ExamPartSummary | null {
+  return questions.length ? { questions, totalPoints: Math.round(questions.reduce((sum, q) => sum + (q.points ?? 1), 0) * 100) / 100 } : null
 }
 
 /**
@@ -174,6 +180,7 @@ export const ExamSessionView: React.FC = () => {
   } = useExamStore()
 
   const [showCreate, setShowCreate] = useState(false)
+  const [showDraftPreview, setShowDraftPreview] = useState(false)
   const [editingExam, setEditingExam] = useState<{ session: ExamSession; definitionHash: string } | null>(null)
   const [formSaving, setFormSaving] = useState(false)
   const [showScanner, setShowScanner] = useState(false)
@@ -183,6 +190,7 @@ export const ExamSessionView: React.FC = () => {
   const [showAnswerKeyModal, setShowAnswerKeyModal] = useState(false)
   const closeAnswerKeyModal = useCallback(() => setShowAnswerKeyModal(false), [])
   const closeCreateModal = useCallback(() => {
+    setShowDraftPreview(false)
     setShowCreate(false)
     setEditingExam(null)
     setQuickKeyInput('')
@@ -194,6 +202,8 @@ export const ExamSessionView: React.FC = () => {
   const [showImportModal, setShowImportModal] = useState(false)
   const [structuredPromptDrafts, setStructuredPromptDrafts] = useState<Record<number, string>>({})
   const [structuredAnswerDrafts, setStructuredAnswerDrafts] = useState<Record<number, string>>({})
+  const [addedQuestionIndex, setAddedQuestionIndex] = useState<number | null>(null)
+  const addedQuestionRef = useRef<HTMLTextAreaElement>(null)
   // UI-POLISH 2026-08-25: 2 Ô IMPORT RIÊNG — Phần Trắc Nghiệm / Phần Tự Luận.
   const [importScope, setImportScope] = useState<ExamImportScope>('multiple_choice')
   const [mcPart, setMcPart] = useState<ExamPartSummary | null>(null)
@@ -231,6 +241,10 @@ export const ExamSessionView: React.FC = () => {
   const [sessionSearch, setSessionSearch] = useState('')
   const [sessionStatusFilter, setSessionStatusFilter] = useState<'all' | 'draft' | 'completed'>('all')
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<'grade' | 'results'>('grade')
+
+  useEffect(() => {
+    if (addedQuestionIndex !== null) addedQuestionRef.current?.focus()
+  }, [addedQuestionIndex])
 
   useEffect(() => {
     // Tải danh sách lớp học nếu store chưa có hoặc rỗng
@@ -358,6 +372,7 @@ export const ExamSessionView: React.FC = () => {
   )
 
   const handleOpenCreate = () => {
+    setAddedQuestionIndex(null)
     setStructuredPromptDrafts({})
     setStructuredAnswerDrafts({})
     setEditingExam(null)
@@ -378,6 +393,7 @@ export const ExamSessionView: React.FC = () => {
   }
 
   const handleOpenEdit = async () => {
+    setAddedQuestionIndex(null)
     setStructuredPromptDrafts({})
     setStructuredAnswerDrafts({})
     if (!activeSession) return
@@ -417,9 +433,36 @@ export const ExamSessionView: React.FC = () => {
     const update = (q: ExamQuestion) => q.index === index ? { ...q, ...patch } : q
     const questions = createForm.questions?.map(update) ?? []
     setCreateForm(f => ({ ...f, questions }))
-    const summary = (items: ExamQuestion[]) => items.length ? { questions: items, totalPoints: Math.round(items.reduce((sum, q) => sum + (q.points ?? 1), 0) * 100) / 100 } : null
-    setMcPart(summary(questions.filter(isObjectiveQuestion)))
-    setEssayPart(summary(questions.filter(q => !isObjectiveQuestion(q))))
+    setMcPart(summarizeExamPart(questions.filter(isObjectiveQuestion)))
+    setEssayPart(summarizeExamPart(questions.filter(q => !isObjectiveQuestion(q))))
+  }
+
+  // Carry each answer with its original question before indexes change.
+  const getQuestionDrafts = (): ExamQuestion[] => {
+    const questions = createForm.questions ?? (createForm.examType === 'written' ? []
+      : Array.from({ length: createForm.questionCount }, (_, i): ExamQuestion => ({
+        index: i + 1, type: 'multiple_choice', question: `Câu ${i + 1}`, isPlaceholder: true,
+        options: { A: '', B: '', C: '', D: '' },
+      })))
+    return questions.map(q => q.type === 'essay' ? q : { ...q, correctOption: createForm.answerKey[q.index] })
+  }
+
+  const handleAddQuestion = (type: 'multiple_choice' | 'essay') => {
+    const questions = getQuestionDrafts()
+    if (questions.length >= MAX_EXAM_QUESTIONS) return
+    const index = type === 'multiple_choice' ? questions.filter(q => q.type !== 'essay').length + 1 : questions.length + 1
+    questions.push({ index: questions.length + 1, type, question: '', points: 1,
+      ...(type === 'multiple_choice' ? { options: { A: '', B: '', C: '', D: '' } } : {}) })
+    applyImportedParts(summarizeExamPart(questions.filter(isObjectiveQuestion)), summarizeExamPart(questions.filter(q => !isObjectiveQuestion(q))), undefined, createForm.examType)
+    setAddedQuestionIndex(index)
+  }
+
+  const handleRemoveQuestion = async (index: number) => {
+    if (!await askConfirm({ title: `Xóa câu ${index}?`,
+      message: 'Câu hỏi sẽ được gỡ và các câu còn lại được đánh số lại. Thay đổi chỉ được lưu khi bạn lưu đề thi.',
+      confirmText: 'Xóa câu', variant: 'warning' })) return
+    const questions = getQuestionDrafts().filter(q => q.index !== index)
+    applyImportedParts(summarizeExamPart(questions.filter(isObjectiveQuestion)), summarizeExamPart(questions.filter(q => !isObjectiveQuestion(q))), undefined, createForm.examType)
   }
 
   // ─── UI-POLISH 2026-08-25: import theo từng phần ───
@@ -446,22 +489,23 @@ export const ExamSessionView: React.FC = () => {
     subject?: string
   }) => {
     const part: ExamPartSummary = { questions: data.questions, totalPoints: sumPointsOf(data.questions, 'essay') }
-    applyImportedParts(mcPart, part, data.subject)
+    applyImportedParts(summarizeExamPart(getQuestionDrafts().filter(isObjectiveQuestion)), part, data.subject)
     setReviewViewMode('details')
     setCreateError('')
   }
 
-  function applyImportedParts(objective: ExamPartSummary | null, essay: ExamPartSummary | null, subject?: string) {
+  function applyImportedParts(objective: ExamPartSummary | null, essay: ExamPartSummary | null, subject?: string, nextType?: ExamType) {
+    setAddedQuestionIndex(null)
     setStructuredPromptDrafts({})
     setStructuredAnswerDrafts({})
     const questions = mergeExamParts(objective, essay) ?? []
     const mc = questions.filter(q => q.type !== 'essay')
     const manual = questions.filter(q => q.type === 'essay')
-    setMcPart(objective)
-    setEssayPart(essay)
+    setMcPart(summarizeExamPart(questions.filter(isObjectiveQuestion)))
+    setEssayPart(summarizeExamPart(questions.filter(q => !isObjectiveQuestion(q))))
     setCreateForm(f => ({ ...f, subject: subject || f.subject, questions,
       questionCount: mc.length, answerKey: Object.fromEntries(mc.filter(q => q.correctOption).map(q => [q.index, q.correctOption!])),
-      examType: mc.length ? manual.length ? 'mixed' : 'multiple_choice' : 'written' }))
+      examType: nextType ?? (f.examType === 'mixed' ? 'mixed' : mc.length ? manual.length ? 'mixed' : 'multiple_choice' : 'written') }))
     setReviewViewMode('details')
     setCreateError('')
   }
@@ -471,7 +515,7 @@ export const ExamSessionView: React.FC = () => {
   }
 
   const removeEssayPart = () => {
-    applyImportedParts(mcPart, null)
+    applyImportedParts(summarizeExamPart(getQuestionDrafts().filter(isObjectiveQuestion)), null)
   }
 
   // UI-POLISH 2026-08-25: đổi hình thức → dọn phần đề không còn phù hợp
@@ -494,8 +538,8 @@ export const ExamSessionView: React.FC = () => {
     }
     if (next === 'multiple_choice') {
       if (createForm.questions?.length) {
-        const questions = createForm.questions.filter(q => q.type !== 'essay')
-        applyImportedParts(questions.length ? { questions, totalPoints: questions.reduce((sum, q) => sum + (q.points ?? 1), 0) } : null, null)
+        const questions = getQuestionDrafts().filter(q => q.type !== 'essay')
+        applyImportedParts(summarizeExamPart(questions), null, undefined, next)
         return
       }
       setEssayPart(null)
@@ -514,6 +558,15 @@ export const ExamSessionView: React.FC = () => {
     }
     if (!createForm.subject.trim()) {
       setCreateError('Vui lòng nhập tên bài kiểm tra / môn học.')
+      return
+    }
+    if ((createForm.questions?.length ?? 0) > MAX_EXAM_QUESTIONS) {
+      setCreateError(`Đề thi chỉ được có tối đa ${MAX_EXAM_QUESTIONS} câu. Hãy xóa bớt câu trước khi lưu.`)
+      return
+    }
+    const emptyQuestion = createForm.questions?.find(q => !q.question.trim())
+    if (emptyQuestion) {
+      setCreateError(`Câu ${emptyQuestion.index}: vui lòng nhập nội dung câu hỏi.`)
       return
     }
     const invalidLines = createForm.questions?.find(q => q.answerLineCount !== undefined && (!Number.isInteger(q.answerLineCount) || q.answerLineCount < 0 || q.answerLineCount > 100))
@@ -578,7 +631,7 @@ export const ExamSessionView: React.FC = () => {
       answerKey: createForm.examType === 'multiple_choice' || createForm.examType === 'mixed'
         ? (JSON.stringify(createForm.answerKey) as any)
         : undefined,
-      questions: createForm.questions ? JSON.stringify(createForm.questions) : undefined,
+      questions: createForm.questions?.length ? JSON.stringify(getQuestionDrafts()) : undefined,
     }
     setFormSaving(true)
     const session = editingExam
@@ -673,11 +726,17 @@ export const ExamSessionView: React.FC = () => {
   const hasExamInfo = Boolean((createForm.classId || effectiveClassId) && createForm.subject.trim())
   const hasHandGradedPart = Boolean(essayPart || mcPart?.questions.some(q => q.type === 'essay'))
   const hasExamParts = createForm.examType !== 'mixed' || Boolean(mcPart && hasHandGradedPart)
-  const hasAllAnswers = !requiresAnswerKey || completedAnswerCount === createForm.questionCount
-  const formReady = hasExamInfo && hasExamParts && hasAllAnswers
+  const hasAllAnswers = !requiresAnswerKey || (createForm.questionCount > 0 && completedAnswerCount === createForm.questionCount)
+  const draftQuestionCount = createForm.questions?.length ?? (requiresAnswerKey ? createForm.questionCount : 0)
+  const emptyQuestion = createForm.questions?.find(q => !q.question.trim())
+  const formReady = hasExamInfo && hasExamParts && hasAllAnswers && !emptyQuestion && draftQuestionCount <= MAX_EXAM_QUESTIONS
+  const continueImportToEssay = importScope === 'multiple_choice' && createForm.examType === 'mixed'
   const readinessMessage = !(createForm.classId || effectiveClassId) ? 'Chọn lớp học để tiếp tục'
     : !createForm.subject.trim() ? 'Nhập tên bài kiểm tra để tiếp tục'
+    : draftQuestionCount > MAX_EXAM_QUESTIONS ? `Đề thi chỉ được có tối đa ${MAX_EXAM_QUESTIONS} câu`
+    : emptyQuestion ? `Nhập nội dung câu ${emptyQuestion.index} để tiếp tục`
     : !hasExamParts ? 'Nạp đủ phần trắc nghiệm và tự luận'
+    : requiresAnswerKey && createForm.questionCount === 0 ? 'Thêm hoặc import ít nhất một câu trắc nghiệm'
     : !hasAllAnswers ? `Điền đáp án cho ${createForm.questionCount - completedAnswerCount} câu còn thiếu`
     : editingExam ? 'Sẵn sàng lưu thay đổi' : 'Sẵn sàng tạo phiên chấm'
 
@@ -1667,8 +1726,10 @@ export const ExamSessionView: React.FC = () => {
                   {requiresAnswerKey ? `Đáp án: ${completedAnswerCount}/${createForm.questionCount} câu · ` : ''}{readinessMessage}
                 </p>
               </div>
-              <div className="flex gap-2 shrink-0">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
                 <Button variant="secondary" className="flex-1 sm:flex-none" onClick={closeCreateModal} disabled={formSaving}>Hủy</Button>
+                <Button variant="secondary" className="col-span-2 order-first sm:order-none" leadingIcon={<Eye size={16} />}
+                  disabled={formSaving || !createForm.questions?.length} onClick={event => { event.currentTarget.focus(); setShowDraftPreview(true) }}>Xem trước đề</Button>
                 <Button className="flex-1 sm:flex-none" onClick={handleCreate} disabled={!formReady || formSaving}
                   leadingIcon={formSaving ? <Loader2 size={16} className="animate-spin" /> : editingExam ? <Save size={16} /> : <Plus size={16} />}>
                   {formSaving ? 'Đang lưu…' : editingExam ? 'Lưu đề thi' : 'Tạo Phiên'}
@@ -1691,6 +1752,7 @@ export const ExamSessionView: React.FC = () => {
             <div className="mb-3.5 space-y-2 rounded-xl border border-surface-border p-3">
               <Button variant="secondary" leadingIcon={<Upload size={14} />} onClick={() => { setImportScope('both'); setShowImportModal(true) }}>Nhập toàn bộ đề kiểm tra</Button>
               <p className="m-0 text-xs text-text-muted">Tự nhận diện A–D, điền khuyết, nối / ghép cột và tự luận nhiều ý. Hình thức chấm được chọn theo nội dung đã nhập.</p>
+              {!createForm.questions?.length && <p className="m-0 text-xs text-text-muted">Nhập nội dung câu hỏi để bật Xem trước đề.</p>}
               {createForm.questions?.some(q => q.responseFormat) && <p className="m-0 text-xs text-parish-info">Điền khuyết và ghép cột chấm bằng nhập điểm; chỉ câu chọn A–D có ô OMR.</p>}
             </div>
             <div className="min-w-0 lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4">
@@ -2164,6 +2226,7 @@ export const ExamSessionView: React.FC = () => {
                               inputMode="numeric"
                               min={1}
                               max={50}
+                              disabled={createForm.questions !== undefined}
                               value={createForm.questionCount}
                               onChange={e => {
                                 const n = Math.min(50, Math.max(1, Number(e.target.value) || 20))
@@ -2176,7 +2239,7 @@ export const ExamSessionView: React.FC = () => {
                               }}
                               className="w-16 min-h-[36px] px-2 py-1 rounded-lg border border-surface-border bg-surface-card text-center font-bold text-xs focus:border-parish-primary focus:outline-none"
                             />
-                            <span className="text-xs text-text-muted">(1–50, khớp mẫu phiếu)</span>
+                            <span className="text-xs text-text-muted">{createForm.questions !== undefined ? 'Dùng nút thêm / xóa câu để đổi số câu.' : '(1–50, khớp mẫu phiếu)'}</span>
                           </div>
 
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -2312,19 +2375,31 @@ export const ExamSessionView: React.FC = () => {
 
               {(editingExam || createForm.questions?.length) && (
                 <div className="lg:col-span-12 flex flex-col gap-3 mt-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="m-0 text-sm font-extrabold text-text-main">Nội dung câu hỏi · {draftQuestionCount}/{MAX_EXAM_QUESTIONS}</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {createForm.examType !== 'written' && <Button variant="secondary" size="sm" className="mobile-touch-target" leadingIcon={<Plus size={14} />}
+                        disabled={draftQuestionCount >= MAX_EXAM_QUESTIONS} onClick={() => handleAddQuestion('multiple_choice')}>Thêm câu trắc nghiệm</Button>}
+                      {createForm.examType !== 'multiple_choice' && <Button variant="secondary" size="sm" className="mobile-touch-target" leadingIcon={<Plus size={14} />}
+                        disabled={draftQuestionCount >= MAX_EXAM_QUESTIONS} onClick={() => handleAddQuestion('essay')}>Thêm câu tự luận</Button>}
+                    </div>
+                  </div>
                   {editingExam && <p className="m-0 rounded-xl p-3 text-xs bg-parish-warning-bg text-parish-warning">
                     Chỉ sửa được khi phiên chưa chấm bài nào. Sau khi lưu, hãy in lại đề và phiếu trả lời.
                     {editingExam.session.variantManifests ? ' Các mã đề A–H hiện có sẽ được tạo lại đồng bộ khi đổi câu hỏi hoặc đáp án.' : ' Khi đổi cấu trúc đề, các đáp án mã B–H cũ sẽ được bỏ; hãy thiết lập lại nếu cần.'}
                   </p>}
                   {!editingExam && <p className="m-0 text-xs text-text-muted">Khi lưu đề, câu hỏi chưa có sẽ tự được lưu nháp vào ngân hàng cùng ngành và khối của lớp. Nếu đang ngoại tuyến, câu hỏi được thêm khi đồng bộ thành công.</p>}
+                  {!createForm.questions?.length && <EmptyState icon={BookOpen} title="Bổ sung nội dung câu hỏi"
+                    description="Thêm câu hỏi hoặc import đề để chỉnh nội dung, phương án và hướng dẫn chấm ngay tại đây." />}
                   {createForm.questions?.map(q => (
-                    <details key={q.index} className="rounded-xl border border-surface-border bg-surface-card">
+                    <details key={q.index} open={addedQuestionIndex === q.index || undefined} className="rounded-xl border border-surface-border bg-surface-card">
                       <summary className="mobile-touch-target cursor-pointer p-3 text-sm font-bold text-text-main">
                         Câu {q.index} · {q.question.slice(0, 80) || 'Chưa có nội dung'}
                       </summary>
                       <div className="p-3 pt-0 flex flex-col gap-2">
                       <label className="text-xs font-bold">Câu {q.index} ({questionFormatLabel(q)})
                         <textarea className="form-input w-full mt-1" rows={3} maxLength={2000}
+                          ref={addedQuestionIndex === q.index ? addedQuestionRef : undefined}
                           value={q.responseFormat ? structuredPromptDrafts[q.index] ?? structuredQuestionText(q) : q.question}
                           onChange={e => q.responseFormat ? setStructuredPromptDrafts(current => ({ ...current, [q.index]: e.target.value })) : handleQuestionEdit(q.index, { question: e.target.value })}
                           onBlur={e => { if (q.responseFormat) handleQuestionEdit(q.index, { question: e.target.value }) }} />
@@ -2338,6 +2413,7 @@ export const ExamSessionView: React.FC = () => {
                       </label>}
                       <StructuredQuestionPreview question={q} showAnswers />
                       {q.type !== 'essay' && q.options && (
+                        <>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                           {(['A', 'B', 'C', 'D'] as const).map(option => (
                             <label key={option} className="text-xs font-bold">Phương án {option} · Câu {q.index}
@@ -2346,7 +2422,19 @@ export const ExamSessionView: React.FC = () => {
                             </label>
                           ))}
                         </div>
+                        <label className="text-xs font-bold">Đáp án đúng · Câu {q.index}
+                          <select className="form-select w-full mt-1" value={createForm.answerKey[q.index] ?? ''}
+                            onChange={event => { setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [q.index]: event.target.value as 'A' | 'B' | 'C' | 'D' } })); setCreateError('') }}>
+                            <option value="" disabled>Chọn đáp án</option>
+                            {(['A', 'B', 'C', 'D'] as const).map(option => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        </label>
+                        </>
                       )}
+                      <label className="text-xs font-bold">{q.type === 'essay' ? 'Đáp án / hướng dẫn chấm' : 'Giải thích đáp án'} · Câu {q.index}
+                        <textarea className="form-input w-full mt-1" rows={2} maxLength={8000} value={q.explanation ?? ''}
+                          onChange={event => handleQuestionEdit(q.index, { explanation: event.target.value })} />
+                      </label>
                       <label className="text-xs font-bold">Điểm câu {q.index}
                         <input className="form-input w-full mt-1" type="number" min="0.01" max="100" step="0.01" value={q.points ?? ''}
                           onChange={e => handleQuestionEdit(q.index, { points: e.target.value ? Number(e.target.value) : undefined })} />
@@ -2359,6 +2447,10 @@ export const ExamSessionView: React.FC = () => {
                         </label>
                         <p id={`exam-answer-lines-help-${q.index}`} className="m-0 mt-1 text-xs text-text-muted">Để trống để tự động; nhập 0 để không chừa dòng. Áp dụng cho đề in và file Word.</p>
                       </div>}
+                      <div className="flex justify-end">
+                        <Button variant="danger" size="sm" className="mobile-touch-target" leadingIcon={<Trash2 size={14} />}
+                          aria-label={`Xóa câu ${q.index}`} onClick={() => handleRemoveQuestion(q.index)}>Xóa câu</Button>
+                      </div>
                       </div>
                     </details>
                   ))}
@@ -2381,8 +2473,10 @@ export const ExamSessionView: React.FC = () => {
       {showImportModal && (
         <React.Suspense fallback={null}>
         <ExamImportModal
+          key={importScope}
           isOpen={showImportModal}
           scope={importScope}
+          continueToEssay={continueImportToEssay}
           onClose={() => setShowImportModal(false)}
           onImport={(data) => {
             if (importScope === 'essay') handleEssayImport(data)
@@ -2393,8 +2487,22 @@ export const ExamSessionView: React.FC = () => {
               const summary = (questions: ExamQuestion[]) => questions.length ? { questions, totalPoints: questions.reduce((sum, q) => sum + (q.points ?? 1), 0) } : null
               applyImportedParts(summary(objective), summary(essay), data.subject)
             }
+            if (continueImportToEssay) setImportScope('essay')
+            else setShowImportModal(false)
           }}
         />
+        </React.Suspense>
+      )}
+
+      {showCreate && showDraftPreview && (
+        <React.Suspense fallback={null}>
+          <ExamDraftPreviewModal onClose={() => setShowDraftPreview(false)}
+            onConfirm={() => { setShowDraftPreview(false); void handleCreate() }}
+            confirmLabel={editingExam ? 'Lưu đề thi' : 'Tạo Phiên'} canConfirm={formReady && !formSaving}
+            readinessMessage={readinessMessage} subject={createForm.subject.trim() || 'Đề kiểm tra'}
+            classLabel={findClassById(createForm.classId || effectiveClassId || '')?.name || 'Chưa chọn lớp'}
+            academicYear={editingExam?.session.academicYear ?? useAcademicYearStore.getState().resolveActiveYear()}
+            scoreTypeLabel={SCORE_TYPE_LABELS[createForm.scoreType]} maxScore={createForm.maxScore} questions={getQuestionDrafts()} />
         </React.Suspense>
       )}
 

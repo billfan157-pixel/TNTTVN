@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
-import { questionFormatLabel } from '../../utils/structuredQuestions'
+import { questionFormatLabel, questionFormatSummary } from '../../utils/structuredQuestions'
 import { StructuredQuestionPreview } from './StructuredQuestionPreview'
 import { createPortal } from 'react-dom'
 import {
@@ -38,6 +38,9 @@ import { canSelectExternalExamVersion, resolvePrintableExamVersion } from '../..
 import type { ExamQuestion, ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { useEffectiveMode } from '../../hooks/useEffectiveMode'
+import { ModalShell } from '../common/ModalShell'
+import { ErrorState } from '../common/StateFeedback'
+import { Button } from '../common/ui'
 
 export type ExamDocType = 'exam_paper' | 'question_reader' | 'answer_sheet' | 'qr_sheet'
 
@@ -1225,3 +1228,87 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 }
 
 export default ExamPaperModal
+
+interface ExamDraftPreviewModalProps {
+  onClose: () => void
+  onConfirm: () => void
+  confirmLabel: string
+  canConfirm: boolean
+  readinessMessage: string
+  subject: string
+  classLabel: string
+  academicYear: string
+  scoreTypeLabel: string
+  maxScore: number
+  questions: ExamQuestion[]
+}
+
+export function ExamDraftPreviewModal({ onClose, onConfirm, confirmLabel, canConfirm, readinessMessage,
+  subject, classLabel, academicYear, scoreTypeLabel, maxScore, questions }: ExamDraftPreviewModalProps) {
+  const [showAnswerKey, setShowAnswerKey] = useState(false)
+  const [columns, setColumns] = useState<1 | 2>(2)
+  const [fullSize, setFullSize] = useState(false)
+  const [containerWidth, setContainerWidth] = useState(794)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const parishName = useSettingsStore(s => s.settings.parishName)
+  const dioceseName = useSettingsStore(s => s.settings.dioceseName)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const measure = () => { if (container.clientWidth > 0) setContainerWidth(container.clientWidth) }
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
+
+  const document = useMemo(() => {
+    try {
+      return { html: prepareExamDocumentForOutput(buildExamPaperHtml({ subject, classLabel, academicYear,
+        parishName, dioceseName, scoreTypeLabel, questions, showAnswerKey, layoutColumns: columns,
+        includeExplanations: true, draftPreview: true })), error: null }
+    } catch (error) {
+      return { html: '', error: error instanceof Error ? error.message : 'Không thể hiển thị đề. Hãy kiểm tra lại nội dung.' }
+    }
+  }, [subject, classLabel, academicYear, parishName, dioceseName, scoreTypeLabel, questions, showAnswerKey, columns])
+  const scale = fullSize ? 1 : Math.min(1, containerWidth / 794)
+
+  return <ModalShell isOpen onClose={onClose} title="Xem trước đề thi" icon={<Eye size={20} />} maxWidth="1024px"
+    subtitle={`${subject} · ${classLabel} · ${academicYear}`}
+    footer={<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <p className={`m-0 text-xs ${canConfirm ? 'text-parish-success' : 'text-text-muted'}`}>{readinessMessage}</p>
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0">
+        <Button variant="secondary" onClick={onClose}>Chỉnh sửa tiếp</Button>
+        <Button disabled={!canConfirm || Boolean(document.error)} onClick={onConfirm}>{confirmLabel}</Button>
+      </div>
+    </div>}>
+    <div className="flex flex-col gap-3">
+      <p className="m-0 text-xs text-text-secondary">{questionFormatSummary(questions)} · Thang điểm {maxScore}. Bản xem trước chưa lưu; mã quét có ở bản in sau khi lưu đề.</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="mobile-touch-target flex items-center gap-2 text-xs font-semibold">
+          <input type="checkbox" checked={showAnswerKey} onChange={event => setShowAnswerKey(event.target.checked)} /> Hiện đáp án
+        </label>
+        <label className="flex items-center gap-2 text-xs font-semibold">Bố cục đề
+          <select className="form-select mobile-touch-target" value={columns} onChange={event => setColumns(Number(event.target.value) as 1 | 2)}>
+            <option value="1">1 cột</option><option value="2">2 cột</option>
+          </select>
+        </label>
+        <Button variant="secondary" size="sm" className="mobile-touch-target" onClick={() => setFullSize(value => !value)}
+          leadingIcon={fullSize ? <ZoomOut size={14} /> : <ZoomIn size={14} />}>
+          {fullSize ? 'Vừa màn hình' : 'Phóng to 100%'}
+        </Button>
+      </div>
+      {document.error ? <ErrorState message={document.error} /> : <div ref={containerRef} className="w-full min-w-0 overflow-auto rounded-xl border border-surface-border bg-surface-app">
+        <div style={{ width: 794 * scale, height: 1123 * scale, margin: '0 auto' }}>
+          <iframe title="Xem trước đề thi chưa lưu" sandbox="" srcDoc={document.html} className="block border-0 bg-white"
+            style={{ width: 794, height: 1123, transform: `scale(${scale})`, transformOrigin: 'top left' }} />
+        </div>
+      </div>}
+    </div>
+  </ModalShell>
+}

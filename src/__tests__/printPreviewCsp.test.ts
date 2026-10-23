@@ -190,6 +190,22 @@ describe('CSP-SRCDOC-PREVIEW — tài liệu in mang <link> CSS cho preview prod
     expect(one).not.toContain('questions-wrapper cols-2">')
   })
 
+  it('keeps unsaved paper previews unissued while preserving the normal printable QR', () => {
+    const options = syncSingleOptions()
+    const draft = new DOMParser().parseFromString(buildExamPaperHtml({ ...options, draftPreview: true }), 'text/html')
+    const published = new DOMParser().parseFromString(buildExamPaperHtml(options), 'text/html')
+    expect(draft.querySelector('img[alt="QR"]')).toBeNull()
+    expect(draft.querySelector('.watermark')?.textContent).toBe('BẢN XEM TRƯỚC')
+    expect(draft.querySelector('.qr-label')?.textContent).toBe('MÃ QUÉT CÓ SAU KHI LƯU')
+    expect(published.querySelector('img[alt="QR"]')?.getAttribute('src')).toMatch(/^data:image\//)
+    expect(published.querySelectorAll('.question-block')).toHaveLength(draft.querySelectorAll('.question-block').length)
+    const answerDraft = new DOMParser().parseFromString(prepareExamDocumentForOutput(buildExamPaperHtml({
+      ...options, draftPreview: true, showAnswerKey: true,
+    })), 'text/html')
+    expect(answerDraft.querySelectorAll('.omr-corner-marker')).toHaveLength(0)
+    expect(answerDraft.querySelector('img[alt="QR"]')).toBeNull()
+  })
+
   it('màu phiếu thu/chi theo loại dùng class tĩnh trên body', () => {
     const base = {
       receiptNumber: 'PT-1',

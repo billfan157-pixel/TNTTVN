@@ -37,6 +37,7 @@ interface ExamImportModalProps {
    * ô import riêng trong Tạo Phiên Chấm; 'both' (mặc định) = đề gộp như cũ.
    */
   scope?: ExamImportScope
+  continueToEssay?: boolean
 }
 
 const SCOPE_META: Record<ExamImportScope, { title: string; subtitle: string }> = {
@@ -54,7 +55,7 @@ const SCOPE_META: Record<ExamImportScope, { title: string; subtitle: string }> =
   },
 }
 
-export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport, scope = 'both' }) => {
+export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClose, onImport, scope = 'both', continueToEssay = false }) => {
   const [activeTab, setActiveTab] = useState<'text' | 'file'>('text')
   const [rawText, setRawText] = useState('')
   const [previewResult, setPreviewResult] = useState<ExamParseResult | null>(null)
@@ -160,17 +161,16 @@ export const ExamImportModal: React.FC<ExamImportModalProps> = ({ isOpen, onClos
       totalPoints: previewResult.totalPoints,
       subject: detectedSubject || previewResult.rawSubject,
     })
-    onClose()
   }
 
   return (
     <ModalShell isOpen={isOpen} onClose={onClose} title={SCOPE_META[scope].title}
       subtitle={SCOPE_META[scope].subtitle} icon={<Sparkles size={20} />} maxWidth="980px"
       footer={<div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs text-text-muted">{previewResult?.ok ? `${previewResult.questionCount} câu sẵn sàng áp dụng` : 'Kiểm tra nội dung trước khi áp dụng'}</span>
+        <span className="text-xs text-text-muted">{continueToEssay ? 'Bước 1/2 · Nạp trắc nghiệm, sau đó tiếp tục với tự luận' : previewResult?.ok ? `${previewResult.questionCount} câu sẵn sàng áp dụng` : 'Kiểm tra nội dung trước khi áp dụng'}</span>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={onClose} className="btn btn-secondary">Hủy</button>
-          <button type="button" onClick={handleApply} disabled={!previewResult?.ok || !previewResult.questions.length} className="btn btn-primary"><Check size={14} /> Áp Dụng Vào Phiên Chấm</button>
+          <button type="button" onClick={handleApply} disabled={!previewResult?.ok || !previewResult.questions.length} className="btn btn-primary"><Check size={14} /> {continueToEssay ? 'Tiếp tục: Import Tự Luận' : 'Áp Dụng Vào Phiên Chấm'}</button>
         </div>
       </div>}>
 

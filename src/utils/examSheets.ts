@@ -375,6 +375,8 @@ export interface ExamPaperPrintOptions {
   includeGradingBox?: boolean
   includeStudentInfo?: boolean
   includeExplanations?: boolean
+  /** Unsaved form preview: retain the paper layout without issuing a scannable identity. */
+  draftPreview?: boolean
   sessionId?: string
   examVersion?: ExamVersionCode
   student?: {
@@ -1015,7 +1017,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
             })
           : buildExamQrPayload(sessionId, student.id))
       : `tntt-exam:${sessionId}:GENERIC`
-  const qrDataUrl = generateExamQrDataUrl(qrPayload, 4)
+  const qrDataUrl = options.draftPreview ? '' : generateExamQrDataUrl(qrPayload, 4)
 
   // Bảng ma trận phiếu trả lời trắc nghiệm tích hợp (gộp trực tiếp trên tờ đề)
   let answerGridHtml = ''
@@ -1076,7 +1078,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
           ${mcQuestions.map(q => `
             <div class="key-cell">
               <span class="key-q">C${q.index}:</span>
-              <span class="key-ans">${q.correctOption}</span>
+              <span class="key-ans">${escapeHtml(q.correctOption ?? '—')}</span>
             </div>
           `).join('')}
         </div>
@@ -1135,7 +1137,7 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
 <body>
   <div class="Section1">
     <div class="exam-paper-container">
-      <div class="watermark">${escapeHtml(showAnswerKey ? 'ĐÁP ÁN GIÁO VIÊN' : (parishName || 'TNTT'))}</div>
+      <div class="watermark">${escapeHtml(showAnswerKey ? 'ĐÁP ÁN GIÁO VIÊN' : options.draftPreview ? 'BẢN XEM TRƯỚC' : (parishName || 'TNTT'))}</div>
       <div class="paper-header">
         <div class="header-logo">
           <img src="${PARISH_LOGO_DATA_URI}" alt="Logo Xứ Đoàn Đức Mẹ Fatima" class="parish-logo" style="width:52px;height:52px;object-fit:contain;" />
@@ -1153,9 +1155,9 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
         </div>
         <div class="header-qr-zone">
           <div class="qr-box">
-            <img src="${qrDataUrl}" width="105" height="105" alt="QR" style="display: block; width: 105px; height: 105px; margin: 0 auto;" />
+            ${options.draftPreview ? '<div style="height:105px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:11px;">XEM TRƯỚC<br>CHƯA LƯU</div>' : `<img src="${qrDataUrl}" width="105" height="105" alt="QR" style="display: block; width: 105px; height: 105px; margin: 0 auto;" />`}
           </div>
-          <div class="qr-label">${showAnswerKey ? 'ĐÁP ÁN GLV — KHÔNG CHẤM' : 'MÃ QUÉT TỰ ĐỘNG'}</div>
+          <div class="qr-label">${options.draftPreview ? 'MÃ QUÉT CÓ SAU KHI LƯU' : showAnswerKey ? 'ĐÁP ÁN GLV — KHÔNG CHẤM' : 'MÃ QUÉT TỰ ĐỘNG'}</div>
         </div>
       </div>
 
