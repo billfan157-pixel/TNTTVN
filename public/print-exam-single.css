@@ -78,7 +78,7 @@
        106%, khiến browser/driver in tự shrink khác nhau và làm QR/header lệch. */
     .paper-header {
       display: grid;
-      grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1.12fr) 122px;
+      grid-template-columns: 66px minmax(0, 1fr) minmax(0, 1.12fr) 122px;
       column-gap: 10px;
       align-items: center;
       width: 100%;
@@ -88,7 +88,7 @@
       margin-bottom: 6px;
     }
     .header-logo { display: flex; align-items: center; justify-content: center; }
-    .header-logo .parish-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+    .header-logo .parish-logo { width: 60px; height: 60px; object-fit: contain; flex-shrink: 0; }
     .header-left {
       text-align: center;
       width: auto;
