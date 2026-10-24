@@ -19,6 +19,7 @@ import {
   ArrowUpDown,
 } from 'lucide-react'
 import { useStudentStore } from '../../stores/studentStore'
+import { createStudentSearchMatcher } from '../../utils/studentSearch'
 import { useAttendanceStore } from '../../stores/attendanceStore'
 import { useClassStore } from '../../stores/classStore'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -114,18 +115,12 @@ export const DesktopAttendanceSummary: React.FC = () => {
 
   // Lọc danh sách học sinh theo Search & Status
   const filteredSummaries = useMemo(() => {
+    const matchesSearch = createStudentSearchMatcher(searchQuery)
     return summaries.filter((item) => {
       if (statusFilter !== 'all' && (item.overall.totalSessions === 0 || item.overall.status !== statusFilter)) {
         return false
       }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim()
-        const matchName = item.student.fullName.toLowerCase().includes(q)
-        const matchCode = item.student.code.toLowerCase().includes(q)
-        const matchHoly = (item.student.holyName || '').toLowerCase().includes(q)
-        if (!matchName && !matchCode && !matchHoly) return false
-      }
-      return true
+      return matchesSearch(item.student)
     })
   }, [summaries, statusFilter, searchQuery])
 

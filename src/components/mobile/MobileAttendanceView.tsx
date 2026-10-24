@@ -22,6 +22,7 @@ import { useFilterStore } from '../../stores/filterStore'
 import { getFilteredClassList, scopeClassesForAssignedWrites, useClassStore } from '../../stores/classStore'
 import { useAuth } from '../../hooks/useAuth'
 import { getDefaultDate } from '../../utils/getDefaultDate'
+import { createStudentSearchMatcher } from '../../utils/studentSearch'
 import { getLiturgicalDay } from '../../utils/liturgicalEngine'
 import { LITURGICAL_COLORS } from '../../constants/liturgical'
 import { StudentName } from '../common/StudentName'
@@ -108,17 +109,11 @@ export const MobileAttendanceView: React.FC = () => {
   )
 
   const displayedStudents = useMemo(() => {
+    const matchesSearch = createStudentSearchMatcher(searchQuery)
     return filteredStudents.filter(student => {
       const draft = attendanceMap[student.id] || { status: 'Present', note: '' }
       if (statusFilter !== 'all' && draft.status !== statusFilter) return false
-      if (searchQuery.trim() !== '') {
-        const q = searchQuery.toLowerCase().trim()
-        const matchHoly = (student.holyName || '').toLowerCase().includes(q)
-        const matchFull = (student.fullName || '').toLowerCase().includes(q)
-        const matchCode = (student.code || '').toLowerCase().includes(q)
-        if (!matchHoly && !matchFull && !matchCode) return false
-      }
-      return true
+      return matchesSearch(student)
     })
   }, [filteredStudents, attendanceMap, statusFilter, searchQuery])
 

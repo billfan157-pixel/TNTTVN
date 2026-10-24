@@ -106,13 +106,13 @@ describe('MobileReportsView', () => {
     vi.clearAllMocks()
     vi.mocked(fetchOfficialAcademicYearReports).mockResolvedValue(officialReports as any)
   })
-  it('filters the print list by name, holy name, or student code', async () => {
+  it.each(['TN-001', 'an nguyen', 'NVA', 'nguyenvanan', 'phero an'])('filters the print list by name, holy name, initials, or student code: %s', async query => {
     render(<MobileReportsView onPrintReport={vi.fn()} />)
     await screen.findByText('35/35 em')
 
     expect(screen.getByText('35/35 em')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('searchbox', { name: 'Tìm học sinh để in kết quả' }), {
-      target: { value: 'TN-001' },
+      target: { value: query },
     })
 
     expect(screen.getByText('1/35 em')).toBeInTheDocument()

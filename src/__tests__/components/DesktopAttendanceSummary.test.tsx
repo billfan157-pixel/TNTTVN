@@ -77,11 +77,11 @@ describe('DesktopAttendanceSummary Component Tests', () => {
     expect(screen.getAllByText(/Lê Văn Nam/).length).toBeGreaterThan(0)
   })
 
-  it('filters students in matrix table by search input', () => {
+  it.each(['Mai', 'mai tran', 'TTM', 'tranthimai', 'TN-001'])('filters students in matrix table by search input: %s', query => {
     render(<DesktopAttendanceSummary />)
 
     const searchInput = screen.getByPlaceholderText('Tìm theo tên hoặc mã học sinh...')
-    fireEvent.change(searchInput, { target: { value: 'Mai' } })
+    fireEvent.change(searchInput, { target: { value: query } })
 
     const table = screen.getByRole('table')
     expect(within(table).getByText(/Trần Thị Mai/)).toBeDefined()

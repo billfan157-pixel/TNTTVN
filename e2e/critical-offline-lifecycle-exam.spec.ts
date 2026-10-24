@@ -179,7 +179,9 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     await dialog.getByRole('button', { name: /Giữa Kỳ/ }).click()
     await dialog.getByRole('textbox', { name: 'Môn hoặc nội dung kiểm tra' }).fill(subject)
     await dialog.getByRole('spinbutton', { name: 'Số câu hỏi trắc nghiệm' }).fill('5')
-    await dialog.getByRole('button', { name: 'Toàn A' }).click()
+    for (let question = 1; question <= 5; question++) {
+      await dialog.getByRole('button', { name: `Câu ${question}, đáp án A`, exact: true }).click()
+    }
 
     const createResponsePromise = page.waitForResponse(response => (
       response.url().endsWith('/api/exams')

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useUIStore } from '../../stores/uiStore';
 import { compareStudentByName, sortStudentsByClassHierarchy } from '../../utils/classSort';
-import { createStudentSearchMatcher } from '../../utils/studentSearch';
+import { searchStudents } from '../../utils/studentSearch';
 import { SkeletonTable, NoResultState } from '../common/StateFeedback';
 import { StudentName } from '../common/StudentName';
 import { Button, IconButton } from '../common/ui/Button';
@@ -94,14 +94,15 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
   // Khi không chọn cấp bậc lớp, mặc định xếp họ tên A–Z.
   const [sortClassDirection, setSortClassDirection] = React.useState<'asc' | 'desc' | null>(null)
 
-  const filteredStudents = React.useMemo(() => {
-    const matchesSearch = createStudentSearchMatcher(searchQuery);
-    return students.filter(s => {
+  const searchResult = React.useMemo(() => {
+    const scopedStudents = students.filter(s => {
       if (selectedBranchId !== 'all' && s.branch !== selectedBranchId) return false;
       if (selectedClassId !== 'all' && s.classId !== selectedClassId) return false;
-      return matchesSearch(s);
+      return true;
     });
+    return searchStudents(scopedStudents, searchQuery);
   }, [students, selectedBranchId, selectedClassId, searchQuery]);
+  const filteredStudents = searchResult.students;
 
   const sortedStudents = React.useMemo(() => {
     if (!sortClassDirection) return [...filteredStudents].sort(compareStudentByName)
@@ -243,10 +244,11 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           <Search size={16} className="text-text-placeholder absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <TextInput
             aria-label="Tìm thiếu nhi"
+            aria-describedby="mobile-student-search-help"
             type="text"
             inputMode="search"
             placeholder="Tìm tên thánh, họ tên hoặc mã..."
-            title="Tìm tên thánh, họ tên hoặc mã; có thể nhập không dấu và nhiều từ khác thứ tự"
+            title="Tìm tên thánh, họ tên, mã hoặc chữ viết tắt; hỗ trợ không dấu và tên gõ liền"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             className="w-full min-h-[44px] rounded-xl text-sm"
@@ -319,6 +321,12 @@ export const MobileStudentsView: React.FC<MobileStudentsViewProps> = ({
           )}
         </div>}
       </div>
+
+      <p id="mobile-student-search-help" className="text-xs text-text-muted" role={searchResult.isApproximate ? 'status' : undefined}>
+        {searchResult.isApproximate
+          ? 'Không có kết quả khớp từ khóa. Đang gợi ý tên gần đúng; hãy kiểm tra họ tên và mã học viên.'
+          : 'Tìm không dấu, đảo thứ tự từ, gõ liền hoặc viết tắt tên. Ví dụ: Nguyễn Đình Đức → duc nguyen, nguyendinhduc, NĐĐ.'}
+      </p>
 
       {/* Catalog lớp và roster dùng chung một workspace, không còn tab lặp. */}
       {!showRoster && (

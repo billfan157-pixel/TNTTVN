@@ -20,7 +20,7 @@ for (const width of [1280, 390, 320]) {
     await create.getByRole('textbox', { name: 'Môn hoặc nội dung kiểm tra' }).fill(testKey(testInfo, 'Actions'))
     await create.getByRole('button', { name: /Trắc nghiệm/ }).click()
     await create.getByRole('spinbutton', { name: 'Số câu hỏi trắc nghiệm' }).fill('2')
-    await create.getByRole('button', { name: 'Toàn A', exact: true }).click()
+    await create.getByRole('button', { name: 'Câu 1, đáp án A', exact: true }).click()
     await create.getByRole('button', { name: 'Câu 2, đáp án D', exact: true }).click()
     const created = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/exams'))
     await create.getByRole('button', { name: 'Tạo Phiên', exact: true }).click()

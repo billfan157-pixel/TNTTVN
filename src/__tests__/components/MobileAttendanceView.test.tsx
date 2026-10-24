@@ -151,6 +151,21 @@ describe('MobileAttendanceView', () => {
     expect(screen.getByText('2 chưa lưu')).toBeInTheDocument()
   })
 
+  it('finds abbreviated names and keyword combinations inside the selected class without changing attendance', async () => {
+    mocks.selectedClassId = 'class-a'
+    render(<MobileAttendanceView />)
+    await screen.findByRole('list', { name: 'Danh sách điểm danh gồm 2 thiếu nhi' })
+    const search = screen.getByLabelText('Tìm thiếu nhi trong lớp')
+    for (const query of ['DNBA', 'dongocbaoan', 'an do teresa']) {
+      fireEvent.change(search, { target: { value: query } })
+      expect(screen.getByRole('group', { name: 'Trạng thái của Têrêsa Đỗ Ngọc Bảo An' })).toBeInTheDocument()
+      expect(screen.queryByRole('group', { name: 'Trạng thái của Giuse Nguyễn Hoàng Gia An' })).not.toBeInTheDocument()
+    }
+    fireEvent.change(search, { target: { value: 'tbn' } })
+    expect(screen.queryByRole('group', { name: 'Trạng thái của Maria Trần Bảo Ngọc' })).not.toBeInTheDocument()
+    expect(mocks.batchSaveAttendance).not.toHaveBeenCalled()
+  })
+
   it('preserves an unsaved change when unchanged attendance and roster hydrate late', async () => {
     mocks.selectedClassId = 'class-a'
     mocks.attendance = mocks.students.filter(s => s.classId === 'class-a').map(s => ({

@@ -15,7 +15,7 @@ for (const width of [1280, 320]) {
     const dialog = page.getByRole('dialog', { name: 'Tạo Phiên Chấm', exact: true })
     await dialog.getByRole('combobox', { name: 'Lớp học cho phiên chấm' }).selectOption('CLS-TN-1')
     await dialog.getByRole('textbox', { name: 'Môn hoặc nội dung kiểm tra' }).fill(subject)
-    await dialog.getByRole('button', { name: 'Nhập toàn bộ đề kiểm tra', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Nhập đề kiểm tra', exact: true }).click()
     const importer = page.getByRole('dialog', { name: 'Import Đề Thi Thông Minh', exact: true })
     await importer.getByRole('textbox', { name: 'Nội dung đề thi', exact: true }).fill(`PHẦN I. TRẮC NGHIỆM (2 điểm)
 Câu 1: Chọn số hai. ${subject}

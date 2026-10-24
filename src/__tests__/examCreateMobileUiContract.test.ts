@@ -10,7 +10,8 @@ const source = readFileSync(
 describe('create exam session mobile UI contract', () => {
   it('uses a bottom sheet on mobile with an accessible close action', () => {
     expect(source).toContain('<ModalShell isOpen={showCreate}')
-    expect(source).toContain('closeCreateModal()')
+    expect(source).toContain('onClose={editorExit.requestExit}')
+    expect(source).toContain('onExit: closeCreateModal')
     const shell = readFileSync(resolve(process.cwd(), 'src/components/common/ModalShell.tsx'), 'utf8')
     expect(shell).toContain('useAccessibleDialog')
     expect(shell).toContain('mobile-sheet-grabber')
@@ -25,17 +26,10 @@ describe('create exam session mobile UI contract', () => {
     expect(shell).toContain('modal-content__body flex-1 overflow-y-auto')
   })
 
-  it('uses touch-sized answer choices and one question row per mobile grid row', () => {
-    expect(source).toContain('grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5')
-    expect(source).toContain('w-11 h-11 sm:w-auto sm:h-7.5')
+  // Layout and effective touch sizes are measured in exam-session-editor.spec.ts.
+  it('gives every answer choice a question-specific accessible name and selected state', () => {
     expect(source).toContain('aria-label={`Câu ${q}, đáp án ${opt}`}')
-  })
-
-  it('expands into a structured desktop grid without duplicating the form', () => {
-    expect(source).toContain('maxWidth="1024px"')
-    expect(source).toContain('lg:grid lg:grid-cols-12 lg:items-start lg:gap-x-4')
-    expect(source).toContain("createForm.examType === 'written' ? 'lg:col-span-12' : 'lg:col-span-5'")
-    expect(source).toContain('lg:col-span-7')
+    expect(source).toContain('aria-pressed={current === opt}')
   })
 
   it('renders each session card as a keyboard-operable button', () => {

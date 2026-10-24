@@ -145,4 +145,37 @@ describe.each(['desktop', 'mobile'] as const)('%s roster alphabetical default', 
     expect(screen.getAllByText('Nguyễn Đình Đức')).toHaveLength(1)
     expect(screen.getByText('Trần Đình Đức')).toBeInTheDocument()
   })
+
+  it('finds initials and compact names, labels typo suggestions, and never widens the selected scope', () => {
+    useFilterStore.setState({ selectedBranchId: 'AuNhi' })
+    useStudentStore.setState({ students: [
+      { ...students[0], fullName: 'Nguyễn Đình Đức', holyName: 'Giuse', code: 'TN-001' },
+      // An exact name outside the selected class/branch must not suppress an in-scope suggestion.
+      { ...students[1], fullName: 'Nguyne Đình Đức', classId: 'class-other' },
+      { ...students[2], fullName: 'Nguyne Đình Đức', branch: 'ThieuNhi' },
+      { ...students[3], fullName: 'Trần Văn An' },
+    ] })
+    renderRoster()
+    const search = screen.getByRole('textbox', { name: 'Tìm thiếu nhi' })
+
+    for (const query of ['NĐĐ', 'nguyendinhduc', 'Giuse đđ']) {
+      fireEvent.change(search, { target: { value: query } })
+      expect(screen.getByText('Nguyễn Đình Đức')).toBeInTheDocument()
+      expect(screen.queryByText('Trần Văn An')).not.toBeInTheDocument()
+      expect(screen.queryByText(/Đang gợi ý tên gần đúng/)).not.toBeInTheDocument()
+    }
+
+    fireEvent.change(search, { target: { value: 'nguyne duc' } })
+    expect(screen.getByText('Nguyễn Đình Đức')).toBeInTheDocument()
+    expect(screen.queryByText('Nguyne Đình Đức')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Đang gợi ý tên gần đúng')
+
+    fireEvent.change(search, { target: { value: 'TN002' } })
+    expect(screen.queryByText('Nguyễn Đình Đức')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Đang gợi ý tên gần đúng/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Xóa tìm kiếm'))
+    expect(screen.getByText('Nguyễn Đình Đức')).toBeInTheDocument()
+    expect(screen.getByText('Trần Văn An')).toBeInTheDocument()
+    expect(useFilterStore.getState().selectedClassId).toBe('class-1')
+  })
 })

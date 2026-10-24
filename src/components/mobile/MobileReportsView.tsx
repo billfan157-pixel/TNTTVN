@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
+import { createStudentSearchMatcher } from '../../utils/studentSearch';
 import { useFilterStore } from '../../stores/filterStore';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
 import { useSemesterAccess } from '../../hooks/useSemesterAccess';
@@ -202,13 +203,7 @@ export const MobileReportsView: React.FC<MobileReportsViewProps> = ({ onPrintRep
   }, [officialByStudentId, mergedStudents, selectedClassId]);
 
   const filteredStudents = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLocaleLowerCase('vi');
-    if (!normalizedQuery) return classStudents;
-    return classStudents.filter(student => (
-      `${student.holyName || ''} ${student.fullName} ${student.code}`
-        .toLocaleLowerCase('vi')
-        .includes(normalizedQuery)
-    ));
+    return classStudents.filter(createStudentSearchMatcher(searchQuery));
   }, [searchQuery, classStudents]);
 
   useEffect(() => {

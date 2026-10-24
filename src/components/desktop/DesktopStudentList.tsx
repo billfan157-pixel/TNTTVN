@@ -24,7 +24,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { EmptyState, NoResultState } from '../common/StateFeedback';
 import { compareClassHierarchy, compareStudentByName } from '../../utils/classSort';
-import { createStudentSearchMatcher } from '../../utils/studentSearch';
+import { searchStudents } from '../../utils/studentSearch';
 import type { Student } from '../../types';
 import { Button, IconButton } from '../common/ui/Button';
 import { Select, TextInput } from '../common/ui/FormControls';
@@ -78,14 +78,15 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
   React.useEffect(() => { setPageIndex(0) }, [selectedClassId, selectedBranchId, searchQuery]);
 
   // Filter logic
-  const filteredStudents = useMemo(() => {
-    const matchesSearch = createStudentSearchMatcher(searchQuery);
-    return students.filter((s) => {
+  const searchResult = useMemo(() => {
+    const scopedStudents = students.filter((s) => {
       const matchClass = selectedClassId === 'all' || s.classId === selectedClassId;
       const matchBranch = selectedBranchId === 'all' || s.branch === selectedBranchId;
-      return matchClass && matchBranch && matchesSearch(s);
+      return matchClass && matchBranch;
     });
+    return searchStudents(scopedStudents, searchQuery);
   }, [students, selectedClassId, selectedBranchId, searchQuery]);
+  const filteredStudents = searchResult.students;
 
   const totalFiltered = filteredStudents.length;
   const totalPages = Math.ceil(totalFiltered / pageSize);
@@ -351,8 +352,11 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
             <TextInput
               density="sm"
               type="text"
+              inputMode="search"
+              aria-label="Tìm thiếu nhi"
+              aria-describedby="desktop-student-search-help"
               placeholder="Tìm theo tên, mã thiếu nhi..."
-              title="Tìm tên thánh, họ tên hoặc mã; có thể nhập không dấu và nhiều từ khác thứ tự"
+              title="Tìm tên thánh, họ tên, mã hoặc chữ viết tắt; hỗ trợ không dấu và tên gõ liền"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full h-8 text-xs font-medium rounded-xl !pl-8 !pr-7 bg-surface-hover text-text-main placeholder:text-text-placeholder focus:bg-surface-card transition-colors shadow-inner"
@@ -471,6 +475,12 @@ export const DesktopStudentList: React.FC<DesktopStudentListProps> = ({
           )}
         </div>
       </div>
+
+      <p id="desktop-student-search-help" className="text-xs text-text-muted" role={searchResult.isApproximate ? 'status' : undefined}>
+        {searchResult.isApproximate
+          ? 'Không có kết quả khớp từ khóa. Đang gợi ý tên gần đúng; hãy kiểm tra họ tên và mã học viên.'
+          : 'Tìm không dấu, đảo thứ tự từ, gõ liền hoặc viết tắt tên. Ví dụ: Nguyễn Đình Đức → duc nguyen, nguyendinhduc, NĐĐ.'}
+      </p>
 
       {/* Search shows students directly without changing the selected class. */}
       {!showRoster && (

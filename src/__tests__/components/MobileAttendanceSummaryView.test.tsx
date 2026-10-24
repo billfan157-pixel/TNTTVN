@@ -39,6 +39,19 @@ describe('Mobile attendance summary evidence states', () => {
     expect(within(dialog).getByText(/Chưa có điểm danh/)).toBeDefined()
   })
 
+  it('uses the shared name keywords without discarding the class filter', () => {
+    useStudentStore.setState({ students: [student,
+      { ...student, id: 'OTHER-CLASS', classId: 'OTHER-CLASS', fullName: 'Trần Thị Minh' },
+    ] })
+    render(<MobileAttendanceSummaryView />)
+    const search = screen.getByLabelText('Tìm thiếu nhi trong bảng tổng hợp')
+    fireEvent.change(search, { target: { value: 'ttm maria' } })
+    expect(screen.getByRole('button', { name: /Trần Thị Mai/ })).toBeInTheDocument()
+    expect(screen.queryByText(/Trần Thị Minh/)).not.toBeInTheDocument()
+    fireEvent.change(search, { target: { value: 'khong ton tai' } })
+    expect(screen.queryByRole('button', { name: /Trần Thị Mai/ })).not.toBeInTheDocument()
+  })
+
   it('still displays a recorded 100 percent result', () => {
     useAttendanceStore.setState({ attendance: [{ id: 'RECORDED', studentId: student.id, date: '2026-09-06', type: 'SundayMass', status: 'Present' }] })
     render(<MobileAttendanceSummaryView />)

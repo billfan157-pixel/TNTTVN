@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useStudentStore } from '../../stores/studentStore';
+import { createStudentSearchMatcher } from '../../utils/studentSearch';
 import { useFilterStore } from '../../stores/filterStore';
 import { BRANCHES } from '../../constants/branches';
 import { useAcademicYearStore } from '../../stores/academicYearStore';
@@ -109,13 +110,8 @@ export function DesktopReports({ onPrintReport }: DesktopReportsProps) {
   // Quick-print: tìm kiếm thay vì cap cứng 9 học sinh đầu tiên
   const QUICK_PRINT_LIMIT = 12;
   const matchedStudents = useMemo(() => {
-    const q = studentQuery.trim().toLowerCase();
     const eligible = mergedStudents.filter(s => officialByStudentId.has(s.id));
-    const base = q
-      ? eligible.filter(s =>
-          s.fullName.toLowerCase().includes(q) ||
-          (s.holyName || '').toLowerCase().includes(q))
-      : eligible;
+    const base = eligible.filter(createStudentSearchMatcher(studentQuery));
     return base.slice(0, QUICK_PRINT_LIMIT);
   }, [officialByStudentId, mergedStudents, studentQuery]);
 
