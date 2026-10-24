@@ -96,6 +96,10 @@ describe('examExporter', () => {
       expect(html).toContain('Tổng Giáo Phận Sài Gòn')
       expect(html).toContain('Khảo Sát Giáo Lý Khối Thêm Sức')
       expect(html).toContain('Thêm Sức 2')
+      expect(html).toContain('XỨ ĐOÀN ĐỨC MẸ FATIMA')
+      const logo = new DOMParser().parseFromString(html, 'text/html').querySelector<HTMLImageElement>('.parish-logo')
+      expect(logo?.style.width).toBe('60px')
+      expect(logo?.style.height).toBe('60px')
       expect(html).toContain('Mã đề: <strong>A (101)</strong>')
       expect(html).toContain('Thiên Chúa sáng tạo trời đất trong mấy ngày?')
       expect(html).toContain('Bí tích nào là khởi đầu đời sống Kitô hữu?')
@@ -275,6 +279,7 @@ describe('examExporter', () => {
       })
 
       expect(text).toContain('GIÁO XỨ MẪU TÂM')
+      expect(text).toContain('XỨ ĐOÀN ĐỨC MẸ FATIMA')
       expect(text).toContain('KIỂM TRA GIÁO LÝ')
       expect(text).toContain('Mã đề: B')
       expect(text).toContain('Câu 1: Thiên Chúa sáng tạo trời đất trong mấy ngày?')
@@ -312,6 +317,7 @@ describe('examExporter', () => {
       })
 
       expect(md).toContain('## ĐỀ KIỂM TRA: ĐỀ THI GIÁO LÝ')
+      expect(md).toContain('### XỨ ĐOÀN ĐỨC MẸ FATIMA')
       expect(md).toContain('**Lớp**: Vào Đời 1')
       expect(md).toContain('#### Câu 1: Thiên Chúa sáng tạo trời đất trong mấy ngày?')
       expect(md).toContain('| Câu | Đáp Án | Nội Dung |')

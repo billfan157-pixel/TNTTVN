@@ -248,13 +248,15 @@ export const ExamSessionView: React.FC = () => {
   const [reviewViewMode, setReviewViewMode] = useState<'matrix' | 'details'>('matrix')
   const editorRef = useRef<HTMLFieldSetElement>(null)
 
-  const goToEditorSection = (section: 'settings' | 'answers' | 'questions') => {
+  const goToEditorSection = (section: 'settings' | 'answers') => {
     const target = editorRef.current?.querySelector<HTMLElement>(`[data-editor-section="${section}"]`)
     target?.scrollIntoView({ block: 'start' })
     target?.focus({ preventScroll: true })
   }
 
   const goToQuestion = (index: number) => {
+    setReviewViewMode('details')
+    setAddedQuestionIndex(index)
     const question = editorRef.current?.querySelector<HTMLDetailsElement>(`[data-editor-question="${index}"]`)
     if (!question) return
     question.open = true
@@ -280,7 +282,7 @@ export const ExamSessionView: React.FC = () => {
 
   useEffect(() => {
     if (addedQuestionIndex !== null) addedQuestionRef.current?.focus()
-  }, [addedQuestionIndex])
+  }, [addedQuestionIndex, reviewViewMode])
 
   useEffect(() => {
     // Tải danh sách lớp học nếu store chưa có hoặc rỗng
@@ -457,7 +459,7 @@ export const ExamSessionView: React.FC = () => {
     setEditingExam(context)
     setCreateError('')
     setQuickKeyInput('')
-    setReviewViewMode('matrix')
+    setReviewViewMode(questions?.length ? 'details' : 'matrix')
     setShowCreate(true)
   }
 
@@ -1796,8 +1798,7 @@ export const ExamSessionView: React.FC = () => {
             <fieldset ref={editorRef} disabled={formSaving} className="exam-editor">
             <nav className="exam-editor-nav" aria-label="Đi đến phần của đề thi">
               <button type="button" onClick={() => goToEditorSection('settings')}><span>1</span>Thông tin</button>
-              <button type="button" onClick={() => goToEditorSection('answers')}><span>2</span>Đề &amp; đáp án</button>
-              <button type="button" onClick={() => goToEditorSection('questions')}><span>3</span>Câu hỏi</button>
+              <button type="button" onClick={() => goToEditorSection('answers')}><span>2</span>Câu hỏi &amp; đáp án</button>
               <span className="exam-editor-nav__status">{hasUnsavedChanges ? 'Có thay đổi chưa lưu' : editingExam ? 'Đang sửa đề đã tạo' : 'Đề kiểm tra mới'}</span>
             </nav>
             {editingExam && <div className="exam-editor-notice">
@@ -2043,23 +2044,13 @@ export const ExamSessionView: React.FC = () => {
               </div>
 
               <div className="exam-editor-content">
-                <div className="exam-editor-section-heading" data-editor-section="answers" tabIndex={-1}>
-                  <span className="exam-editor-section-heading__icon"><BookOpen size={18} /></span><div>
-                    <h4>Đề thi &amp; đáp án</h4><p>Nhập từ tệp có sẵn hoặc soạn nội dung bên dưới.</p>
-                  </div>
+                <div className="exam-editor-section-heading exam-editor-content-heading" data-editor-section="answers" tabIndex={-1}>
+                  <h4>Đề thi &amp; đáp án</h4>
+                  <Button variant="secondary" size="sm" className="exam-editor-import-action"
+                    aria-label="Nhập đề kiểm tra" title="Nhập từ Word, Excel hoặc dán văn bản"
+                    leadingIcon={<Upload size={14} />} onClick={() => { setImportScope('both'); setShowImportModal(true) }}>Nhập đề</Button>
                 </div>
-                <div className="exam-editor-import">
-                  <div className="exam-editor-import__main">
-                    <span className="exam-editor-import__icon"><Upload size={22} /></span>
-                    <div className="min-w-0"><strong>Bắt đầu từ đề có sẵn</strong>
-                      <p>Word, Excel hoặc dán văn bản. Tự nhận diện câu hỏi và đáp án.</p>
-                    </div>
-                    <Button variant="secondary" leadingIcon={<Upload size={16} />} onClick={() => { setImportScope('both'); setShowImportModal(true) }}>Nhập đề kiểm tra</Button>
-                  </div>
-                  {createForm.questions?.some(q => q.responseFormat) && <p className="m-0 text-xs text-parish-info">Điền khuyết và ghép cột chấm bằng nhập điểm; chỉ câu chọn A–D có ô OMR.</p>}
-                </div>
-              {createForm.examType !== 'written' && (
-                <>
+                {createForm.questions?.some(q => q.responseFormat) && <p className="m-0 text-xs text-parish-info">Điền khuyết và ghép cột chấm bằng nhập điểm; chỉ câu chọn A–D có ô OMR.</p>}
                   {createForm.examType === 'mixed' && <details className="exam-editor-parts">
                     <summary><Layers3 size={16} aria-hidden="true" /><span>Nhập riêng từng phần</span><ChevronDown size={16} aria-hidden="true" /></summary>
                     <p className="m-0 mb-3 text-xs text-text-muted">Dùng khi phần trắc nghiệm và tự luận nằm trong hai tệp riêng.</p>
@@ -2153,130 +2144,137 @@ export const ExamSessionView: React.FC = () => {
                   </details>}
 
                   {/* Answer Key Workspace */}
-                  <div className="exam-editor-answers flex flex-col gap-3">
-                    {/* Header Workspace */}
-                    <div className="flex items-center justify-between gap-2 flex-wrap pb-2 border-b border-surface-border/60">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-text-main flex items-center gap-1.5">
-                          <ListChecks size={14} className="text-parish-primary" />
-                          Đáp Án Chuẩn ({completedAnswerCount}/{createForm.questionCount})
-                        </span>
-                        {Boolean(createForm.questions && createForm.questions.length > 0) && (
-                          <span className="text-[11px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
-                            <CheckCircle2 size={11} /> {createForm.questions?.length} câu hỏi
-                          </span>
-                        )}
-                      </div>
-
-                      {Boolean(createForm.questions && createForm.questions.length > 0) && (
-                        <div className="flex items-center p-0.5 bg-surface-app rounded-lg border border-surface-border text-xs">
-                          <button
-                            type="button"
-                            onClick={() => setReviewViewMode('matrix')}
-                            aria-pressed={reviewViewMode === 'matrix'}
-                            className={`px-2.5 py-1 rounded-md font-bold transition-colors flex items-center gap-1 ${
-                              reviewViewMode === 'matrix'
-                                ? 'bg-surface-card text-parish-primary shadow-xs'
-                                : 'text-text-muted hover:text-text-main'
-                            }`}
-                          >
-                            <Grid3X3 size={12} /> Ma trận nhanh
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setReviewViewMode('details')}
-                            aria-pressed={reviewViewMode === 'details'}
-                            className={`px-2.5 py-1 rounded-md font-bold transition-colors flex items-center gap-1 ${
-                              reviewViewMode === 'details'
-                                ? 'bg-surface-card text-parish-primary shadow-xs'
-                                : 'text-text-muted hover:text-text-main'
-                            }`}
-                          >
-                            <BookOpen size={12} /> Chi tiết câu hỏi
-                          </button>
+                  <section className="exam-editor-answers flex flex-col gap-3" aria-label="Câu hỏi và đáp án chuẩn">
+                    <div className="exam-editor-answer-header">
+                      <div className="exam-editor-answer-header__main">
+                        <span className="exam-editor-answer-header__icon"><ListChecks size={19} aria-hidden="true" /></span>
+                        <div className="min-w-0">
+                          <h4>{requiresAnswerKey ? 'Đáp án chuẩn' : 'Câu hỏi & hướng dẫn chấm'}</h4>
+                          <p>{createForm.questions?.length ? questionFormatSummary(createForm.questions) : requiresAnswerKey ? `${createForm.questionCount} câu trắc nghiệm` : 'Soạn câu hỏi và hướng dẫn chấm tại đây.'}</p>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Mode 1: Detailed Question List View */}
-                    {reviewViewMode === 'details' && Boolean(createForm.questions && createForm.questions.length > 0) ? (
-                      <div className="flex flex-col gap-2.5 sm:max-h-60 sm:overflow-y-auto p-2 bg-surface-app rounded-xl border border-surface-border">
-                        {createForm.questions?.map((questionItem, idx) => {
-                          const qNum = questionItem.index || (idx + 1)
-                          const isEssay = questionItem.type === 'essay'
-                          const currentAnswer = createForm.answerKey[qNum]
-
-                          return (
-                            <div
-                              key={qNum}
-                              className="p-3 rounded-xl bg-surface-card border border-surface-border flex flex-col gap-2 transition-colors hover:border-parish-primary/30"
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className={`px-2 py-0.5 rounded-md text-[11px] font-black ${
-                                    isEssay ? 'bg-violet-500/10 text-violet-600 dark:text-violet-400' : 'bg-parish-primary/10 text-parish-primary'
-                                  }`}>
-                                    Câu {qNum} ({questionFormatLabel(questionItem)})
-                                  </span>
-                                  {questionItem.points !== undefined && (
-                                    <span className="text-[11px] text-text-muted font-bold">
-                                      {questionItem.points} điểm
-                                    </span>
-                                  )}
-                                </div>
-                                {!isEssay && (
-                                  <span className={`text-[11px] font-black px-2 py-0.5 rounded-md ${
-                                    currentAnswer
-                                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                      : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                                  }`}>
-                                    {currentAnswer ? `Đáp án đúng: ${currentAnswer}` : 'Chưa có đáp án'}
-                                  </span>
-                                )}
-                              </div>
-
-                              <p className="text-xs text-text-main font-semibold m-0 leading-relaxed whitespace-pre-line">
-                                {questionItem.question}
-                              </p>
-                              <StructuredQuestionPreview question={questionItem} showAnswers />
-
-                              {!isEssay && questionItem.options && (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mt-1">
-                                  {(['A', 'B', 'C', 'D'] as const).map(opt => {
-                                    const optText = questionItem.options?.[opt]
-                                    if (!optText && optText !== '') return null
-                                    const isSelected = currentAnswer === opt
-                                    return (
-                                      <button
-                                        key={opt}
-                                        type="button"
-                                        onClick={() => {
-                                          setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [qNum]: opt } }))
-                                          setCreateError('')
-                                        }}
-                                        className={`p-2 rounded-lg border text-left text-xs transition-colors flex items-start gap-2 ${
-                                          isSelected
-                                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-900 dark:text-emerald-100 font-bold shadow-xs'
-                                            : 'border-surface-border bg-surface-app text-text-secondary hover:bg-surface-hover hover:border-parish-primary/30'
-                                        }`}
-                                      >
-                                        <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 font-black text-xs ${
-                                          isSelected ? 'bg-emerald-600 text-white' : 'bg-surface-card text-text-muted border border-surface-border'
-                                        }`}>
-                                          {opt}
-                                        </span>
-                                        <span className="flex-1 leading-snug">{optText || `Phương án ${opt}`}</span>
-                                        {isSelected && <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />}
-                                      </button>
-                                    )
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
                       </div>
-                    ) : (
+                      {requiresAnswerKey && <div className="exam-editor-answer-progress" data-complete={hasAllAnswers}>
+                        {hasAllAnswers ? <CheckCircle2 size={15} aria-hidden="true" /> : <span className="exam-editor-answer-progress__dot" />}
+                        <strong>{completedAnswerCount}<span>/{createForm.questionCount}</span></strong><span>đã chọn</span>
+                      </div>}
+                    </div>
+                    {requiresAnswerKey && createForm.questionCount > 0 && <div className="exam-editor-answer-progress-track" role="progressbar" aria-label="Tiến độ chọn đáp án"
+                      aria-valuemin={0} aria-valuemax={createForm.questionCount} aria-valuenow={completedAnswerCount}>
+                      <span style={{ width: `${createForm.questionCount ? Math.min(100, completedAnswerCount / createForm.questionCount * 100) : 0}%` }} />
+                    </div>}
+                    {requiresAnswerKey && Boolean(createForm.questions?.length) && <div className="exam-editor-view-switch" role="group" aria-label="Cách hiển thị đáp án">
+                      <button type="button" aria-label="Chi tiết câu hỏi" aria-pressed={reviewViewMode === 'details'} onClick={() => setReviewViewMode('details')}>
+                        <BookOpen size={14} aria-hidden="true" /> Câu hỏi
+                      </button>
+                      <button type="button" aria-label="Ma trận nhanh" aria-pressed={reviewViewMode === 'matrix'} onClick={() => setReviewViewMode('matrix')}>
+                        <Grid3X3 size={14} aria-hidden="true" /> Ma trận nhanh
+                      </button>
+                    </div>}
+                    {(Boolean(createForm.questions?.length) || createForm.examType === 'written' || Boolean(editingExam)) && <div className="exam-editor-question-tools">
+                  {Boolean(createForm.questions?.length) && <label className="exam-editor-question-jump">
+                    <span>Chuyển đến câu</span>
+                    <select className="form-select" aria-label="Chuyển đến câu hỏi" value="" onChange={event => goToQuestion(Number(event.target.value))}>
+                      <option value="" disabled>Chuyển đến câu…</option>
+                      {createForm.questions?.map(q => <option key={q.index} value={q.index}>{q.index}. {q.question.slice(0, 60) || 'Chưa có nội dung'}</option>)}
+                    </select>
+                  </label>}
+                    <div className="exam-editor-question-tools__actions">
+                      {createForm.examType !== 'written' && (editingExam || Boolean(createForm.questions?.length)) && <Button variant="ghost" size="sm" className="mobile-touch-target" leadingIcon={<Plus size={14} />}
+                        disabled={draftQuestionCount >= MAX_EXAM_QUESTIONS} aria-label="Thêm câu trắc nghiệm" onClick={() => handleAddQuestion('multiple_choice')}><span className="exam-editor-add-label">Thêm trắc nghiệm</span><span className="exam-editor-add-short-label">TN</span></Button>}
+                      {createForm.examType !== 'multiple_choice' && <Button variant="ghost" size="sm" className="mobile-touch-target" leadingIcon={<Plus size={14} />}
+                        disabled={draftQuestionCount >= MAX_EXAM_QUESTIONS} aria-label="Thêm câu tự luận" onClick={() => handleAddQuestion('essay')}><span className="exam-editor-add-label">Thêm tự luận</span><span className="exam-editor-add-short-label">TL</span></Button>}
+                    </div>
+                    </div>}
+                    {(reviewViewMode === 'details' || !requiresAnswerKey) && Boolean(createForm.questions?.length) ? (
+                      <div className="exam-editor-questions">
+                  {createForm.questions?.map(q => (
+                    <div key={q.index} className="exam-editor-question-card" data-answer-state={q.type === 'essay' ? 'manual' : createForm.answerKey[q.index] ? 'complete' : 'missing'}>
+                    <details data-editor-question={q.index} open={addedQuestionIndex === q.index || undefined} className="exam-editor-question">
+                      <summary className="exam-editor-question__summary">
+                        <span className="exam-editor-question__number" aria-hidden="true">{String(q.index).padStart(2, '0')}</span>
+                        <div className="exam-editor-question__heading min-w-0 flex-1">
+                          <span className="exam-editor-question__title">Câu {q.index} · {q.question || 'Chưa có nội dung'}</span>
+                          <span className="exam-editor-question__editing-title">Chỉnh sửa câu {q.index}</span>
+                          <span className="exam-editor-question__meta"><span>{questionFormatLabel(q)}</span><span>{q.points ?? 1} điểm</span>
+                            {q.type !== 'essay' && <span className="exam-editor-question__answer-label">{createForm.answerKey[q.index] ? `Đáp án ${createForm.answerKey[q.index]}` : 'Chưa chọn đáp án'}</span>}
+                          </span>
+                        </div>
+                        <span className="exam-editor-question__edit"><Pencil size={13} aria-hidden="true" /><span className="exam-editor-question__edit-label">Sửa</span><span className="exam-editor-question__done-label">Xong</span><ChevronDown size={14} aria-hidden="true" /></span>
+                      </summary>
+                      <div className="exam-editor-question__body">
+                      <label className="text-xs font-bold">Câu {q.index} ({questionFormatLabel(q)})
+                        <textarea className="form-input w-full mt-1" rows={3} maxLength={2000}
+                          ref={addedQuestionIndex === q.index ? addedQuestionRef : undefined}
+                          value={q.responseFormat ? structuredPromptDrafts[q.index] ?? structuredQuestionText(q) : q.question}
+                          onChange={e => { const value = e.target.value; if (q.responseFormat) setStructuredPromptDrafts(current => ({ ...current, [q.index]: value })); else handleQuestionEdit(q.index, { question: value }) }}
+                          onBlur={e => { if (q.responseFormat) handleQuestionEdit(q.index, { question: e.target.value }) }} />
+                      </label>
+                      {q.responseFormat && <label className="text-xs font-bold">Đáp án từng ô / cặp ghép · Câu {q.index}
+                        <input className="form-input w-full mt-1" value={structuredAnswerDrafts[q.index] ?? structuredAnswerText(q)}
+                          onChange={event => { const value = event.target.value; setStructuredAnswerDrafts(current => ({ ...current, [q.index]: value })) }}
+                          onBlur={event => { const result = parseStructuredQuestion(structuredQuestionText(q), q.responseFormat!, event.target.value); handleQuestionEdit(q.index, { answerData: result.answerData }) }} />
+                      </label>}
+                      {q.type !== 'essay' && q.options && (
+                        <>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {(['A', 'B', 'C', 'D'] as const).map(option => (
+                            <label key={option} className="text-xs font-bold">Phương án {option} · Câu {q.index}
+                              <input className="form-input w-full mt-1" maxLength={500} value={q.options?.[option] ?? ''}
+                                onChange={e => handleQuestionEdit(q.index, { options: { ...q.options!, [option]: e.target.value } })} />
+                            </label>
+                          ))}
+                        </div>
+                        <label className="text-xs font-bold">Đáp án đúng · Câu {q.index}
+                          <select className="form-select w-full mt-1" value={createForm.answerKey[q.index] ?? ''}
+                            onChange={event => { const value = event.target.value as 'A' | 'B' | 'C' | 'D'; setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [q.index]: value } })); setCreateError('') }}>
+                            <option value="" disabled>Chọn đáp án</option>
+                            {(['A', 'B', 'C', 'D'] as const).map(option => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        </label>
+                        </>
+                      )}
+                      <label className="text-xs font-bold">{q.type === 'essay' ? 'Đáp án / hướng dẫn chấm' : 'Giải thích đáp án'} · Câu {q.index}
+                        <textarea className="form-input w-full mt-1" rows={2} maxLength={8000} value={q.explanation ?? ''}
+                          onChange={event => handleQuestionEdit(q.index, { explanation: event.target.value })} />
+                      </label>
+                      <label className="text-xs font-bold">Điểm câu {q.index}
+                        <input className="form-input w-full mt-1" type="number" min="0.01" max="100" step="0.01" value={q.points ?? ''}
+                          onChange={e => handleQuestionEdit(q.index, { points: e.target.value ? Number(e.target.value) : undefined })} />
+                      </label>
+                      {q.type === 'essay' && !q.responseFormat && <div>
+                        <label className="text-xs font-bold">Số dòng trả lời · Câu {q.index}
+                        <input className="form-input w-full mt-1" type="number" min="0" max="100" step="1" placeholder="Tự động" value={q.answerLineCount ?? ''}
+                          aria-describedby={`exam-answer-lines-help-${q.index}`}
+                          onChange={event => handleQuestionEdit(q.index, { answerLineCount: event.target.value === '' ? undefined : Number(event.target.value) })} />
+                        </label>
+                        <p id={`exam-answer-lines-help-${q.index}`} className="m-0 mt-1 text-xs text-text-muted">Để trống để tự động; nhập 0 để không chừa dòng. Áp dụng cho đề in và file Word.</p>
+                      </div>}
+                      <div className="flex justify-end">
+                        <Button variant="danger" size="sm" className="mobile-touch-target" leadingIcon={<Trash2 size={14} />}
+                          aria-label={`Xóa câu ${q.index}`} onClick={() => handleRemoveQuestion(q.index)}>Xóa câu</Button>
+                      </div>
+                      </div>
+                    </details>
+                    <div className="exam-editor-question__preview">
+                      {q.responseFormat && <StructuredQuestionPreview question={q} showAnswers />}
+                      {q.type !== 'essay' && <div className="exam-editor-question__options" role="group" aria-label={`Đáp án cho câu ${q.index}`}>
+                        {(['A', 'B', 'C', 'D'] as const).map(option => (
+                          <button key={option} type="button" className="exam-editor-question__option"
+                            aria-label={`Câu ${q.index}, đáp án ${option}`} aria-pressed={createForm.answerKey[q.index] === option}
+                            onClick={() => { setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [q.index]: option } })); setCreateError('') }}>
+                            <span>{option}</span><span>{q.options?.[option] || `Phương án ${option}`}</span>
+                            {createForm.answerKey[q.index] === option && <CheckCircle2 size={14} aria-hidden="true" />}
+                          </button>
+                        ))}
+                      </div>}
+                      {q.type === 'essay' && q.explanation && <div className="exam-editor-question__rubric">
+                        <span>Đáp án / hướng dẫn chấm</span><p>{q.explanation}</p>
+                      </div>}
+                    </div>
+                    </div>
+                  ))}
+                      </div>
+                    ) : requiresAnswerKey ? (
                       /* Mode 2: Quick Key Matrix Mode */
                       <>
                         {/* Controls row */}
@@ -2421,103 +2419,12 @@ export const ExamSessionView: React.FC = () => {
                           })}
                         </div>
                       </>
+                    ) : (
+                      <EmptyState icon={BookOpen} title="Bổ sung nội dung câu hỏi"
+                        description="Thêm câu tự luận hoặc nhập đề có sẵn để soạn đề và xem trước bản in. Bạn vẫn có thể tạo phiên chỉ để nhập điểm." />
                     )}
-                  </div>
-                </>
-              )}
-
-                <div className="exam-editor-questions" data-editor-section="questions" tabIndex={-1}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div><h4 className="m-0 text-sm font-extrabold text-text-main">Nội dung câu hỏi · {draftQuestionCount}/{MAX_EXAM_QUESTIONS}</h4>
-                      <p className="m-0 mt-1 text-xs text-text-muted">Mở một câu để chỉnh nội dung, đáp án và hướng dẫn chấm.</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {createForm.examType !== 'written' && (editingExam || Boolean(createForm.questions?.length)) && <Button variant="secondary" size="sm" className="mobile-touch-target" leadingIcon={<Plus size={14} />}
-                        disabled={draftQuestionCount >= MAX_EXAM_QUESTIONS} onClick={() => handleAddQuestion('multiple_choice')}>Thêm câu trắc nghiệm</Button>}
-                      {createForm.examType !== 'multiple_choice' && <Button variant="secondary" size="sm" className="mobile-touch-target" leadingIcon={<Plus size={14} />}
-                        disabled={draftQuestionCount >= MAX_EXAM_QUESTIONS} onClick={() => handleAddQuestion('essay')}>Thêm câu tự luận</Button>}
-                    </div>
-                  </div>
-                  {Boolean(createForm.questions?.length) && <label className="exam-editor-question-jump">
-                    <span>Chuyển đến câu</span>
-                    <select className="form-select" aria-label="Chuyển đến câu hỏi" value="" onChange={event => goToQuestion(Number(event.target.value))}>
-                      <option value="" disabled>Chọn câu cần chỉnh sửa…</option>
-                      {createForm.questions?.map(q => <option key={q.index} value={q.index}>{q.index}. {q.question.slice(0, 60) || 'Chưa có nội dung'}</option>)}
-                    </select>
-                  </label>}
-                  {!createForm.questions?.length && <EmptyState icon={BookOpen} title="Bổ sung nội dung câu hỏi"
-                    description={createForm.examType === 'written'
-                      ? 'Thêm câu tự luận hoặc nhập đề có sẵn để soạn đề và xem trước bản in. Bạn vẫn có thể tạo phiên chỉ để nhập điểm.'
-                      : 'Nhập đề có sẵn để chỉnh nội dung, phương án và xem trước bản in. Nếu chỉ cần chấm bài, bạn có thể lưu đáp án ở trên.'} />}
-                  {createForm.questions?.map(q => (
-                    <details key={q.index} data-editor-question={q.index} open={addedQuestionIndex === q.index || undefined} className="exam-editor-question">
-                      <summary className="exam-editor-question__summary">
-                        <div className="min-w-0 flex-1">
-                          <span className="exam-editor-question__title">Câu {q.index} · {q.question.slice(0, 80) || 'Chưa có nội dung'}</span>
-                          <span className="exam-editor-question__meta">{questionFormatLabel(q)} · {q.points ?? 1} điểm
-                            {q.type !== 'essay' && <span className={createForm.answerKey[q.index] ? 'text-parish-success' : 'text-parish-warning'}> · {createForm.answerKey[q.index] ? `Đáp án ${createForm.answerKey[q.index]}` : 'Chưa chọn đáp án'}</span>}
-                          </span>
-                        </div>
-                        <ChevronDown size={18} aria-hidden="true" />
-                      </summary>
-                      <div className="exam-editor-question__body">
-                      <label className="text-xs font-bold">Câu {q.index} ({questionFormatLabel(q)})
-                        <textarea className="form-input w-full mt-1" rows={3} maxLength={2000}
-                          ref={addedQuestionIndex === q.index ? addedQuestionRef : undefined}
-                          value={q.responseFormat ? structuredPromptDrafts[q.index] ?? structuredQuestionText(q) : q.question}
-                          onChange={e => { const value = e.target.value; if (q.responseFormat) setStructuredPromptDrafts(current => ({ ...current, [q.index]: value })); else handleQuestionEdit(q.index, { question: value }) }}
-                          onBlur={e => { if (q.responseFormat) handleQuestionEdit(q.index, { question: e.target.value }) }} />
-                      </label>
-                      {q.responseFormat && <label className="text-xs font-bold">Đáp án từng ô / cặp ghép · Câu {q.index}
-                        <input className="form-input w-full mt-1" value={structuredAnswerDrafts[q.index] ?? structuredAnswerText(q)}
-                          onChange={event => { const value = event.target.value; setStructuredAnswerDrafts(current => ({ ...current, [q.index]: value })) }}
-                          onBlur={event => { const result = parseStructuredQuestion(structuredQuestionText(q), q.responseFormat!, event.target.value); handleQuestionEdit(q.index, { answerData: result.answerData }) }} />
-                      </label>}
-                      <StructuredQuestionPreview question={q} showAnswers />
-                      {q.type !== 'essay' && q.options && (
-                        <>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          {(['A', 'B', 'C', 'D'] as const).map(option => (
-                            <label key={option} className="text-xs font-bold">Phương án {option} · Câu {q.index}
-                              <input className="form-input w-full mt-1" maxLength={500} value={q.options?.[option] ?? ''}
-                                onChange={e => handleQuestionEdit(q.index, { options: { ...q.options!, [option]: e.target.value } })} />
-                            </label>
-                          ))}
-                        </div>
-                        <label className="text-xs font-bold">Đáp án đúng · Câu {q.index}
-                          <select className="form-select w-full mt-1" value={createForm.answerKey[q.index] ?? ''}
-                            onChange={event => { const value = event.target.value as 'A' | 'B' | 'C' | 'D'; setCreateForm(f => ({ ...f, answerKey: { ...f.answerKey, [q.index]: value } })); setCreateError('') }}>
-                            <option value="" disabled>Chọn đáp án</option>
-                            {(['A', 'B', 'C', 'D'] as const).map(option => <option key={option} value={option}>{option}</option>)}
-                          </select>
-                        </label>
-                        </>
-                      )}
-                      <label className="text-xs font-bold">{q.type === 'essay' ? 'Đáp án / hướng dẫn chấm' : 'Giải thích đáp án'} · Câu {q.index}
-                        <textarea className="form-input w-full mt-1" rows={2} maxLength={8000} value={q.explanation ?? ''}
-                          onChange={event => handleQuestionEdit(q.index, { explanation: event.target.value })} />
-                      </label>
-                      <label className="text-xs font-bold">Điểm câu {q.index}
-                        <input className="form-input w-full mt-1" type="number" min="0.01" max="100" step="0.01" value={q.points ?? ''}
-                          onChange={e => handleQuestionEdit(q.index, { points: e.target.value ? Number(e.target.value) : undefined })} />
-                      </label>
-                      {q.type === 'essay' && !q.responseFormat && <div>
-                        <label className="text-xs font-bold">Số dòng trả lời · Câu {q.index}
-                        <input className="form-input w-full mt-1" type="number" min="0" max="100" step="1" placeholder="Tự động" value={q.answerLineCount ?? ''}
-                          aria-describedby={`exam-answer-lines-help-${q.index}`}
-                          onChange={event => handleQuestionEdit(q.index, { answerLineCount: event.target.value === '' ? undefined : Number(event.target.value) })} />
-                        </label>
-                        <p id={`exam-answer-lines-help-${q.index}`} className="m-0 mt-1 text-xs text-text-muted">Để trống để tự động; nhập 0 để không chừa dòng. Áp dụng cho đề in và file Word.</p>
-                      </div>}
-                      <div className="flex justify-end">
-                        <Button variant="danger" size="sm" className="mobile-touch-target" leadingIcon={<Trash2 size={14} />}
-                          aria-label={`Xóa câu ${q.index}`} onClick={() => handleRemoveQuestion(q.index)}>Xóa câu</Button>
-                      </div>
-                      </div>
-                    </details>
-                  ))}
                   {!editingExam && Boolean(createForm.questions?.length) && <p className="m-0 text-xs text-text-muted">Câu hỏi mới được lưu nháp vào ngân hàng cùng ngành và khối của lớp khi lưu đề; nếu ngoại tuyến, câu hỏi được thêm sau khi đồng bộ thành công.</p>}
-                </div>
+                  </section>
               </div>
             </div>
             </fieldset>

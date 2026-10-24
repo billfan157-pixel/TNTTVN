@@ -1,5 +1,6 @@
 import type { ExamQuestion, ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
+import { GIA_TON_PARISH_INFO } from '../constants/parishInfo'
 import { useToastStore } from '../stores/toastStore'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../lib/examPrintSafety'
@@ -389,7 +390,7 @@ export function exportExamToText(options: ExamExportOptions): string {
   const activeKey = resolved.answerKey
 
   let text = `${dioceseName.toUpperCase()} - ${parishName.toUpperCase()}\n`
-  text += `BAN GIÁO LÝ - THIẾU NHI THÁNH THỂ\n`
+  text += `XỨ ĐOÀN ${GIA_TON_PARISH_INFO.youthUnit.patronName.toLocaleUpperCase('vi-VN')}\n`
   text += `-------------------------------------------\n`
   text += `ĐỀ KIỂM TRA: ${subject.toUpperCase()}\n`
   text += `LỚP: ${classLabel.toUpperCase()}${academicYear ? ` | NIÊN KHÓA: ${academicYear}` : ''}\n`
@@ -488,7 +489,7 @@ export function exportExamToMarkdown(options: ExamExportOptions): string {
   const activeKey = resolved.answerKey
 
   let md = `# ${dioceseName.toUpperCase()} - ${parishName.toUpperCase()}\n`
-  md += `### BAN GIÁO LÝ - THIẾU NHI THÁNH THỂ\n\n`
+  md += `### XỨ ĐOÀN ${GIA_TON_PARISH_INFO.youthUnit.patronName.toLocaleUpperCase('vi-VN')}\n\n`
   md += `---\n\n`
   md += `## ĐỀ KIỂM TRA: ${subject.toUpperCase()}\n`
   md += `**Lớp**: ${classLabel} ${academicYear ? `| **Niên khóa**: ${academicYear}` : ''} | **Thời gian**: ${duration} phút | **Mã đề**: **${versionCode}**\n\n`

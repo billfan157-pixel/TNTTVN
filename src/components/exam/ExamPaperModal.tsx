@@ -29,7 +29,7 @@ import {
 } from '../../utils/examSheets'
 import { generateExamQrCodes } from '../../lib/qr'
 import { ReportExportService, sanitizeFilename } from '../../services/reportExportService'
-import { useSettingsStore } from '../../stores/settingsStore'
+import { DEFAULT_SETTINGS, useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants, getExamVersionNumericAlias, formatExamVersionLabel } from '../../lib/examVariants'
@@ -107,8 +107,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const [containerWidth, setContainerWidth] = useState(360)
   const { dialogRef, titleId } = useAccessibleDialog(isOpen, onClose)
 
-  const parishName = useSettingsStore(s => s.settings.parishName) || 'Giáo Xứ Mẫu Tâm'
-  const dioceseName = useSettingsStore(s => s.settings.dioceseName) || 'Giáo Phận Sài Gòn'
+  const parishName = useSettingsStore(s => s.settings.parishName) || DEFAULT_SETTINGS.parishName
+  const dioceseName = useSettingsStore(s => s.settings.dioceseName) || DEFAULT_SETTINGS.dioceseName
 
   // Đo chiều rộng khung chứa thực tế trên mobile để scale A4 chính xác
   useEffect(() => {

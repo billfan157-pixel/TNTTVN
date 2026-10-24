@@ -1,5 +1,6 @@
 import { generateExamQrSvg, generateExamQrDataUrl, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
 import { PARISH_LOGO_DATA_URI } from './parishLogo'
+import { GIA_TON_PARISH_INFO } from '../constants/parishInfo'
 import type { ExamVersionCode } from '../types'
 import { printableQuestionPrompt, structuredQuestionText } from './structuredQuestions'
 import { getExamVersionNumericAlias } from '../lib/examVariants'
@@ -459,7 +460,7 @@ export function getExamPaperStyles(): string {
        106%, khiến browser/driver in tự shrink khác nhau và làm QR/header lệch. */
     .paper-header {
       display: grid;
-      grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1.12fr) 122px;
+      grid-template-columns: 66px minmax(0, 1fr) minmax(0, 1.12fr) 122px;
       column-gap: 10px;
       align-items: center;
       width: 100%;
@@ -469,7 +470,7 @@ export function getExamPaperStyles(): string {
       margin-bottom: 6px;
     }
     .header-logo { display: flex; align-items: center; justify-content: center; }
-    .header-logo .parish-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+    .header-logo .parish-logo { width: 60px; height: 60px; object-fit: contain; flex-shrink: 0; }
     .header-left {
       text-align: center;
       width: auto;
@@ -1140,12 +1141,12 @@ export function buildExamPaperHtml(options: ExamPaperPrintOptions): string {
       <div class="watermark">${escapeHtml(showAnswerKey ? 'ĐÁP ÁN GIÁO VIÊN' : options.draftPreview ? 'BẢN XEM TRƯỚC' : (parishName || 'TNTT'))}</div>
       <div class="paper-header">
         <div class="header-logo">
-          <img src="${PARISH_LOGO_DATA_URI}" alt="Logo Xứ Đoàn Đức Mẹ Fatima" class="parish-logo" style="width:52px;height:52px;object-fit:contain;" />
+          <img src="${PARISH_LOGO_DATA_URI}" alt="Logo Xứ Đoàn Đức Mẹ Fatima" class="parish-logo" style="width:60px;height:60px;object-fit:contain;" />
         </div>
         <div class="header-left">
           <div class="org-top">${escapeHtml(dioceseName)}</div>
           <div class="org-parish">${escapeHtml(parishName)}</div>
-          <div>XỨ ĐOÀN THIẾU NHI THÁNH THỂ</div>
+          <div class="org-unit">${escapeHtml(`Xứ Đoàn ${GIA_TON_PARISH_INFO.youthUnit.patronName}`.toLocaleUpperCase('vi-VN'))}</div>
           <div>Lớp: <strong>${escapeHtml(classLabel)}</strong> · Mã đề: <strong>${examVersion} (${getExamVersionNumericAlias(examVersion)})</strong></div>
         </div>
         <div class="header-right">
