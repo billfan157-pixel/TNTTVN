@@ -13,7 +13,12 @@ test.use({
 })
 
 test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
-  test('Catechist can log in, navigate to attendance, and mark mobile attendance', async ({ page }) => {
+  test('Catechist can log in, navigate to attendance, and mark mobile attendance', async ({ page }, testInfo) => {
+    // Keep the success path in the seeded academic year and independent of
+    // Vietnam/UTC midnight. Use a different date from the desktop journey.
+    const dateOffset = testInfo.repeatEachIndex * 4 + testInfo.retry * 2
+      + (testInfo.project.name === 'webkit' ? 1 : 0)
+    const testDate = new Date(Date.UTC(2026, 8, 13 + dateOffset)).toISOString().slice(0, 10)
     const session = await getRoleSession(page.request, 'chunhiem')
     await injectSession(page, session)
     const attendanceResponsePromise = page.waitForResponse(response =>
@@ -37,7 +42,9 @@ test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
       status: 'Present' | 'AbsentExcused' | 'AbsentUnexcused';
     }>
     expect(Array.isArray(serverRows)).toBe(true)
+    await page.getByLabel('Ngày', { exact: true }).fill(testDate)
     const date = await page.getByLabel('Ngày', { exact: true }).inputValue()
+    expect(date).toBe(testDate)
     const type = await page.getByLabel('Buổi sinh hoạt').inputValue()
     const persisted = serverRows.find(row => row.studentId === 'student-e2e-001' && row.date === date && row.type === type)
     const statusNames = { Present: /^Có mặt:/, AbsentExcused: /^Vắng có phép:/, AbsentUnexcused: /^Vắng không phép:/ }
@@ -58,6 +65,7 @@ test.describe('Mobile QR Attendance & Attendance Flow E2E', () => {
     await page.getByRole('button', { name: 'Lưu điểm danh' }).click()
     const saved = await savedResponse
     expect(saved.status()).toBe(200)
+    expect(saved.request().postDataJSON()).toMatchObject({ date: testDate })
     const receipt = (await saved.json()).data
     expect(receipt).toMatchObject({ errorCount: 0, conflictCount: 0 })
     expect(receipt.results).toContainEqual(expect.objectContaining({ studentId: 'student-e2e-001', status: 'saved' }))
