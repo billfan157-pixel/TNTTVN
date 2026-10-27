@@ -102,6 +102,10 @@ or rewrite term history to force a deployment through.
 
 ---
 
+## Khảo kinh grade extension
+
+Migrations `20261027-268..270` thêm nullable `grades.score_prayer`, `score_prayer_source`, `score_prayer_updated_at`, không default/backfill. `20261027-271` thêm trigger điểm 0–10 và cho phép override field `scorePrayer`; `20261027-272` mở rộng CHECK của `assessment_entries.score_type` với `prayer` bằng rebuild trong transaction. Copy giữ toàn bộ identity, source, điểm, entry_date và created_at; PK, index và FK cùng giáo xứ giữ nguyên. Schema readiness yêu cầu cả 5 markers, 3 cột mới và 2 prayer range triggers. Năm/snapshot đã chốt không bị sửa. Deploy phải migrate trước writer mới; rollback ứng dụng giữ lại cột và ledger đã ghi, không chạy migration ngược để xóa dữ liệu.
+
 ## Key Drizzle Schema Definitions (`server/src/db/schema.ts`)
 
 ### `semester_locks`

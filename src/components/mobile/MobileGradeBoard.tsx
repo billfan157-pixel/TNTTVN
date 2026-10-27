@@ -20,11 +20,12 @@ import type { GradeRecord, Student } from '../../types'
 const ExcelGradeImportModal = lazyWithRetry(() => import('../common/ExcelGradeImportModal'), 'ExcelGradeImportModal')
 
 const SCORE_FIELDS: Array<{
-  key: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal' | 'scoreDaoDuc'>
+  key: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal' | 'scorePrayer' | 'scoreDaoDuc'>
   label: string
   highlight?: boolean
 }> = [
   { key: 'scoreOral', label: 'Miệng' },
+  { key: 'scorePrayer', label: 'Khảo kinh' },
   { key: 'score15m', label: '15 phút' },
   { key: 'score1Period', label: '1 tiết' },
   { key: 'scoreMidterm', label: 'Giữa kỳ' },

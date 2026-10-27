@@ -17,7 +17,7 @@ export interface CrossDomainReconciliationFinding {
   aggregateRef: string
   category: 'historical_academic_evidence' | 'daily_grade_projection'
   reason: FindingReason
-  field?: 'scoreOral' | 'score15m' | 'score1Period'
+  field?: 'scorePrayer' | 'scoreOral' | 'score15m' | 'score1Period'
   ledgerEntryCount?: number
 }
 
@@ -87,6 +87,7 @@ export async function auditCrossDomainReconciliation(
 
     const fields = [
       { column: 'score_oral', source: 'score_oral_source', scoreType: 'oral', field: 'scoreOral' },
+      { column: 'score_prayer', source: 'score_prayer_source', scoreType: 'prayer', field: 'scorePrayer' },
       { column: 'score_15m', source: 'score_15m_source', scoreType: '15m', field: 'score15m' },
       { column: 'score_1_period', source: 'score_1_period_source', scoreType: '1period', field: 'score1Period' },
     ] as const

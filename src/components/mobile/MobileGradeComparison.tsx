@@ -9,8 +9,9 @@ import type { GradeRecord } from '../../types'
 import { StudentName } from '../common/StudentName'
 import { SubpageHeader } from '../common/SubpageHeader'
 
-const SCORE_FIELDS: Array<{ key: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal'>; label: string }> = [
+const SCORE_FIELDS: Array<{ key: keyof Pick<GradeRecord, 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal' | 'scorePrayer'>; label: string }> = [
   { key: 'scoreOral', label: 'M' },
+  { key: 'scorePrayer', label: 'KK' },
   { key: 'score15m', label: '15' },
   { key: 'score1Period', label: '1T' },
   { key: 'scoreMidterm', label: 'GK' },
@@ -100,7 +101,7 @@ export const MobileGradeComparison: React.FC = () => {
                   <span className="text-lg font-black text-parish-primary">{(average as any).score ?? '—'}</span>
                 </div>
                 <div className="text-[11px] text-text-muted font-semibold mt-1">{(average as any).label || 'Chưa xếp loại'}</div>
-                <div className="grid grid-cols-5 gap-1 mt-3 text-center">
+                <div className="grid grid-cols-6 gap-1 mt-3 text-center">
                   {SCORE_FIELDS.map(field => (
                     <div key={field.key} className="min-w-0">
                       <div className="text-[10px] text-text-muted">{field.label}</div>

@@ -26,7 +26,7 @@ Bulk transfer of students across classes within the same academic year is perfor
 ┌──────────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                             │
 │  Pages: 26 source page modules                                    │
-│  Components: 166 (audit: 5, auth: 5, common: 35,                  │
+│  Components: 167 (audit: 5, auth: 5, common: 36,                  │
 │  desktop: 24, exam: 16, finance: 4, landing: 11, mobile: 18,      │
 │  operations: 30, parish: 13, ui: 5)                               │
 │  Router: TanStack Router (27 policy paths, 6 public + 21 protected)│

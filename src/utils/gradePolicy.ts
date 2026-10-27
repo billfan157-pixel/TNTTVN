@@ -1,5 +1,6 @@
 export interface GradePolicyInput {
   scoreOral: number | null
+  scorePrayer?: number | null
   score15m: number | null
   score1Period: number | null
   scoreMidterm: number | null
@@ -8,12 +9,13 @@ export interface GradePolicyInput {
 }
 
 export interface GradeCalculationPolicy {
-  requiredFields?: Array<'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal'>
+  requiredFields?: Array<'scoreOral' | 'scorePrayer' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal'>
   minTotalWeight?: number
 }
 
 export interface GradeWeightsConfig {
   weightOral: number
+  weightPrayer?: number
   weight15m: number
   weight1Period: number
   weightMidterm: number
@@ -83,6 +85,7 @@ export interface GradePolicyAuditInput {
 
 export const DEFAULT_GRADE_POLICY_WEIGHTS: GradeWeightsConfig = {
   weightOral: 1,
+  weightPrayer: 1,
   weight15m: 1,
   weight1Period: 2,
   weightMidterm: 2,
@@ -231,6 +234,7 @@ export class GradePolicyEngine {
     }
 
     addField(scoreOral, this.config.weightOral)
+    addField(grade.scorePrayer, this.config.weightPrayer ?? 1)
     addField(score15m, this.config.weight15m)
     addField(score1Period, this.config.weight1Period)
     addField(scoreMidterm, this.config.weightMidterm)

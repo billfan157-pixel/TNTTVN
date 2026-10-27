@@ -24,6 +24,7 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
   const [config, setConfig] = useState<GradeWeightsConfig>(settingsWeights)
   const [testScore, setTestScore] = useState({
     scoreOral: 8.5,
+    scorePrayer: 8.0,
     score15m: 9.0,
     score1Period: 8.0,
     scoreMidterm: 9.0,
@@ -97,7 +98,11 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
               <span>1. Trọng Số Hệ Số Điểm Từng Cột</span>
             </h3>
 
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <label className="p-3 bg-surface-hover/30 border border-surface-border rounded-xl text-xs font-bold text-text-main">
+                Khảo kinh
+                <input aria-label="Hệ số Khảo kinh" type="number" min="0" max="10" step="0.5" value={config.weightPrayer ?? 1} onChange={event => setConfig({ ...config, weightPrayer: Number(event.target.value) })} className="form-input mt-1 text-center" />
+              </label>
               <div className="p-3 bg-surface-hover/30 border border-surface-border rounded-xl">
                 <label className="block text-xs font-bold text-text-main mb-1">Điểm Miệng</label>
                 <div className="flex items-center gap-1">
@@ -275,7 +280,11 @@ export const GradeFormulaConfigModal: React.FC<GradeFormulaConfigModalProps> = (
               <span>Mô Phỏng Trực Tiếp Kết Quả Tính ĐTB</span>
             </h4>
 
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs font-semibold">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-xs font-semibold">
+              <label>
+                <span className="text-xs text-text-muted block">Khảo kinh</span>
+                <input aria-label="Điểm Khảo kinh mô phỏng" type="number" min="0" max="10" step="0.5" value={testScore.scorePrayer} onChange={event => setTestScore({ ...testScore, scorePrayer: Number(event.target.value) })} className="form-input w-full text-center" />
+              </label>
               <div>
                 <span className="text-[10px] text-text-muted block">Miệng</span>
                 <input

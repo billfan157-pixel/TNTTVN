@@ -27,6 +27,7 @@ test('@critical mobile daily grades sync online and after reconnect without dupl
 
   for (const entry of [
     { tab: 'Miệng', scoreType: 'oral', value: 8, offline: false },
+    { tab: 'Khảo kinh', scoreType: 'prayer', value: 6, offline: true },
     { tab: '15 phút', scoreType: '15m', value: 7, offline: true },
     { tab: '1 tiết', scoreType: '1period', value: 9, offline: false },
   ]) {
@@ -55,16 +56,20 @@ test('@critical mobile daily grades sync online and after reconnect without dupl
   }
   expect(await readEntries()).toEqual(expect.arrayContaining([
     expect.objectContaining({ scoreType: 'oral', value: 8 }),
+    expect.objectContaining({ scoreType: 'prayer', value: 6 }),
     expect.objectContaining({ scoreType: '15m', value: 7 }),
     expect.objectContaining({ scoreType: '1period', value: 9 }),
   ]))
-  expect(await readEntries()).toHaveLength(3)
+  expect(await readEntries()).toHaveLength(4)
   const grades = await authorizedRequest(page.request, session, 'GET', `/api/grades?studentId=${student.id}&semester=1`)
-  expect((await grades.json()).data).toContainEqual(expect.objectContaining({ studentId: student.id, scoreOral: 8, score15m: 7, score1Period: 9 }))
+  expect((await grades.json()).data).toContainEqual(expect.objectContaining({ studentId: student.id, scoreOral: 8, scorePrayer: 6, score15m: 7, score1Period: 9 }))
+  const report = await authorizedRequest(page.request, session, 'GET', `/api/reports/report-card/${student.id}?academicYear=2026-2027`)
+  expect(report.status()).toBe(200)
+  expect((await report.json()).data.grades).toContainEqual(expect.objectContaining({ semester: 1, scorePrayer: 6, gpa: 7.8 }))
 
   await page.reload()
   await page.getByRole('tab', { name: 'Hằng ngày', exact: true }).click()
   await expect(card.getByText('1 lần nhập', { exact: true })).toBeVisible()
   await expect(page.locator('.offline-status-banner')).toHaveCount(0)
-  expect(await readEntries()).toHaveLength(3)
+  expect(await readEntries()).toHaveLength(4)
 })

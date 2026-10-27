@@ -64,7 +64,7 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
     render(<DesktopGradeMatrix />)
 
     const inputs = screen.getAllByLabelText(/Nhập điểm/i)
-    expect(inputs.length).toBeGreaterThanOrEqual(12) // 2 students x 6 score fields
+    expect(inputs.length).toBeGreaterThanOrEqual(14) // 2 students x 7 score fields
 
     const firstCell = inputs[0]
     expect(firstCell).toHaveAttribute('data-matrix-cell', 'true')
@@ -213,7 +213,7 @@ describe('DesktopGradeMatrix 2D Keyboard Navigation & Accessibility', () => {
     seedLargeMatrix()
     const { container } = render(<DesktopGradeMatrix />)
     expect(container.querySelectorAll('tbody tr')).toHaveLength(50)
-    expect(container.querySelectorAll('[data-matrix-cell]')).toHaveLength(300)
+    expect(container.querySelectorAll('[data-matrix-cell]')).toHaveLength(350)
     const pager = within(screen.getByLabelText('Phân trang bảng điểm'))
     expect(screen.getByLabelText('Nhập điểm miệng cho Giuse Học sinh 000')).toHaveValue('8')
     expect(pager.getByRole('button', { name: 'Trang trước' })).toBeDisabled()

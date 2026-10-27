@@ -28,6 +28,7 @@ export interface ReportCardDTO {
   grades: Array<{
     semester: number
     scoreOral?: number | null
+    scorePrayer?: number | null
     score15m?: number | null
     score1Period?: number | null
     scoreMidterm?: number | null
@@ -150,6 +151,7 @@ export class ReportCardProjectionRepository {
       return {
         semester: effectiveGrade.semester!,
         scoreOral: effectiveGrade.scoreOral,
+        scorePrayer: effectiveGrade.scorePrayer,
         score15m: effectiveGrade.score15m,
         score1Period: effectiveGrade.score1Period,
         scoreMidterm: effectiveGrade.scoreMidterm,

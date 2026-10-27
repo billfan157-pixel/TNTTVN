@@ -1,10 +1,11 @@
 import 'fake-indexeddb/auto'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { db, type SyncQueueItem } from '../lib/db'
 import { captureTenantScope, setTenantScope } from '../lib/tenantScope'
 import { persistSyncResultForOwner, readPersistedSyncResult } from '../lib/syncSessionBoundary'
 import { applyServerResultAsync, resolveConflictWithMerge } from '../lib/syncApply'
 import { useGradeStore } from '../stores/gradeStore'
+import { useDailyGradeStore } from '../stores/dailyGradeStore'
 
 const now = '2026-09-17T00:00:00.000Z'
 
@@ -55,5 +56,14 @@ describe('TENANT-P1-004 response and conflict owner continuity', () => {
       .rejects.toThrow(/owner changed/i)
     expect(await db.syncConflicts.toArray()).toEqual([])
     expect(await db.syncQueue.get(op.id)).toMatchObject({ userId: 'USER-A', parishId: 'PARISH-A' })
+  })
+
+  it('pulls current attempts for a bonus receipt instead of overwriting them with an old replayed score', async () => {
+    const refresh = vi.spyOn(useDailyGradeStore.getState(), 'fetchDailyEntries').mockResolvedValue(undefined)
+    const op = row({ entity: 'daily_entry', operation: 'CREATE', entityId: 'DB-A' })
+    try {
+      await applyServerResultAsync(op, { id: 'DB-A', items: [{ id: 'DB-A', operation: 'bonus', status: 'duplicate', studentId: 'ST-A', targetEntryId: 'DG-A', serverScore: 9, academicYear: '2026-2027', semester: 1 }] }, captureTenantScope()!)
+      expect(refresh).toHaveBeenCalledExactlyOnceWith({ studentId: 'ST-A', academicYear: '2026-2027', semester: 1 })
+    } finally { refresh.mockRestore() }
   })
 })

@@ -44,24 +44,27 @@ export const gradeSchema = z.object({
   ),
   semester: z.coerce.number().int().min(1).max(2),
   scoreOral: scorePreprocess,
+  scorePrayer: scorePreprocess,
   score15m: scorePreprocess,
   score1Period: scorePreprocess,
   scoreMidterm: scorePreprocess,
   scoreFinal: scorePreprocess,
   scoreDaoDuc: scorePreprocess,
   scoreOral_source: z.string().nullable().optional(),
+  scorePrayer_source: z.string().nullable().optional(),
   score15m_source: z.string().nullable().optional(),
   score1Period_source: z.string().nullable().optional(),
   scoreMidterm_source: z.string().nullable().optional(),
   scoreFinal_source: z.string().nullable().optional(),
   scoreOral_updated_at: z.string().nullable().optional(),
+  scorePrayer_updated_at: z.string().nullable().optional(),
   score15m_updated_at: z.string().nullable().optional(),
   score1Period_updated_at: z.string().nullable().optional(),
   scoreMidterm_updated_at: z.string().nullable().optional(),
   scoreFinal_updated_at: z.string().nullable().optional(),
   comments: z.string().trim().max(500).nullable().optional(),
   version: z.coerce.number().int().min(0).optional(),
-  clearFields: z.array(z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'])).optional(),
+  clearFields: z.array(z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scorePrayer', 'scoreDaoDuc'])).optional(),
   overrideReasonNote: z.string().trim().max(500).nullable().optional(),
 })
 
@@ -263,7 +266,7 @@ gradesRouter.post('/undo-import', roleMiddleware('admin', 'chunhiem'), zValidato
 // ─── Phase 2: Grade Override API Endpoints ───
 
 const overrideSchema = z.object({
-  scoreField: z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc']),
+  scoreField: z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scorePrayer', 'scoreDaoDuc']),
   manualValue: z.number().min(0).max(10),
   reasonCode: z.enum(['TeacherAdjustment', 'SpecialAssignment', 'Appeal', 'DataCorrection', 'PrincipalApproval']).optional(),
   reasonNote: z.string().trim().max(500).optional(),
@@ -306,7 +309,7 @@ gradesRouter.patch('/:id/override', roleMiddleware('admin', 'chunhiem'), zValida
 })
 
 gradesRouter.delete('/:id/override', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({
-  scoreField: z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc']),
+  scoreField: z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scorePrayer', 'scoreDaoDuc']),
 })), async (c) => {
   const user = c.get('user') as JwtPayload
   const gradeId = c.req.param('id')
@@ -352,7 +355,7 @@ gradesRouter.get('/:id/override/history', async (c) => {
 gradesRouter.post('/restore-batch', roleMiddleware('admin', 'chunhiem'), zValidator('json', z.object({
   items: z.array(z.object({
     gradeId: z.string().min(1),
-    scoreField: z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc']),
+    scoreField: z.enum(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scorePrayer', 'scoreDaoDuc']),
   })).min(1),
 })), async (c) => {
   const user = c.get('user') as JwtPayload

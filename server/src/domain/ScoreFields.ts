@@ -15,6 +15,7 @@ export const SCORE_FIELDS: readonly ScoreField[] = [
   'score1Period',
   'scoreMidterm',
   'scoreFinal',
+  'scorePrayer',
   'scoreDaoDuc',
 ] as const satisfies readonly ScoreField[]
 

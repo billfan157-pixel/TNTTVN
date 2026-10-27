@@ -68,7 +68,7 @@ describe('MobileDailyGradeEntry Quick Scores & Accessibility', () => {
 
     expect(screen.getByText('Nguyễn Thị Hoa')).toBeInTheDocument()
 
-    const cardButton = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i })
+    const cardButton = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i, expanded: false })
     expect(cardButton).toHaveAttribute('aria-expanded', 'false')
 
     fireEvent.click(cardButton)
@@ -95,7 +95,7 @@ describe('MobileDailyGradeEntry Quick Scores & Accessibility', () => {
     useDailyGradeStore.setState({ addEntry })
     const toast = vi.spyOn(useToastStore.getState(), 'addToast')
     render(<MobileDailyGradeEntry onViewReport={vi.fn()} />)
-    const card = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i })
+    const card = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i, expanded: false })
     fireEvent.click(card)
     const input = screen.getByPlaceholderText('Nhập 0–10...')
     fireEvent.change(input, { target: { value: '8.5' } })
@@ -119,7 +119,7 @@ describe('MobileDailyGradeEntry Quick Scores & Accessibility', () => {
 
     render(<MobileDailyGradeEntry onViewReport={vi.fn()} />)
 
-    const cardButton = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i })
+    const cardButton = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i, expanded: false })
     fireEvent.click(cardButton)
 
     const pill10 = screen.getByRole('button', { name: '10' })
@@ -155,8 +155,8 @@ describe('MobileDailyGradeEntry Quick Scores & Accessibility', () => {
 
     render(<MobileDailyGradeEntry onViewReport={vi.fn()} />)
 
-    const cardButton1 = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i })
-    const cardButton2 = screen.getByRole('button', { name: /Trần Văn Nam/i })
+    const cardButton1 = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i, expanded: false })
+    const cardButton2 = screen.getByRole('button', { name: /Trần Văn Nam/i, expanded: false })
 
     expect(cardButton1).toHaveAttribute('aria-expanded', 'false')
     expect(cardButton2).toHaveAttribute('aria-expanded', 'false')
@@ -205,8 +205,8 @@ describe('MobileDailyGradeEntry Quick Scores & Accessibility', () => {
     fireEvent.click(toggleBtn)
     expect(toggleBtn).toHaveAttribute('aria-pressed', 'false')
 
-    const cardButton1 = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i })
-    const cardButton2 = screen.getByRole('button', { name: /Trần Văn Nam/i })
+    const cardButton1 = screen.getByRole('button', { name: /Nguyễn Thị Hoa/i, expanded: false })
+    const cardButton2 = screen.getByRole('button', { name: /Trần Văn Nam/i, expanded: false })
 
     // Open first student
     fireEvent.click(cardButton1)

@@ -105,6 +105,7 @@ export function renderStudentReportCardBody(vm: StudentReportCardViewModel): str
       <tr>
         <td><strong>${escapeHtml(g.semesterLabel)}</strong></td>
         <td>${escapeHtml(g.scoreOral)}</td>
+        <td>${escapeHtml(g.scorePrayer)}</td>
         <td>${escapeHtml(g.score15m)}</td>
         <td>${escapeHtml(g.score1Period)}</td>
         <td>${escapeHtml(g.scoreMidterm)}</td>
@@ -141,7 +142,7 @@ export function renderStudentReportCardBody(vm: StudentReportCardViewModel): str
         <thead>
           <tr>
             <th>Học Kỳ</th>
-            <th>Điểm Miệng</th>
+            <th>Điểm Miệng</th><th>Khảo kinh</th>
             <th>15 Phút</th>
             <th>1 Tiết</th>
             <th>Giữa Kỳ</th>
@@ -322,6 +323,7 @@ export function generateParentReportCardHTML(report: ReportCardDTO, options?: Re
       <tr>
         <td><strong>Học Kỳ ${g.semester}</strong></td>
         <td>${fmt(g.scoreOral)}</td>
+        <td>${fmt(g.scorePrayer)}</td>
         <td>${fmt(g.score15m)}</td>
         <td>${fmt(g.score1Period)}</td>
         <td>${fmt(g.scoreMidterm)}</td>
@@ -366,7 +368,7 @@ export function generateParentReportCardHTML(report: ReportCardDTO, options?: Re
         </div>
         <table>
           <thead>
-            <tr><th>Học Kỳ</th><th>Điểm Miệng</th><th>15 Phút</th><th>1 Tiết</th><th>Giữa Kỳ</th><th>Thi HK</th><th>Đạo Đức</th><th>ĐTB Học Kỳ</th><th>Xếp Loại</th></tr>
+            <tr><th>Học Kỳ</th><th>Điểm Miệng</th><th>Khảo kinh</th><th>15 Phút</th><th>1 Tiết</th><th>Giữa Kỳ</th><th>Thi HK</th><th>Đạo Đức</th><th>ĐTB Học Kỳ</th><th>Xếp Loại</th></tr>
           </thead>
           <tbody>
             ${gradeRowsHtml}

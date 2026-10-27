@@ -75,6 +75,7 @@ Import Processing Route (server/src/routes/import.ts)
 - **Smart Column Detection & Alias Resolution (`detectGradeColumns`)**:
   - Uses scoring-based keyword matching (Exact match = 100, Header-contains-keyword = 80+, Keyword-contains-header abbreviation = 70+). Single-char exact-match guards (`m` → Miệng, `h` → Họ, `t` → Tên) are retained at low priority; any keyword ≤2 characters (`gk`, `ck`, `1t`, `15p`, `dd`...) only ever matches **exactly** to prevent false positives (e.g., `TB` can no longer alias `scoreMidterm`). Priority-2 fields (`lastName`, `firstName`) receive a −5 score penalty so `fullName`/`holyName` win when ambiguous.
   - **Supported Grade Fields & Aliases**:
+    - `scorePrayer`: `Khảo kinh`, `Khao kinh`, `Điểm khảo kinh`, `Prayer` (cột riêng; thiếu header giữ nguyên điểm đã có, không suy luận từ vị trí trong file cũ).
     - `scoreOral`: `Miệng`, `KT Miệng`, `Điểm Miệng`, `Oral`, `M` (exact match)
     - `score15m`: `15 Phút`, `15P`, `KT 15P`, `15 minutes`
     - `score1Period`: `1 Tiết`, `1T`, `KT 1 Tiết`, `Viết`, `1 Period`
@@ -127,7 +128,7 @@ Import Processing Route (server/src/routes/import.ts)
 
 ### 6.1 PDF Report Card Generation (`src/utils/pdfGenerator.ts`)
 - Generates individual student report cards containing:
-  - Full Academic Breakdown (`scoreOral`, `score15m`, `score1Period`, `scoreMidterm`, `scoreFinal`, `scoreDaoDuc`, Computed Semester GPA).
+  - Full Academic Breakdown (`scoreOral`, `scorePrayer`, `score15m`, `score1Period`, `scoreMidterm`, `scoreFinal`, `scoreDaoDuc`, Computed Semester GPA).
   - Attendance Summary (% Mass attendance & % Catechism attendance).
   - Promotion Decision (`PROMOTED`, `RETAINED`, etc.).
 - Server-side PDF rendering accepts only self-contained resources (`data:` and `about:blank`); every network, file, blob, relative, or other external URL is neutralized before rendering and denied again by browser request interception. JavaScript is disabled in the PDF page.

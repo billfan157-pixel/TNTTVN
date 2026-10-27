@@ -15,9 +15,11 @@ import { NoResultState } from '../common/StateFeedback'
 import { hapticFeedback } from '../../utils/haptics'
 import { useToastStore } from '../../stores/toastStore'
 import { MobileConductEntry } from './MobileConductEntry'
+import { DailyScoreBonusButton } from '../common/DailyScoreBonusButton'
 
 const SCORE_TYPES: Array<{ id: DailyScoreType; label: string; short: string }> = [
   { id: 'oral', label: 'Điểm miệng', short: 'Miệng' },
+  { id: 'prayer', label: 'Khảo kinh', short: 'Khảo kinh' },
   { id: '15m', label: 'Điểm 15 phút', short: '15 phút' },
   { id: '1period', label: 'Điểm 1 tiết', short: '1 tiết' },
 ]
@@ -103,7 +105,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
   }, [activeEntries])
 
   const entryCountsByType = useMemo(() => {
-    const counts: Record<DailyScoreType, number> = { oral: 0, '15m': 0, '1period': 0 }
+    const counts: Record<DailyScoreType, number> = { oral: 0, prayer: 0, '15m': 0, '1period': 0 }
     for (const entry of entries) {
       if (entry.semester === selectedSemester && filteredStudents.some(s => s.id === entry.studentId)) {
         if (entry.scoreType in counts) {
@@ -208,7 +210,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
           ) : undefined
         }
       >
-        <div className="grade-segmented-group" role="tablist" aria-label="Chọn loại điểm kiểm tra">
+        <div className="grade-segmented-group overflow-x-auto" role="tablist" aria-label="Chọn loại điểm kiểm tra">
           {SCORE_TYPES.map(type => {
             const isActive = activeType === type.id
             const count = entryCountsByType[type.id]
@@ -219,7 +221,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => { setActiveType(type.id); hapticFeedback.light(); }}
-                className={`grade-segmented-item ${isActive ? 'is-active' : ''}`}
+                className={`grade-segmented-item !min-w-[64px] ${isActive ? 'is-active' : ''}`}
                 data-compact-touch
               >
                 <span>{type.short}</span>
@@ -227,7 +229,7 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
               </button>
             )
           })}
-          <button type="button" role="tab" aria-selected={activeType === 'conduct'} onClick={() => setActiveType('conduct')} className={`grade-segmented-item ${activeType === 'conduct' ? 'is-active' : ''}`} data-compact-touch>Đạo đức</button>
+          <button type="button" role="tab" aria-selected={activeType === 'conduct'} onClick={() => setActiveType('conduct')} className={`grade-segmented-item !min-w-[64px] ${activeType === 'conduct' ? 'is-active' : ''}`} data-compact-touch>Đạo đức</button>
         </div>
 
         {!canEdit && <div className="rounded-xl bg-surface-hover border border-surface-border px-3 py-1.5 text-xs font-semibold text-text-secondary">Tài khoản hiện tại chỉ có quyền xem điểm.</div>}
@@ -263,18 +265,21 @@ export const MobileDailyGradeEntry: React.FC<MobileDailyGradeEntryProps> = ({ on
 
         return (
           <article key={student.id} className="entity-card overflow-hidden">
-            <button type="button" onClick={() => toggleExpanded(student.id)} className="w-full text-left p-4 flex items-center justify-between gap-3 min-h-[76px]" aria-expanded={isExpanded}>
-              <span className="min-w-0">
+            <div className="p-4 flex items-center gap-3 min-h-[76px]">
+            <button type="button" onClick={() => toggleExpanded(student.id)} className="min-w-0 flex-1 text-left min-h-[44px]" aria-expanded={isExpanded}>
+              <span className="block min-w-0">
                 <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="flex" />
                 <span className="block text-xs text-text-muted mt-1 truncate">{classNameById.get(student.classId) || '—'} • {student.code}</span>
               </span>
+            </button>
+              {canEdit && <DailyScoreBonusButton key={`${selectedSemester}-${assessmentType}-${academicYear}`} student={student} scoreType={assessmentType} semester={selectedSemester} academicYear={academicYear} />}
               <span className="shrink-0 text-right">
                 <span className="block text-lg font-black text-parish-primary">{average ?? '—'}</span>
                 <span className="text-[10px] font-semibold text-text-muted">{studentEntries.length} lần nhập</span>
               </span>
-            </button>
+            </div>
             <div className="px-4 pb-3 flex items-center justify-between gap-3 text-xs text-text-muted">
-              <span>Điểm ma trận: <strong className="text-text-main">{grade?.[activeType === 'oral' ? 'scoreOral' : activeType === '15m' ? 'score15m' : 'score1Period'] ?? '—'}</strong></span>
+              <span>Điểm ma trận: <strong className="text-text-main">{grade?.[activeType === 'oral' ? 'scoreOral' : activeType === 'prayer' ? 'scorePrayer' : activeType === '15m' ? 'score15m' : 'score1Period'] ?? '—'}</strong></span>
               {average !== null && <span className="text-emerald-600 flex items-center gap-1"><CheckCircle2 size={13} /> Có TB</span>}
             </div>
             {isExpanded && (

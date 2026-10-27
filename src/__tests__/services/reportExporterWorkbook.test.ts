@@ -12,7 +12,7 @@ import { exportXlsx } from '../../services/reportExporter'
 describe('real XLSX worksheet serialization', () => {
   it('keeps formula-looking student text as string cells with no formula', async () => {
     await exportXlsx('gradebook', 'Bảng điểm', [
-      { 'Mã TN': '=HYPERLINK("https://example.invalid")', 'Họ và Tên': '+cmd', 'ĐTB': 9 },
+      { 'Mã TN': '=HYPERLINK("https://example.invalid")', 'Họ và Tên': '+cmd', 'ĐTB': 9, 'Khảo kinh': 6.5 },
     ])
 
     expect(writeFileMock).toHaveBeenCalledOnce()
@@ -29,5 +29,6 @@ describe('real XLSX worksheet serialization', () => {
     const readBack = XLSX.read(bytes, { type: 'buffer' }).Sheets['Bảng điểm']
     expect(readBack.A2.f).toBeUndefined()
     expect(readBack.A2.v).toBe('=HYPERLINK("https://example.invalid")')
+    expect(readBack.D2).toMatchObject({ t: 'n', v: 6.5 })
   })
 })

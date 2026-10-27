@@ -151,6 +151,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
         : r.fullName,
       matchedStudent: r.matchedStudent || null,
       scoreOral: r.scoreOral,
+      ...(r.scorePrayer !== undefined ? { scorePrayer: r.scorePrayer } : {}),
       score15m: r.score15m,
       score1Period: r.score1Period,
       scoreMidterm: r.scoreMidterm,
@@ -470,7 +471,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
                 <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} className="hidden" />
               </label>
               <p className="mt-1 text-[11px] text-text-muted">
-                Cần có cột "Mã TN" / "Họ và Tên" và các cột điểm (Miệng, 15P, 1 Tiết, Giữa Kỳ, Cuối Kỳ, Đạo Đức)
+                Cần có cột "Mã TN" / "Họ và Tên" và các cột điểm (Miệng, Khảo kinh, 15P, 1 Tiết, Giữa Kỳ, Cuối Kỳ, Đạo Đức)
               </p>
             </div>
 
@@ -511,7 +512,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
                   const fieldLabels: Record<string, string> = {
                     studentCode: 'Mã TN', studentName: 'Họ Tên', holyName: 'Tên Thánh',
                     lastName: 'Họ', firstName: 'Tên',
-                    scoreOral: 'Miệng', score15m: '15P', score1Period: '1 Tiết',
+                    scoreOral: 'Miệng', scorePrayer: 'Khảo kinh', score15m: '15P', score1Period: '1 Tiết',
                     scoreMidterm: 'Giữa Kỳ', scoreFinal: 'Cuối Kỳ', scoreDaoDuc: 'Đạo Đức',
                     comments: 'Ghi Chú',
                   }
@@ -569,6 +570,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
                     <th className="p-2 border-b border-surface-border text-center" scope="col">Trạng thái</th>
                     <th className="p-2 border-b border-surface-border" scope="col">Học sinh</th>
                     <th className="p-2 border-b border-surface-border text-center" scope="col">Miệng</th>
+                    <th className="p-2 border-b border-surface-border text-center" scope="col">Khảo kinh</th>
                     <th className="p-2 border-b border-surface-border text-center" scope="col">15 Phút</th>
                     <th className="p-2 border-b border-surface-border text-center" scope="col">1 Tiết</th>
                     <th className="p-2 border-b border-surface-border text-center" scope="col">Giữa Kỳ</th>
@@ -582,6 +584,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
                   {parsedRows.map((r, idx) => {
                     const avgRes = calculateGradeAverage({
                       scoreOral: r.scoreOral,
+                      ...(r.scorePrayer !== undefined ? { scorePrayer: r.scorePrayer } : {}),
                       score15m: r.score15m,
                       score1Period: r.score1Period,
                       scoreMidterm: r.scoreMidterm,
@@ -622,6 +625,7 @@ export const ExcelGradeImportModal: React.FC<Props> = ({ isOpen, onClose, semest
                           )}
                         </td>
                         <td className="p-2 text-center text-text-main font-bold">{r.scoreOral ?? '—'}</td>
+                        <td className="p-2 text-center text-text-main font-bold">{r.scorePrayer ?? '—'}</td>
                         <td className="p-2 text-center text-text-main font-bold">{r.score15m ?? '—'}</td>
                         <td className="p-2 text-center text-text-main font-bold">{r.score1Period ?? '—'}</td>
                         <td className="p-2 text-center text-text-main font-bold">{r.scoreMidterm ?? '—'}</td>
@@ -665,10 +669,10 @@ function deriveImportClassIds(records: Array<{ studentId: string }>, students: R
 
 /** F6 (audit): Hash ổn định của nội dung import (mã HS + điểm + comments + HK + năm), dùng cho phát hiện trùng. */
 async function computeImportHash(
-  records: Array<{ studentId: string; scoreOral?: number | null; score15m?: number | null; score1Period?: number | null; scoreMidterm?: number | null; scoreFinal?: number | null; scoreDaoDuc?: number | null; comments?: string }>
+  records: Array<{ studentId: string; scoreOral?: number | null; scorePrayer?: number | null; score15m?: number | null; score1Period?: number | null; scoreMidterm?: number | null; scoreFinal?: number | null; scoreDaoDuc?: number | null; comments?: string }>
 ): Promise<string> {
   const payload = JSON.stringify(
-    records.map((r) => [r.studentId, r.scoreOral, r.score15m, r.score1Period, r.scoreMidterm, r.scoreFinal, r.scoreDaoDuc, r.comments ?? ''])
+    records.map((r) => [r.studentId, r.scoreOral, r.score15m, r.score1Period, r.scoreMidterm, r.scoreFinal, r.scoreDaoDuc, r.comments ?? '', ...(r.scorePrayer != null ? [r.scorePrayer] : [])])
   )
   try {
     if (typeof crypto !== 'undefined' && crypto.subtle) {

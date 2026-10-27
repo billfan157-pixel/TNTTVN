@@ -4,7 +4,7 @@ import { eq, and } from 'drizzle-orm'
 import { DEFAULT_GRADE_WEIGHTS, type GradeWeightsConfig } from '../utils/gradeCalculation.js'
 import { DEFAULT_PROMOTION_POLICY } from '../domain/PromotionSpecifications.js'
 
-const WEIGHT_KEYS = ['weightOral', 'weight15m', 'weight1Period', 'weightMidterm', 'weightFinal'] as const
+const WEIGHT_KEYS = ['weightOral', 'weightPrayer', 'weight15m', 'weight1Period', 'weightMidterm', 'weightFinal'] as const
 
 export interface ParishAttendancePolicy {
   excusedWeight: number

@@ -41,6 +41,37 @@ beforeEach(() => {
 })
 
 describe('DailyGradeStore', () => {
+  it('queues a relative bonus with a stable ID without creating an assessment or writing an absolute grade', async () => {
+    await useDailyGradeStore.getState().addScoreBonus('ST-001', '15m', 1, 2, '2025 - 2026')
+    expect(syncService.syncUpsertDailyEntry).toHaveBeenCalledWith(expect.objectContaining({ id: expect.stringMatching(/^DB-/), operation: 'bonus', studentId: 'ST-001', scoreType: '15m', value: 1, semester: 2, academicYear: '2025-2026' }))
+    expect(useDailyGradeStore.getState().entries).toHaveLength(0)
+    expect(syncService.syncUpsertGrade).not.toHaveBeenCalled()
+  })
+
+  it('rejects bonus queue failures and invalid amounts', async () => {
+    vi.mocked(syncService.syncUpsertDailyEntry).mockRejectedValueOnce(new Error('Disk full'))
+    await expect(useDailyGradeStore.getState().addScoreBonus('ST-001', 'oral', 1, 1, '2025-2026')).rejects.toThrow('Disk full')
+    await expect(useDailyGradeStore.getState().addScoreBonus('ST-001', 'oral', -1, 1, '2025-2026')).rejects.toThrow(/Mức cộng/)
+    expect(syncService.syncUpsertDailyEntry).toHaveBeenCalledTimes(1)
+    expect(useDailyGradeStore.getState().entries).toHaveLength(0)
+  })
+
+  it('refreshes a known manual attempt after a bonus without resurrecting locally removed attempts', async () => {
+    const { api } = await import('../../lib/api')
+    await useDailyGradeStore.getState().addEntry('ST-001', 'oral', 8, 1)
+    const local = useDailyGradeStore.getState().entries[0]
+    const other = { ...local, id: 'OTHER-MACHINE', studentId: 'ST-002', origin: 'machine' as const, examSessionId: 'EX-2' }
+    useDailyGradeStore.setState({ serverEntries: [other] })
+    vi.mocked(api.getDailyEntries).mockResolvedValue([
+      { ...local, value: 9, origin: 'manual', examSessionId: null },
+      { ...local, id: 'REMOVED', value: 7, origin: 'manual', examSessionId: null },
+    ])
+    await useDailyGradeStore.getState().fetchDailyEntries({ studentId: 'ST-001', academicYear: '2025-2026', semester: 1 })
+    expect(useDailyGradeStore.getState().entries).toEqual([{ ...local, value: 9 }])
+    expect(useDailyGradeStore.getState().serverEntries).toContainEqual(other)
+    expect(syncService.syncUpsertGrade).not.toHaveBeenCalled()
+  })
+
   it('conduct queues the relative amount with reason and normalized year, never an absolute grade', async () => {
     await useDailyGradeStore.getState().addConductDeduction('ST-001', 0.5, '  Nội quy  ', 1)
     expect(syncService.syncUpsertDailyEntry).toHaveBeenCalledWith(expect.objectContaining({ studentId: 'ST-001', value: 0.5, reason: 'Nội quy', scoreType: 'conduct', academicYear: '2025-2026' }))

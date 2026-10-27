@@ -183,6 +183,7 @@ export const ParentPage: React.FC = () => {
                         <tr className="text-left text-xs uppercase tracking-wide text-text-muted border-b border-surface-border bg-surface-hover/60">
                           <th className="py-2.5 pl-4 pr-3 font-bold" scope="col">Học Kỳ</th>
                           <th className="py-2.5 pr-3 font-bold text-center" scope="col">Miệng</th>
+                          <th className="py-2.5 pr-3 font-bold text-center" scope="col">Khảo kinh</th>
                           <th className="py-2.5 pr-3 font-bold text-center" scope="col">15 Phút</th>
                           <th className="py-2.5 pr-3 font-bold text-center" scope="col">1 Tiết</th>
                           <th className="py-2.5 pr-3 font-bold text-center" scope="col">Giữa Kỳ</th>
@@ -198,6 +199,7 @@ export const ParentPage: React.FC = () => {
                             <tr key={g.semester} className="border-b border-surface-border/60 last:border-b-0 hover:bg-surface-app transition-colors">
                               <td className="py-2.5 pl-4 pr-3 font-semibold text-text-main">Học Kỳ {g.semester}</td>
                               <td className="py-2.5 pr-3 text-center tabular-nums">{fmt(g.scoreOral)}</td>
+                              <td className="py-2.5 pr-3 text-center tabular-nums">{fmt(g.scorePrayer)}</td>
                               <td className="py-2.5 pr-3 text-center tabular-nums">{fmt(g.score15m)}</td>
                               <td className="py-2.5 pr-3 text-center tabular-nums">{fmt(g.score1Period)}</td>
                               <td className="py-2.5 pr-3 text-center tabular-nums">{fmt(g.scoreMidterm)}</td>
@@ -214,7 +216,7 @@ export const ParentPage: React.FC = () => {
                           )
                         })}
                         {report.grades.length === 0 && (
-                          <tr><td colSpan={8} className="py-5 text-center text-text-muted text-sm">Chưa có điểm cho năm học này.</td></tr>
+                          <tr><td colSpan={9} className="py-5 text-center text-text-muted text-sm">Chưa có điểm cho năm học này.</td></tr>
                         )}
                       </tbody>
                     </table>

@@ -17,9 +17,11 @@ import { useConfirmDialog } from '../../hooks/useConfirmDialog'
 import { StudentName } from '../common/StudentName'
 import { EmptyState } from '../common/StateFeedback'
 import { hapticFeedback } from '../../utils/haptics'
+import { DailyScoreBonusButton } from '../common/DailyScoreBonusButton'
 
 const SCORE_TYPES: { id: DailyScoreType; label: string; color: string }[] = [
   { id: 'oral', label: 'Điểm Miệng', color: 'bg-[var(--color-parish-info)]' },
+  { id: 'prayer', label: 'Khảo Kinh', color: 'bg-parish-primary' },
   { id: '15m', label: 'Điểm 15 Phút', color: 'bg-[var(--color-parish-success)]' },
   { id: '1period', label: 'Điểm 1 Tiết', color: 'bg-[var(--color-parish-warning)]' },
 ]
@@ -371,7 +373,10 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                     <React.Fragment key={student.id}>
                       <tr className="border-b border-surface-hover bg-surface-card hover:bg-surface-app transition-colors">
                         <td className="py-3 px-4 sticky left-0 bg-surface-card z-10 shadow-xs">
-                          <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="whitespace-nowrap" />
+                          <div className="flex items-center justify-between gap-2">
+                            <StudentName holyName={student.holyName} fullName={student.fullName} size="base" className="whitespace-nowrap" />
+                            {canEdit && <DailyScoreBonusButton key={`${selectedSemester}-${activeScoreType}-${academicYear}`} student={student} scoreType={activeScoreType} semester={selectedSemester} academicYear={academicYear} />}
+                          </div>
                           <div className="text-sm text-text-muted truncate">{cls?.name} • {student.code}</div>
                         </td>
 
@@ -533,6 +538,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
 
 const SCORE_FIELD_MAP: Record<DailyScoreType, string> = {
   oral: 'scoreOral',
+  prayer: 'scorePrayer',
   '15m': 'score15m',
   '1period': 'score1Period',
 }

@@ -38,7 +38,7 @@ export function GradesPage() {
   const search = useSearch({ from: '/grades' })
   const effectiveMode = useEffectiveMode()
   const { openReport, openReportForPrint } = useUIStore()
-  const viewMode = (search.view as GradeViewMode) || 'matrix'
+  const viewMode = (search.view as GradeViewMode) || 'daily'
 
   const handleViewChange = useCallback((newView: GradeViewMode) => {
     navigate({

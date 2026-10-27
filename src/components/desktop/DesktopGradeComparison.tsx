@@ -116,9 +116,9 @@ export const DesktopGradeComparison: React.FC = () => {
               <tr className="bg-surface-app text-text-muted border-b-2 border-surface-border text-xs font-bold uppercase tracking-wider">
                 <th className="py-3 px-4 text-left sticky left-0 bg-surface-app z-10" scope="col">Tên Thiếu Nhi & Lớp</th>
                 <th className="py-3 px-4 text-center" scope="col">HK I</th>
-                <th className="py-3 px-4 text-center" scope="col">Miệng / 15P / 1T / GK / CK</th>
+                <th className="py-3 px-4 text-center" scope="col">Miệng / Khảo kinh / 15P / 1T / GK / CK</th>
                 <th className="py-3 px-4 text-center" scope="col">HK II</th>
-                <th className="py-3 px-4 text-center" scope="col">Miệng / 15P / 1T / GK / CK</th>
+                <th className="py-3 px-4 text-center" scope="col">Miệng / Khảo kinh / 15P / 1T / GK / CK</th>
                 <th className="py-3 px-4 text-center" scope="col">Chênh Lệch</th>
                 <th className="py-3 px-4 text-center" scope="col"></th>
               </tr>
@@ -155,8 +155,9 @@ export const DesktopGradeComparison: React.FC = () => {
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        <div className="grid grid-cols-5 gap-0.5 text-xs">
+                        <div className="grid grid-cols-6 gap-0.5 text-xs">
                           <div><span className="text-text-muted">M</span><br /><span className="font-bold">{g1?.scoreOral ?? '—'}</span></div>
+                          <div><span className="text-text-muted">KK</span><br /><span className="font-bold">{g1?.scorePrayer ?? '—'}</span></div>
                           <div><span className="text-text-muted">15</span><br /><span className="font-bold">{g1?.score15m ?? '—'}</span></div>
                           <div><span className="text-text-muted">1T</span><br /><span className="font-bold">{g1?.score1Period ?? '—'}</span></div>
                           <div><span className="text-text-muted">GK</span><br /><span className="font-bold">{g1?.scoreMidterm ?? '—'}</span></div>
@@ -170,8 +171,9 @@ export const DesktopGradeComparison: React.FC = () => {
                       </td>
 
                       <td className="py-3 px-4 text-center">
-                        <div className="grid grid-cols-5 gap-0.5 text-xs">
+                        <div className="grid grid-cols-6 gap-0.5 text-xs">
                           <div><span className="text-text-muted">M</span><br /><span className="font-bold">{g2?.scoreOral ?? '—'}</span></div>
+                          <div><span className="text-text-muted">KK</span><br /><span className="font-bold">{g2?.scorePrayer ?? '—'}</span></div>
                           <div><span className="text-text-muted">15</span><br /><span className="font-bold">{g2?.score15m ?? '—'}</span></div>
                           <div><span className="text-text-muted">1T</span><br /><span className="font-bold">{g2?.score1Period ?? '—'}</span></div>
                           <div><span className="text-text-muted">GK</span><br /><span className="font-bold">{g2?.scoreMidterm ?? '—'}</span></div>

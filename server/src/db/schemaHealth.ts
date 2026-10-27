@@ -86,6 +86,7 @@ export const REQUIRED_MIGRATION_MARKERS = [
   '20260922-265',
   '20260925-266',
   '20260925-267',
+  ...migrationRange('20261027', 268, 272),
 ] as const
 
 const REQUIRED_INDEX_COLUMNS: Record<string, readonly string[]> = {
@@ -184,6 +185,8 @@ const REQUIRED_TRIGGER_NAMES = [
   'check_outbox_messages_status_update',
   'check_grade_overrides_field_insert',
   'check_grade_overrides_field_update',
+  'check_grade_prayer_insert',
+  'check_grade_prayer_update',
   'check_exam_session_blueprint_insert',
   'check_exam_session_blueprint_update',
   'check_operation_event_scope_insert',
@@ -226,7 +229,7 @@ const REQUIRED_COLUMNS: Record<string, readonly string[]> = {
   academic_year_snapshots: ['source_class_id', 'report_snapshot'],
   import_batches: ['content_hash', 'classes_created', 'created_class_ids'],
   import_batch_students: ['rollback_snapshot'],
-  grades: ['score_dao_duc_source', 'score_dao_duc_updated_at'],
+  grades: ['score_dao_duc_source', 'score_dao_duc_updated_at', 'score_prayer', 'score_prayer_source', 'score_prayer_updated_at'],
   notifications: ['target_user_ids', 'attempt_count', 'max_attempts', 'lease_owner', 'lease_expires_at', 'next_attempt_at', 'delivery_kind'],
   users: ['password_encrypted', 'holy_name', 'deleted_at'],
   exam_results: ['parish_id', 'scan_metadata', 'exam_version', 'result_version', 'attempt_fingerprint', 'captured_at', 'saved_by', 'saved_at'],

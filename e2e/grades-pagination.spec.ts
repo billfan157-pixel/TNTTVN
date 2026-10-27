@@ -37,10 +37,11 @@ test('desktop grade pagination preserves keyboard edits through real sync and re
   const navigation = page.getByRole('navigation', { name: 'Điều hướng quản lý' })
   await navigation.getByRole('button', { name: 'Bảng Điểm', exact: true }).click()
   await expect(page).toHaveURL(/\/grades$/)
+  await page.getByRole('tab', { name: /Ma Trận:/ }).click()
   await page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' }).selectOption(classId)
   const table = page.getByRole('region', { name: 'Bảng điểm học kỳ', exact: true })
   await expect(table.locator('tbody tr')).toHaveCount(50)
-  await expect(table.locator('[data-matrix-cell]')).toHaveCount(300)
+  await expect(table.locator('[data-matrix-cell]')).toHaveCount(350)
   const boundary = table.locator('input[data-matrix-row="49"][data-matrix-col="0"]')
   const firstLabel = (await boundary.getAttribute('aria-label'))!
   const firstStudent = students.find(student => firstLabel.endsWith(student.fullName))!

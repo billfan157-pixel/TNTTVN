@@ -29,6 +29,7 @@ export interface ClassStudentSummaryDTO {
   grades?: Array<{
     semester: number
     scoreOral?: number | null
+    scorePrayer?: number | null
     score15m?: number | null
     score1Period?: number | null
     scoreMidterm?: number | null
@@ -145,6 +146,7 @@ export class ClassSummaryProjectionRepository {
           grades: (frozen.grades || []).map(grade => ({
             semester: grade.semester,
             scoreOral: grade.scoreOral ?? null,
+            scorePrayer: grade.scorePrayer ?? null,
             score15m: grade.score15m ?? null,
             score1Period: grade.score1Period ?? null,
             scoreMidterm: grade.scoreMidterm ?? null,
@@ -293,6 +295,7 @@ export class ClassSummaryProjectionRepository {
         studentGrades.push({
           semester: effectiveGrade.semester!,
           scoreOral: effectiveGrade.scoreOral ?? null,
+          scorePrayer: effectiveGrade.scorePrayer ?? null,
           score15m: effectiveGrade.score15m ?? null,
           score1Period: effectiveGrade.score1Period ?? null,
           scoreMidterm: effectiveGrade.scoreMidterm ?? null,

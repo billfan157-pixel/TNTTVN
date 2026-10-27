@@ -1,4 +1,4 @@
-export type ScoreField = 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal' | 'scoreDaoDuc'
+export type ScoreField = 'scoreOral' | 'score15m' | 'score1Period' | 'scoreMidterm' | 'scoreFinal' | 'scorePrayer' | 'scoreDaoDuc'
 
 export interface GradeRecordDTO {
   id: string
@@ -6,6 +6,7 @@ export interface GradeRecordDTO {
   academicYear: string
   semester: number
   scoreOral?: number | null
+  scorePrayer?: number | null
   score15m?: number | null
   score1Period?: number | null
   scoreMidterm?: number | null

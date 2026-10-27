@@ -15,6 +15,20 @@ import {
 import { attendanceRateSpecification } from '../../../server/src/domain/AttendanceRateSpecification'
 
 describe('GPA Calculation Parity (Client vs Server)', () => {
+  it.each([
+    [undefined, 8], [null, 8], [0, 4], [6, 7],
+  ])('includes prayer at weight 1 while treating absent prayer as unentered: %s', (scorePrayer, expected) => {
+    const input = { scoreOral: 8, scorePrayer, score15m: null, score1Period: null, scoreMidterm: null, scoreFinal: null }
+    expect(calculateGradeAverage(input).score).toBe(expected)
+    expect(computeWeightedGpa(input)).toBe(expected)
+  })
+
+  it('uses the configured prayer weight consistently on client and server', () => {
+    const input = { scoreOral: 8, scorePrayer: 5, score15m: null, score1Period: null, scoreMidterm: null, scoreFinal: null }
+    const weights = { ...DEFAULT_GRADE_WEIGHTS, weightPrayer: 2 }
+    expect(calculateGradeAverage(input, weights).score).toBe(6)
+    expect(computeWeightedGpa(input, weights)).toBe(6)
+  })
   it('produces identical 1-decimal-place rounded GPA for typical scores', () => {
     const input = {
       scoreOral: 7,

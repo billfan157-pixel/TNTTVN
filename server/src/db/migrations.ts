@@ -2704,4 +2704,52 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_financial_transactions_receipt_parish
   ON financial_transactions(parish_id, receipt_number)
   WHERE receipt_number IS NOT NULL;
 ` },
+  { version: '20261027-268', sql: 'ALTER TABLE grades ADD COLUMN score_prayer REAL' },
+  { version: '20261027-269', sql: 'ALTER TABLE grades ADD COLUMN score_prayer_source TEXT' },
+  { version: '20261027-270', sql: 'ALTER TABLE grades ADD COLUMN score_prayer_updated_at TEXT' },
+  { version: '20261027-271', sql: `
+CREATE TRIGGER IF NOT EXISTS check_grade_prayer_insert BEFORE INSERT ON grades
+WHEN NEW.score_prayer IS NOT NULL AND (NEW.score_prayer < 0 OR NEW.score_prayer > 10)
+BEGIN SELECT RAISE(ABORT, 'score_prayer out of range 0-10'); END;
+CREATE TRIGGER IF NOT EXISTS check_grade_prayer_update BEFORE UPDATE ON grades
+WHEN NEW.score_prayer IS NOT NULL AND (NEW.score_prayer < 0 OR NEW.score_prayer > 10)
+BEGIN SELECT RAISE(ABORT, 'score_prayer out of range 0-10'); END;
+DROP TRIGGER IF EXISTS check_grade_overrides_field_insert;
+DROP TRIGGER IF EXISTS check_grade_overrides_field_update;
+CREATE TRIGGER check_grade_overrides_field_insert BEFORE INSERT ON grade_overrides
+WHEN NEW.score_field NOT IN ('scoreOral', 'scorePrayer', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc')
+BEGIN SELECT RAISE(ABORT, 'grade_overrides score_field invalid'); END;
+CREATE TRIGGER check_grade_overrides_field_update BEFORE UPDATE ON grade_overrides
+WHEN NEW.score_field NOT IN ('scoreOral', 'scorePrayer', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc')
+BEGIN SELECT RAISE(ABORT, 'grade_overrides score_field invalid'); END;
+` },
+  { version: '20261027-272', sql: `
+    PRAGMA defer_foreign_keys=ON;
+    DROP TABLE IF EXISTS assessment_entries_prayer;
+    CREATE TABLE assessment_entries_prayer (
+      id TEXT NOT NULL,
+      parish_id TEXT NOT NULL DEFAULT 'gia-ton',
+      student_id TEXT NOT NULL,
+      exam_session_id TEXT,
+      academic_year TEXT NOT NULL,
+      semester INTEGER NOT NULL CHECK(semester IN (1, 2)),
+      score_type TEXT NOT NULL CHECK(score_type IN ('oral', 'prayer', '15m', '1period', 'midterm', 'final')),
+      raw_score REAL NOT NULL CHECK(raw_score >= 0),
+      max_score REAL NOT NULL DEFAULT 10 CHECK(max_score > 0 AND max_score <= 10),
+      score REAL NOT NULL CHECK(score >= 0 AND score <= 10),
+      source TEXT NOT NULL CHECK(source IN ('exam_finalization', 'legacy_baseline', 'manual_entry')),
+      entry_date TEXT,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY(parish_id, id),
+      FOREIGN KEY(parish_id, student_id) REFERENCES students(parish_id, id) ON DELETE RESTRICT,
+      FOREIGN KEY(parish_id, exam_session_id) REFERENCES exam_sessions(parish_id, id) ON DELETE CASCADE
+    );
+    INSERT INTO assessment_entries_prayer (id, parish_id, student_id, exam_session_id, academic_year, semester, score_type, raw_score, max_score, score, source, entry_date, created_by, created_at)
+      SELECT id, parish_id, student_id, exam_session_id, academic_year, semester, score_type, raw_score, max_score, score, source, entry_date, created_by, created_at FROM assessment_entries;
+    DROP TABLE assessment_entries;
+    ALTER TABLE assessment_entries_prayer RENAME TO assessment_entries;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_assessment_entries_exam_student ON assessment_entries(parish_id, exam_session_id, student_id);
+    CREATE INDEX IF NOT EXISTS idx_assessment_entries_lookup ON assessment_entries(parish_id, student_id, academic_year, semester, score_type);
+  ` },
 ]

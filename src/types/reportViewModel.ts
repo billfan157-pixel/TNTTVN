@@ -1,6 +1,7 @@
 export interface GradeRowViewModel {
   semesterLabel: string
   scoreOral: string
+  scorePrayer?: string
   score15m: string
   score1Period: string
   scoreMidterm: string

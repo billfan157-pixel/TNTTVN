@@ -35,6 +35,7 @@ export class ReportViewModelFactory {
       return {
         semesterLabel: `Học Kỳ ${semester}`,
         scoreOral: format(grade?.scoreOral),
+        scorePrayer: format(grade?.scorePrayer),
         score15m: format(grade?.score15m),
         score1Period: format(grade?.score1Period),
         scoreMidterm: format(grade?.scoreMidterm),
@@ -120,6 +121,7 @@ export class ReportViewModelFactory {
       {
         semesterLabel: 'Học Kỳ 1',
         scoreOral: sem1Grade?.scoreOral !== null && sem1Grade?.scoreOral !== undefined ? String(sem1Grade.scoreOral) : '-',
+        scorePrayer: sem1Grade?.scorePrayer !== null && sem1Grade?.scorePrayer !== undefined ? String(sem1Grade.scorePrayer) : '-',
         score15m: sem1Grade?.score15m !== null && sem1Grade?.score15m !== undefined ? String(sem1Grade.score15m) : '-',
         score1Period: sem1Grade?.score1Period !== null && sem1Grade?.score1Period !== undefined ? String(sem1Grade.score1Period) : '-',
         scoreMidterm: sem1Grade?.scoreMidterm !== null && sem1Grade?.scoreMidterm !== undefined ? String(sem1Grade.scoreMidterm) : '-',
@@ -131,6 +133,7 @@ export class ReportViewModelFactory {
       {
         semesterLabel: 'Học Kỳ 2',
         scoreOral: sem2Grade?.scoreOral !== null && sem2Grade?.scoreOral !== undefined ? String(sem2Grade.scoreOral) : '-',
+        scorePrayer: sem2Grade?.scorePrayer !== null && sem2Grade?.scorePrayer !== undefined ? String(sem2Grade.scorePrayer) : '-',
         score15m: sem2Grade?.score15m !== null && sem2Grade?.score15m !== undefined ? String(sem2Grade.score15m) : '-',
         score1Period: sem2Grade?.score1Period !== null && sem2Grade?.score1Period !== undefined ? String(sem2Grade.score1Period) : '-',
         scoreMidterm: sem2Grade?.scoreMidterm !== null && sem2Grade?.scoreMidterm !== undefined ? String(sem2Grade.scoreMidterm) : '-',

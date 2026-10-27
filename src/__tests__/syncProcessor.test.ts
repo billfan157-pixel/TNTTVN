@@ -504,6 +504,16 @@ describe('syncProcessor', () => {
   })
 
   describe('Tier 2 — daily_entry', () => {
+    it('forwards a relative bonus and requires a receipt identifying its target', async () => {
+      const payload = { id: 'DB-1', operation: 'bonus' as const, studentId: 'ST-001', academicYear: '2026-2027', semester: 1, scoreType: 'oral', value: 1 }
+      const receipt = { id: 'DB-1', studentId: 'ST-001', scoreType: 'oral', status: 'created' as const, serverScore: 9, operation: 'bonus' as const, targetEntryId: 'DG-older', academicYear: '2026-2027', semester: 1 }
+      vi.mocked(api.saveDailyEntries).mockResolvedValue({ saved: 1, duplicates: 0, errorCount: 0, total: 1, items: [receipt] })
+      const op = { entity: 'daily_entry', operation: 'CREATE', entityId: 'DB-1', payload: JSON.stringify(payload) }
+      expect((await processOperation(op)).ok).toBe(true)
+      expect(api.saveDailyEntries).toHaveBeenCalledWith([expect.objectContaining(payload)])
+      vi.mocked(api.saveDailyEntries).mockResolvedValue({ saved: 1, duplicates: 0, errorCount: 0, total: 1, items: [{ ...receipt, operation: undefined, targetEntryId: undefined }] })
+      expect((await processOperation(op)).ok).toBe(false)
+    })
     it('conduct forwards the reason and relative deduction unchanged', async () => {
       vi.mocked(api.saveDailyEntries).mockResolvedValue({ saved: 1, duplicates: 0, errorCount: 0, total: 1, items: [{ id: 'CD-1', studentId: 'ST-001', scoreType: 'conduct', status: 'created', serverScore: 9.5 }] })
       const payload = { id: 'CD-1', studentId: 'ST-001', academicYear: '2026-2027', semester: 1, scoreType: 'conduct', value: 0.5, date: '2026-10-19', reason: 'Nói chuyện riêng' }

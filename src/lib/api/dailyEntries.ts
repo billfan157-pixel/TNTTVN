@@ -2,8 +2,8 @@ import { request } from './core'
 
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export const dailyEntriesApi = {
-  saveDailyEntries: (entries: { id: string; studentId: string; academicYear: string; semester: number; scoreType: string; value: number; date?: string; reason?: string }[]) =>
-    request<{ saved: number; duplicates: number; errorCount: number; total: number; items: { id: string; studentId: string; scoreType: string; status: 'created' | 'duplicate' | 'error'; serverScore: number | null; reason?: string; createdAt?: string }[] }>('POST', '/daily-entries/batch', { entries }),
+  saveDailyEntries: (entries: { id: string; studentId: string; academicYear: string; semester: number; scoreType: string; value: number; date?: string; reason?: string; operation?: 'bonus' }[]) =>
+    request<{ saved: number; duplicates: number; errorCount: number; total: number; items: { id: string; studentId: string; scoreType: string; status: 'created' | 'duplicate' | 'error'; serverScore: number | null; reason?: string; createdAt?: string; operation?: 'bonus'; targetEntryId?: string; beforeScore?: number; academicYear?: string; semester?: number }[] }>('POST', '/daily-entries/batch', { entries }),
   deleteDailyEntry: (id: string) => request<{ deleted: boolean; id: string }>('DELETE', `/daily-entries/${encodeURIComponent(id)}`),
   getDailyEntries: (params: { classId?: string; studentId?: string; semester?: number; academicYear?: string; scoreType?: string }) => {
     const qs = new URLSearchParams()

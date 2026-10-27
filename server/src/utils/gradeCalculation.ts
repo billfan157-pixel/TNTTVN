@@ -1,5 +1,6 @@
 export interface GradeItem {
   scoreOral?: number | null
+  scorePrayer?: number | null
   score15m?: number | null
   score1Period?: number | null
   scoreMidterm?: number | null
@@ -8,6 +9,7 @@ export interface GradeItem {
 
 export interface GradeWeightsConfig {
   weightOral?: number
+  weightPrayer?: number
   weight15m?: number
   weight1Period?: number
   weightMidterm?: number
@@ -22,6 +24,7 @@ export interface GradeWeightsConfig {
 
 export const DEFAULT_GRADE_WEIGHTS: Required<GradeWeightsConfig> = {
   weightOral: 1,
+  weightPrayer: 1,
   weight15m: 1,
   weight1Period: 2,
   weightMidterm: 2,
@@ -41,6 +44,12 @@ export function computeWeightedGpa(
 
   let weightedSum = 0
   let totalWeight = 0
+
+  if (typeof grade.scorePrayer === 'number' && !isNaN(grade.scorePrayer)) {
+    const weight = weights.weightPrayer ?? 1
+    weightedSum += Math.min(10, Math.max(0, grade.scorePrayer)) * weight
+    totalWeight += weight
+  }
 
   if (typeof grade.scoreOral === 'number' && !isNaN(grade.scoreOral)) {
     weightedSum += Math.min(10, Math.max(0, grade.scoreOral)) * wOral

@@ -14,7 +14,7 @@ import { decryptQueueValue } from '../lib/offlineCipher'
 import { isOwnOp } from './syncStore'
 import { requestSync } from '../lib/syncTrigger'
 
-const SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'] as const
+const SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scorePrayer', 'scoreDaoDuc'] as const
 
 // Store only signals a framework-neutral trigger registered by the root hook.
 async function triggerSyncFlow() {
@@ -156,8 +156,11 @@ export const useGradeStore = create<GradeState>()(
             academicYear,
             semester: gradeData.semester,
             scoreOral: gradeData.scoreOral ?? null,
+            scorePrayer: gradeData.scorePrayer ?? null,
             scoreOral_source: gradeData.scoreOral_source ?? null,
+            scorePrayer_source: gradeData.scorePrayer_source ?? null,
             scoreOral_updated_at: gradeData.scoreOral_updated_at ?? null,
+            scorePrayer_updated_at: gradeData.scorePrayer_updated_at ?? null,
             score15m: gradeData.score15m ?? null,
             score15m_source: gradeData.score15m_source ?? null,
             score15m_updated_at: gradeData.score15m_updated_at ?? null,
@@ -227,8 +230,11 @@ export const useGradeStore = create<GradeState>()(
               academicYear,
               semester: gradeData.semester,
               scoreOral: gradeData.scoreOral ?? null,
+              scorePrayer: gradeData.scorePrayer ?? null,
               scoreOral_source: gradeData.scoreOral_source ?? null,
+              scorePrayer_source: gradeData.scorePrayer_source ?? null,
               scoreOral_updated_at: gradeData.scoreOral_updated_at ?? null,
+              scorePrayer_updated_at: gradeData.scorePrayer_updated_at ?? null,
               score15m: gradeData.score15m ?? null,
               score15m_source: gradeData.score15m_source ?? null,
               score15m_updated_at: gradeData.score15m_updated_at ?? null,

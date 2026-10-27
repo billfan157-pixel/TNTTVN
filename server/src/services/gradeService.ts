@@ -23,7 +23,9 @@ function formatGradeRow(row: any) {
   return {
     ...row,
     scoreOral_source: row.scoreOral_source ?? row.scoreOralSource ?? null,
+    scorePrayer_source: row.scorePrayer_source ?? row.scorePrayerSource ?? null,
     scoreOral_updated_at: row.scoreOral_updated_at ?? row.scoreOralUpdatedAt ?? null,
+    scorePrayer_updated_at: row.scorePrayer_updated_at ?? row.scorePrayerUpdatedAt ?? null,
     score15m_source: row.score15m_source ?? row.score15mSource ?? null,
     score15m_updated_at: row.score15m_updated_at ?? row.score15mUpdatedAt ?? null,
     score1Period_source: row.score1Period_source ?? row.score1PeriodSource ?? null,
@@ -62,18 +64,21 @@ export interface GradeData {
   academicYear?: string
   semester?: number
   scoreOral?: number | null
+  scorePrayer?: number | null
   score15m?: number | null
   score1Period?: number | null
   scoreMidterm?: number | null
   scoreFinal?: number | null
   scoreDaoDuc?: number | null
   scoreOral_source?: string | null
+  scorePrayer_source?: string | null
   score15m_source?: string | null
   score1Period_source?: string | null
   scoreMidterm_source?: string | null
   scoreFinal_source?: string | null
   scoreDaoDuc_source?: string | null
   scoreOral_updated_at?: string | null
+  scorePrayer_updated_at?: string | null
   score15m_updated_at?: string | null
   score1Period_updated_at?: string | null
   scoreMidterm_updated_at?: string | null
@@ -205,6 +210,7 @@ export async function upsertGrade(input: GradeData, userId: string, parishId: st
     // on this transaction, just like Exam finalization.
     for (const [field, scoreType, sourceColumn] of [
       ['scoreOral', 'oral', 'scoreOralSource'],
+      ['scorePrayer', 'prayer', 'scorePrayerSource'],
       ['score15m', '15m', 'score15mSource'],
       ['score1Period', '1period', 'score1PeriodSource'],
     ] as const) {

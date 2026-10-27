@@ -97,6 +97,7 @@ export function buildOfficialGradebookRowsFromReports(
         'Phái': report.student.gender || '',
         'Ngày Sinh': report.student.dateOfBirth || '',
         'Miệng': grade?.scoreOral ?? '',
+        'Khảo kinh': grade?.scorePrayer ?? '',
         '15 Phút': grade?.score15m ?? '',
         '1 Tiết': grade?.score1Period ?? '',
         'Giữa Kỳ': grade?.scoreMidterm ?? '',

@@ -16,6 +16,7 @@ settingsRouter.use('*', authMiddleware)
 export const DEFAULT_PARISH_SETTINGS = {
   gradeWeights: {
     weightOral: 1,
+    weightPrayer: 1,
     weight15m: 1,
     weight1Period: 2,
     weightMidterm: 2,
@@ -47,17 +48,18 @@ export const DEFAULT_PARISH_SETTINGS = {
 type GradePolicyAudit = ReturnType<typeof buildGradePolicyAudit>
 type ParishSettingsValue = typeof DEFAULT_PARISH_SETTINGS & { gradePolicyAudit?: GradePolicyAudit }
 
-function calculatePolicyAverage(weights: Record<string, any>, grade = { scoreOral: 8, score15m: 8, score1Period: 8, scoreMidterm: 8, scoreFinal: 8 }) {
+function calculatePolicyAverage(weights: Record<string, any>, grade = { scoreOral: 8, scorePrayer: 8, score15m: 8, score1Period: 8, scoreMidterm: 8, scoreFinal: 8 }) {
   const normalized = {
     weightOral: Number(weights.weightOral ?? DEFAULT_PARISH_SETTINGS.gradeWeights.weightOral),
+    weightPrayer: Number(weights.weightPrayer ?? DEFAULT_PARISH_SETTINGS.gradeWeights.weightPrayer),
     weight15m: Number(weights.weight15m ?? DEFAULT_PARISH_SETTINGS.gradeWeights.weight15m),
     weight1Period: Number(weights.weight1Period ?? DEFAULT_PARISH_SETTINGS.gradeWeights.weight1Period),
     weightMidterm: Number(weights.weightMidterm ?? DEFAULT_PARISH_SETTINGS.gradeWeights.weightMidterm),
     weightFinal: Number(weights.weightFinal ?? DEFAULT_PARISH_SETTINGS.gradeWeights.weightFinal),
   }
 
-  const totalWeight = normalized.weightOral + normalized.weight15m + normalized.weight1Period + normalized.weightMidterm + normalized.weightFinal
-  const totalPoints = grade.scoreOral * normalized.weightOral + grade.score15m * normalized.weight15m + grade.score1Period * normalized.weight1Period + grade.scoreMidterm * normalized.weightMidterm + grade.scoreFinal * normalized.weightFinal
+  const totalWeight = normalized.weightOral + normalized.weightPrayer + normalized.weight15m + normalized.weight1Period + normalized.weightMidterm + normalized.weightFinal
+  const totalPoints = grade.scoreOral * normalized.weightOral + grade.scorePrayer * normalized.weightPrayer + grade.score15m * normalized.weight15m + grade.score1Period * normalized.weight1Period + grade.scoreMidterm * normalized.weightMidterm + grade.scoreFinal * normalized.weightFinal
   const avg = totalWeight > 0 ? totalPoints / totalWeight : 0
   const factor = Math.pow(10, Number(weights.roundingDecimal ?? DEFAULT_PARISH_SETTINGS.gradeWeights.roundingDecimal))
   const rounded = Math.round(avg * factor) / factor
@@ -163,6 +165,7 @@ settingsRouter.get('/', async (c) => {
 const updateSettingsSchema = z.object({
   gradeWeights: z.object({
     weightOral: z.number().min(0).default(1),
+    weightPrayer: z.number().min(0).default(1),
     weight15m: z.number().min(0).default(1),
     weight1Period: z.number().min(0).default(2),
     weightMidterm: z.number().min(0).default(2),

@@ -7,6 +7,7 @@ export const finalizationPolicySchema = z.object({
   capturedAt: z.string().min(1),
   gradeWeights: z.object({
     weightOral: z.number().finite().nonnegative(), weight15m: z.number().finite().nonnegative(),
+    weightPrayer: z.number().finite().nonnegative().optional(),
     weight1Period: z.number().finite().nonnegative(), weightMidterm: z.number().finite().nonnegative(),
     weightFinal: z.number().finite().nonnegative(), roundingDecimal: z.union([z.literal(1), z.literal(2)]),
   }),
@@ -27,6 +28,7 @@ export const academicReportSnapshotSchema = z.object({
   grades: z.array(z.object({
     semester: z.union([z.literal(1), z.literal(2)]),
     scoreOral: score, score15m: score, score1Period: score,
+    scorePrayer: score.optional(),
     scoreMidterm: score, scoreFinal: score, scoreDaoDuc: score.optional(), gpa: score,
   })),
   attendanceSummary: z.object({

@@ -14,6 +14,7 @@ export interface ParsedGradeRow {
   holyName?: string
   fullName: string
   scoreOral: number | null
+  scorePrayer?: number | null
   score15m: number | null
   score1Period: number | null
   scoreMidterm: number | null
@@ -309,7 +310,7 @@ function processRawDataRows(rawRows: any[][], classStudents: Student[], studentM
   let bestScore = 0
 
   const NAME_FIELDS = new Set(['studentName', 'holyName', 'lastName', 'firstName', 'studentCode'])
-  const SCORE_FIELDS = new Set(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc'])
+  const SCORE_FIELDS = new Set(['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scorePrayer', 'scoreDaoDuc'])
 
   for (let i = 0; i < Math.min(10, rawRows.length); i++) {
     const rowHeaders = rawRows[i].map((c: any) => String(c || '').trim())
@@ -471,6 +472,7 @@ function processRawDataRows(rawRows: any[][], classStudents: Student[], studentM
     let fullName = ''
     let matchName = ''
     let scoreOralRaw: any
+    let scorePrayerRaw: any
     let score15mRaw: any
     let score1PeriodRaw: any
     let scoreMidtermRaw: any
@@ -499,6 +501,7 @@ function processRawDataRows(rawRows: any[][], classStudents: Student[], studentM
       holyName = normalizeHolyName(holyName)
 
       if (colMap.scoreOral !== undefined) scoreOralRaw = row[colMap.scoreOral]
+      if (colMap.scorePrayer !== undefined) scorePrayerRaw = row[colMap.scorePrayer]
       if (colMap.score15m !== undefined) score15mRaw = row[colMap.score15m]
       if (colMap.score1Period !== undefined) score1PeriodRaw = row[colMap.score1Period]
       if (colMap.scoreMidterm !== undefined) scoreMidtermRaw = row[colMap.scoreMidterm]
@@ -541,6 +544,9 @@ function processRawDataRows(rawRows: any[][], classStudents: Student[], studentM
     const errors: string[] = []
     const warnings: string[] = []
 
+    const prayer = parseScore(scorePrayerRaw)
+    if (prayer.error) errors.push(`Khảo kinh: ${prayer.error}`)
+    if (prayer.warning) warnings.push(`Khảo kinh: ${prayer.warning}`)
     const oral = parseScore(scoreOralRaw)
     if (oral.error) errors.push(`Điểm Miệng: ${oral.error}`)
     if (oral.warning) warnings.push(`Miệng: ${oral.warning}`)
@@ -590,6 +596,7 @@ function processRawDataRows(rawRows: any[][], classStudents: Student[], studentM
       holyName,
       fullName: fullName || matched?.fullName || 'Không rõ',
       scoreOral: oral.value,
+      ...(colMap.scorePrayer !== undefined ? { scorePrayer: prayer.value } : {}),
       score15m: s15m.value,
       score1Period: s1P.value,
       scoreMidterm: mid.value,

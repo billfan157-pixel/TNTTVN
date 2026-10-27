@@ -8,6 +8,16 @@ const mockStudents: Student[] = [
 ]
 
 describe('Smart header detection via parseGradeText', () => {
+  it('keeps prayer separate from oral and preserves its decimal comma value', () => {
+    const result = parseGradeText('Mã TN\tHọ và Tên\tMiệng\tKhảo kinh\nTN-1001\tNguyễn Văn A\t8\t6,5', mockStudents)
+    expect(result.rows[0]).toMatchObject({ scoreOral: 8, scorePrayer: 6.5, isValid: true })
+  })
+
+  it('does not invent a prayer score when importing a legacy sheet', () => {
+    const result = parseGradeText('Mã TN\tHọ và Tên\tMiệng\tĐạo Đức\nTN-1001\tNguyễn Văn A\t8\t10', mockStudents)
+    expect(result.rows[0]).toMatchObject({ scoreOral: 8, scoreDaoDuc: 10 })
+    expect(result.rows[0]).not.toHaveProperty('scorePrayer')
+  })
   it('detects standard Vietnamese headers', () => {
     const text = 'Tên Thánh\tHọ và Tên\tMiệng\t15 Phút\t1 Tiết\tGiữa Kỳ\tCuối Kỳ\tĐạo Đức\nGiuse\tNguyễn Văn A\t8\t7\t6\t5\t9\t10'
     const result = parseGradeText(text, mockStudents)

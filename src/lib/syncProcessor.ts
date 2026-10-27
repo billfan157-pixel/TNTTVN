@@ -90,6 +90,8 @@ export function reconcileDailyEntryAcknowledgement(
   if (!first || !entryId || !['created', 'duplicate'].includes(String(first.status))
     || first.id !== entryId || first.studentId !== data.studentId || first.scoreType !== data.scoreType
     || typeof first.serverScore !== 'number' || !Number.isFinite(first.serverScore)
+    || (data.operation === 'bonus' && (first.operation !== 'bonus' || typeof first.targetEntryId !== 'string'
+      || !first.targetEntryId || first.academicYear !== data.academicYear || first.semester !== data.semester))
     || (batch?.id !== undefined && batch.id !== entryId)) {
     return { ok: false, recoverable: false, error: 'Client error 409: Thiếu xác nhận hợp lệ cho lần nhập điểm; giữ thao tác để đối chiếu.' }
   }
@@ -142,7 +144,7 @@ export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSn
       case 'grade':
         if (action === 'delete') {
           // No server-side DELETE endpoint — null-out all scores via upsert
-          const nulledData = { ...stripGradeMeta(data), scoreOral: null, score15m: null, score1Period: null, scoreMidterm: null, scoreFinal: null, scoreDaoDuc: null }
+          const nulledData = { ...stripGradeMeta(data), scoreOral: null, scorePrayer: null, score15m: null, score1Period: null, scoreMidterm: null, scoreFinal: null, scoreDaoDuc: null }
           const gradeResult = await api.upsertGrade(nulledData)
           return { ok: true, data: gradeResult }
         } else {
@@ -253,6 +255,7 @@ export async function processSyncQueueItem(item: SyncItem, owner?: TenantScopeSn
             value: data.value,
             date: data.date,
             reason: data.reason,
+            ...(data.operation !== undefined ? { operation: data.operation } : {}),
           }])
           return reconcileDailyEntryAcknowledgement(data, targetId, res)
         } else if (action === 'delete') {

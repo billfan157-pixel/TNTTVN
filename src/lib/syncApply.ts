@@ -36,7 +36,7 @@ import { isSyncOwnerCurrent, persistSyncResultForOwner } from './syncSessionBoun
  *      version server → cycle kế tiếp server chấp nhận, chỉnh sửa local thắng đúng field đó.
  * An toàn lặp: server version là version hiện hành nên op kế tiếp không conflict nữa.
  */
-const GRADE_SCORE_FIELDS = ['scoreOral', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc', 'comments'] as const
+const GRADE_SCORE_FIELDS = ['scoreOral', 'scorePrayer', 'score15m', 'score1Period', 'scoreMidterm', 'scoreFinal', 'scoreDaoDuc', 'comments'] as const
 const ATTENDANCE_FIELDS = ['status', 'note'] as const
 
 function requireSyncOwner(op: SyncQueueItem, owner?: TenantScopeSnapshot): TenantScopeSnapshot {
@@ -264,6 +264,10 @@ export async function applyServerResultAsync(op: SyncQueueItem, serverData: any,
       const { useDailyGradeStore } = await import('../stores/dailyGradeStore')
       requireSyncOwner(op, expectedOwner)
       for (const receipt of serverData?.items || []) {
+        if (receipt.operation === 'bonus' && ['created', 'duplicate'].includes(receipt.status)) {
+          await useDailyGradeStore.getState().fetchDailyEntries({ studentId: receipt.studentId, semester: receipt.semester, academicYear: receipt.academicYear })
+          requireSyncOwner(op, expectedOwner)
+        }
         if (receipt.scoreType === 'conduct' && ['created', 'duplicate'].includes(receipt.status) && typeof receipt.serverScore === 'number') {
           useDailyGradeStore.getState().acknowledgeConduct(receipt.id, receipt.serverScore, receipt.createdAt)
         }

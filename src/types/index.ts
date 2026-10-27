@@ -52,8 +52,11 @@ export interface GradeRecord {
   academicYear: string;
   semester: 1 | 2;
   scoreOral: number | null;
+  scorePrayer?: number | null;
   scoreOral_source: ScoreFieldSource | null;
+  scorePrayer_source?: ScoreFieldSource | null;
   scoreOral_updated_at: string | null;
+  scorePrayer_updated_at?: string | null;
   score15m: number | null;
   score15m_source: ScoreFieldSource | null;
   score15m_updated_at: string | null;
@@ -168,7 +171,7 @@ export type ScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final';
 export type ScoreFieldSource = 'manual' | 'daily_avg' | 'excel_import' | 'exam_scan';
 
 /** Loại điểm được phép nhập nhiều lần qua Nhập Điểm Hằng Ngày — Giữa Kỳ & Cuối Kỳ là điểm duy nhất, nhập trực tiếp (không qua daily). */
-export type DailyScoreType = 'oral' | '15m' | '1period';
+export type DailyScoreType = 'oral' | 'prayer' | '15m' | '1period';
 
 export interface DailyGradeEntry {
   id: string
@@ -211,6 +214,7 @@ export interface DailyLedgerEntry {
   date: string | null
   origin: DailyAttemptOrigin
   examSessionId: string | null
+  createdAt?: string
 }
 
 // ─── Smart Exam Grading (Phase 1, exam grading plan (đã triển khai — xem ADR-023/024) §3-5) ───
@@ -466,6 +470,7 @@ export interface ReportCardDTO {
   grades: Array<{
     semester: number;
     scoreOral?: number | null;
+    scorePrayer?: number | null;
     score15m?: number | null;
     score1Period?: number | null;
     scoreMidterm?: number | null;
@@ -511,6 +516,7 @@ export interface ClassStudentSummaryDTO {
   grades?: Array<{
     semester: number;
     scoreOral?: number | null;
+    scorePrayer?: number | null;
     score15m?: number | null;
     score1Period?: number | null;
     scoreMidterm?: number | null;

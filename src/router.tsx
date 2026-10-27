@@ -155,7 +155,7 @@ const gradesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/grades',
   validateSearch: z.object({
-    view: z.enum(['matrix', 'cards', 'comparison', 'daily', 'exam', 'bank']).optional().catch('matrix'),
+    view: z.enum(['matrix', 'cards', 'comparison', 'daily', 'exam', 'bank']).optional().catch('daily'),
     classId: z.string().optional(),
     semester: z.enum(['1', '2']).optional().catch(undefined),
   }),

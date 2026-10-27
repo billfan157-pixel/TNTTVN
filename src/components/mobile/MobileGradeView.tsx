@@ -34,7 +34,7 @@ const tabs: Array<{ id: MobileGradeTab; label: string; icon: React.ReactNode }> 
 
 export const MobileGradeView: React.FC<MobileGradeViewProps> = ({ onViewReport }) => {
   const { role } = useAuth()
-  const [activeTab, setActiveTab] = useState<MobileGradeTab>('board')
+  const [activeTab, setActiveTab] = useState<MobileGradeTab>('daily')
   const students = useStudentStore(s => s.students)
   const selectedClassId = useFilterStore(s => s.selectedClassId)
   const setSelectedClassId = useFilterStore(s => s.setSelectedClassId)

@@ -8,6 +8,7 @@ export interface ParsedGradeRow {
   studentName: string
   matchedStudent: Student | null
   scoreOral: number | null
+  scorePrayer?: number | null
   score15m: number | null
   score1Period: number | null
   scoreMidterm: number | null
@@ -26,6 +27,7 @@ const COLUMN_KEYWORDS: Record<string, { keywords: string[]; priority: number }> 
   lastName: { keywords: ['họ', 'ho', 'h', 'họ đệm', 'ho dem', 'last name', 'surname', 'family name'], priority: 2 },
   firstName: { keywords: ['tên', 'ten', 'tê', 't', 'first name', 'given name'], priority: 2 },
   scoreOral: { keywords: ['miệng', 'mieng', 'oral', 'm', 'kt miệng', 'kt mieng', 'kiểm tra miệng', 'kiem tra mieng', 'điểm miệng', 'diem mieng', 'ktra miệng', 'ktra mieng', 'đ.miệng', 'đ miệng'], priority: 1 },
+  scorePrayer: { keywords: ['khảo kinh', 'khao kinh', 'điểm khảo kinh', 'diem khao kinh', 'prayer'], priority: 1 },
   score15m: { keywords: ['15 phút', '15 phut', '15p', '15 minutes', 'kiểm tra 15 phút', 'kiem tra 15 phut', 'kt 15p', 'kt 15', 'điểm 15 phút', 'diem 15 phut', 'ktra 15p'], priority: 1 },
   score1Period: { keywords: ['1 tiết', '1 tiet', '1 period', '1tiết', '1t', 'kt 1 tiết', 'kt 1 tiet', 'kiểm tra 1 tiết', 'kiem tra 1 tiet', 'viết', 'viet', 'điểm 1 tiết', 'diem 1 tiet', 'ktra 1 tiết', 'ktra 1 tiet'], priority: 1 },
   scoreMidterm: { keywords: ['giữa kỳ', 'giua ky', 'giữa kì', 'midterm', 'giữa', 'gk', 'giữa hk', 'giữa học kỳ', 'giua hoc ky', 'thi giữa kỳ', 'thi giua ky', 'thi gk', 'điểm giữa kỳ', 'diem giua ky'], priority: 1 },
@@ -296,6 +298,7 @@ export async function parseGradeFile(
     }
 
     const oralResult = getScoreField('scoreOral')
+    const prayerResult = getScoreField('scorePrayer')
     const s15mResult = getScoreField('score15m')
     const s1PResult = getScoreField('score1Period')
     const midResult = getScoreField('scoreMidterm')
@@ -318,6 +321,9 @@ export async function parseGradeFile(
     if (finResult.warning) warnings.push(`Cuối Kỳ: ${finResult.warning}`)
     if (ddResult.warning) warnings.push(`Đạo Đức: ${ddResult.warning}`)
 
+    if (prayerResult.error) errors.push(`Khảo kinh: ${prayerResult.error}`)
+    if (prayerResult.warning) warnings.push(`Khảo kinh: ${prayerResult.warning}`)
+    const scorePrayer = prayerResult.value
     const scoreOral = oralResult.value
     const score15m = s15mResult.value
     const score1Period = s1PResult.value
@@ -325,9 +331,9 @@ export async function parseGradeFile(
     const scoreFinal = finResult.value
     const scoreDaoDuc = ddResult.value
 
-    if (errors.length === 0 && scoreOral === null && score15m === null && score1Period === null &&
+    if (errors.length === 0 && scorePrayer === null && scoreOral === null && score15m === null && score1Period === null &&
         scoreMidterm === null && scoreFinal === null && scoreDaoDuc === null && warnings.length === 0) {
-      errors.push('Không nhận diện được cột điểm nào. Vui lòng kiểm tra tên cột trong file (cần có: Miệng, 15P, 1 Tiết, Giữa Kỳ, Cuối Kỳ, Đạo Đức)')
+      errors.push('Không nhận diện được cột điểm nào. Vui lòng kiểm tra tên cột trong file (cần có: Miệng, Khảo kinh, 15P, 1 Tiết, Giữa Kỳ, Cuối Kỳ, Đạo Đức)')
     }
 
     // ADR-016 (sync-fix): Cap comments 500 ký tự — khớp server schema max(500)
@@ -339,6 +345,7 @@ export async function parseGradeFile(
       studentName: rawHolyName ? `${rawHolyName} ${rawName}` : rawName,
       matchedStudent: matchedStudent || null,
       scoreOral,
+      ...(fieldToHeader.has('scorePrayer') ? { scorePrayer } : {}),
       score15m,
       score1Period,
       scoreMidterm,
@@ -354,7 +361,7 @@ export async function parseGradeFile(
   return { rows: results, diagnostics }
 }
 
-const SCORE_FIELDS = ['scoreOral','score15m','score1Period','scoreMidterm','scoreFinal','scoreDaoDuc'] as const
+const SCORE_FIELDS = ['scoreOral','score15m','score1Period','scoreMidterm','scoreFinal','scorePrayer','scoreDaoDuc'] as const
 
 export function buildGradeRecords(
   parsedRows: ParsedGradeRow[],
@@ -382,7 +389,7 @@ export function buildGradeRecords(
     }
 
     for (const f of SCORE_FIELDS) {
-      if (row[f] !== null) {
+      if (row[f] != null) {
         base[f] = row[f]
         base[`${f}_source`] = 'excel_import'
         base[`${f}_updated_at`] = now

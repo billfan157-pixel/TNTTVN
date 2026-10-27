@@ -54,6 +54,7 @@ const SCORE_MATRIX_FIELDS = [
   { id: 'score1Period', header: '1 Tiết', label: 'điểm một tiết' },
   { id: 'scoreMidterm', header: 'Giữa Kỳ', label: 'điểm giữa kỳ' },
   { id: 'scoreFinal', header: 'Cuối Kỳ', label: 'điểm cuối kỳ' },
+  { id: 'scorePrayer', header: 'Khảo kinh', label: 'điểm khảo kinh' },
   { id: 'scoreDaoDuc', header: 'Đạo Đức', label: 'điểm đạo đức' },
 ] as const;
 
@@ -746,7 +747,7 @@ export const DesktopGradeMatrix: React.FC = () => {
             <tbody className="divide-y divide-surface-hover bg-surface-card">
               {table.getRowModel().rows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="p-8">
+                  <td colSpan={14} className="p-8">
                     {students.length === 0 ? (
                       <EmptyState
                         title="Chưa có thiếu nhi nào trong lớp"

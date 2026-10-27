@@ -28,6 +28,7 @@ interface DailyGradeState {
   acknowledgeConduct: (id: string, afterScore: number, createdAt?: string) => void
   setEntries: (entries: DailyGradeEntry[]) => void
   addEntry: (studentId: string, scoreType: DailyScoreType, value: number, semester: 1 | 2, date?: string) => Promise<void>
+  addScoreBonus: (studentId: string, scoreType: DailyScoreType, value: number, semester: 1 | 2, academicYear: string) => Promise<void>
   removeEntry: (id: string) => Promise<void>
   getEntriesForStudent: (studentId: string, semester: 1 | 2, scoreType?: DailyScoreType) => DailyGradeEntry[]
   getAverageForStudent: (studentId: string, semester: 1 | 2, scoreType: DailyScoreType) => number | null
@@ -76,6 +77,17 @@ export const useDailyGradeStore = create<DailyGradeState>()(
       },
       serverEntries: [],
       setEntries: (entries) => set({ entries }),
+
+      addScoreBonus: async (studentId, scoreType, value, semester, academicYear) => {
+        const owner = captureTenantScope()
+        if (!owner) throw new Error('Không có phiên nhập điểm hợp lệ.')
+        if (![0.5, 1, 2].includes(value) || !['oral', 'prayer', '15m', '1period'].includes(scoreType)) throw new Error('Mức cộng hoặc loại điểm không hợp lệ.')
+        await syncUpsertDailyEntry({ id: `DB-${crypto.randomUUID()}`, operation: 'bonus', studentId, academicYear: normalizeAcademicYear(academicYear), semester, scoreType, value, date: toDateString(new Date()) })
+        if (!isTenantScopeCurrent(owner)) throw new Error('Phiên nhập điểm đã thay đổi.')
+        // The queue owns the relative intent. Do not fabricate an assessment or
+        // overwrite an average from a partial device ledger while offline.
+        void requestSync().catch(error => Sentry.captureException(error))
+      },
 
       addEntry: async (studentId, scoreType, value, semester, date) => {
         const owner = captureTenantScope()
@@ -158,13 +170,24 @@ export const useDailyGradeStore = create<DailyGradeState>()(
         try {
           const rows = await api.getDailyEntries(params)
           if (!Array.isArray(rows) || !owner || !isTenantScopeCurrent(owner)) return
-          const validTypes = new Set(['oral', '15m', '1period'])
+          const validTypes = new Set(['oral', 'prayer', '15m', '1period'])
+          const manualRows = new Map(rows.filter(row => row.origin === 'manual' && validTypes.has(row.scoreType) && Number.isFinite(Number(row.value))).map(row => [row.id, row]))
           set(state => ({
+            entries: state.entries.map(entry => {
+              const candidate = manualRows.get(entry.id)
+              const server = candidate?.studentId === entry.studentId && candidate.semester === entry.semester && candidate.scoreType === entry.scoreType && normalizeAcademicYear(candidate.academicYear) === normalizeAcademicYear(entry.academicYear) ? candidate : undefined
+              return server ? { ...entry, value: Number(server.value) } : entry
+            }),
             conductEntries: [...new Map([
               ...state.conductEntries.map(e => [e.id, e] as const),
               ...rows.filter(r => r.scoreType === 'conduct').map(r => [r.id, { ...r, semester: r.semester === 2 ? 2 : 1, scoreType: 'conduct', reason: r.reason || '', date: r.date || '', pending: false } as ConductDeduction] as const),
             ]).values()],
-            serverEntries: rows
+            // A student-scoped bonus refresh must retain other students' known
+            // attempts; a normal class pull still replaces the visible ledger.
+            serverEntries: [...(params.studentId ? state.serverEntries.filter(entry => !(entry.studentId === params.studentId
+              && (params.semester === undefined || entry.semester === params.semester)
+              && (!params.academicYear || normalizeAcademicYear(entry.academicYear) === normalizeAcademicYear(params.academicYear))
+              && (!params.scoreType || entry.scoreType === params.scoreType))) : []), ...rows
               .filter(r => r && typeof r.id === 'string' && validTypes.has(String(r.scoreType)))
               .map(r => ({
                 id: r.id,
@@ -176,7 +199,8 @@ export const useDailyGradeStore = create<DailyGradeState>()(
                 date: r.date,
                 origin: (r.origin === 'machine' ? 'machine' : 'manual') as DailyLedgerEntry['origin'],
                 examSessionId: r.examSessionId,
-              })),
+                createdAt: r.createdAt,
+              }))],
           }))
         } catch {
           // Offline/không quyền: giữ entries local, UI vẫn đầy đủ phần tay.
@@ -238,6 +262,7 @@ export const useDailyGradeStore = create<DailyGradeState>()(
           const now = new Date().toISOString()
           const typeMap: Record<DailyScoreType, string> = {
             oral: 'scoreOral',
+            prayer: 'scorePrayer',
             '15m': 'score15m',
             '1period': 'score1Period',
           }

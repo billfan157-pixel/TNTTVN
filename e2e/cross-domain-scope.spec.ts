@@ -87,7 +87,7 @@ test('@critical reconnect retracts revoked Grade and Attendance caches without d
   })
   expect(attendance.status(), await attendance.text()).toBe(201)
   await injectSession(page, staff)
-  await page.goto('/grades')
+  await page.goto('/grades?view=matrix')
   await expect(page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' })).toBeVisible({ timeout: 15_000 })
   for (const entity of ['grades', 'attendance'] as const) {
     // The offline cache is only written once the page's scope pull resolves and

@@ -84,6 +84,7 @@ export async function fetchOfficialClassReport(
       grades: (student.grades || []).map((g) => ({
         semester: g.semester,
         scoreOral: g.scoreOral ?? null,
+        scorePrayer: g.scorePrayer ?? null,
         score15m: g.score15m ?? null,
         score1Period: g.score1Period ?? null,
         scoreMidterm: g.scoreMidterm ?? null,

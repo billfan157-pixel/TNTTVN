@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt } from 'drizzle-orm'
 import { runDbTransaction, db, type DbTransaction } from '../db/index.js'
 import { assessmentEntries, auditLogs, classes, students, grades, gradeOverrides } from '../db/schema.js'
 import { generateId } from '../utils/id.js'
@@ -8,7 +8,7 @@ import { checkAcademicWriteAccess, type AcademicWriteExpectation } from './class
 import { upsertGrade } from './gradeService.js'
 import { normalizeAcademicYear } from '../utils/academicYear.js'
 
-const DAILY_FIELDS = { oral: 'scoreOral', '15m': 'score15m', '1period': 'score1Period' } as const
+const DAILY_FIELDS = { oral: 'scoreOral', prayer: 'scorePrayer', '15m': 'score15m', '1period': 'score1Period' } as const
 
 async function projectDailyGrade(tx: DbTransaction, entry: { studentId: string; academicYear: string; semester: number; scoreType: string }, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null, expected?: AcademicWriteExpectation) {
   const field = DAILY_FIELDS[entry.scoreType as keyof typeof DAILY_FIELDS]
@@ -27,7 +27,7 @@ async function projectDailyGrade(tx: DbTransaction, entry: { studentId: string; 
  * trả `duplicate` qua PK `(parish_id,id)`; cùng id khác payload → 409.
  */
 
-export type DailyEntryScoreType = 'oral' | '15m' | '1period' | 'conduct'
+export type DailyEntryScoreType = 'oral' | 'prayer' | '15m' | '1period' | 'conduct'
 
 export interface DailyEntryInput {
   id: string
@@ -38,6 +38,7 @@ export interface DailyEntryInput {
   value: number
   date?: string | null
   reason?: string
+  operation?: 'bonus'
 }
 
 export interface DailyEntryAck {
@@ -48,6 +49,11 @@ export interface DailyEntryAck {
   serverScore: number | null
   reason?: string
   createdAt?: string
+  operation?: 'bonus'
+  targetEntryId?: string
+  beforeScore?: number
+  academicYear?: string
+  semester?: number
 }
 
 export class DailyEntryNotFoundError extends Error {
@@ -147,13 +153,44 @@ async function deductConduct(tx: DbTransaction, entry: DailyEntryInput, userId: 
   return { id: entry.id, studentId: entry.studentId, scoreType: 'conduct', status: 'created', serverScore: afterScore, createdAt }
 }
 
+async function addDailyScoreBonus(tx: DbTransaction, entry: DailyEntryInput, userId: string, parishId: string, ip: string, userAgent: string, allowedClassIds: string[] | null, expected?: AcademicWriteExpectation): Promise<DailyEntryAck> {
+  if (entry.scoreType === 'conduct' || ![0.5, 1, 2].includes(entry.value)) badRequest('Chọn mức cộng 0,5 / 1 / 2 cho điểm kiểm tra hằng ngày.')
+  const receiptId = `daily-bonus:${entry.id}`
+  const [receipt] = await tx.select().from(auditLogs).where(and(eq(auditLogs.parishId, parishId), eq(auditLogs.id, receiptId))).limit(1)
+  if (receipt) {
+    const previous = JSON.parse(receipt.newValue!)
+    if (previous.studentId !== entry.studentId || previous.academicYear !== entry.academicYear || previous.semester !== entry.semester || previous.scoreType !== entry.scoreType || previous.value !== entry.value || previous.date !== entry.date) {
+      throw new DailyEntryStateError('Mã lần cộng đã được dùng cho dữ liệu khác (IDEMPOTENCY_CONFLICT).')
+    }
+    return { ...previous.ack, status: 'duplicate' }
+  }
+  // Select inside the same transaction as the increment and projection. Machine
+  // attempts and historical baselines remain immutable through daily entry.
+  const [target] = await tx.select().from(assessmentEntries).where(and(
+    eq(assessmentEntries.parishId, parishId), eq(assessmentEntries.studentId, entry.studentId),
+    eq(assessmentEntries.academicYear, entry.academicYear), eq(assessmentEntries.semester, entry.semester),
+    eq(assessmentEntries.scoreType, entry.scoreType), eq(assessmentEntries.source, 'manual_entry'), lt(assessmentEntries.score, 10),
+  )).orderBy(desc(assessmentEntries.createdAt), desc(assessmentEntries.id)).limit(1)
+  if (!target) badRequest('Chưa có lần nhập tay dưới 10 để cộng điểm. Hãy nhập điểm trước hoặc chọn loại điểm khác.')
+  const beforeScore = Number(target.score)
+  const afterScore = Math.min(10, Math.round((beforeScore + entry.value) * 10) / 10)
+  // rawScore retains the original create intent so a late retry of that CREATE
+  // remains idempotent even after a bonus has changed the effective score.
+  await tx.update(assessmentEntries).set({ score: afterScore }).where(and(eq(assessmentEntries.parishId, parishId), eq(assessmentEntries.id, target.id)))
+  await projectDailyGrade(tx, entry, userId, parishId, ip, userAgent, allowedClassIds, expected)
+  const createdAt = new Date().toISOString()
+  const ack: DailyEntryAck = { id: entry.id, studentId: entry.studentId, scoreType: entry.scoreType, status: 'created', serverScore: afterScore, operation: 'bonus', targetEntryId: target.id, beforeScore, academicYear: entry.academicYear, semester: entry.semester, createdAt }
+  await tx.insert(auditLogs).values({ id: receiptId, parishId, userId, action: 'DAILY_SCORE_BONUS', entityType: 'daily_entry', entityId: target.id, oldValue: JSON.stringify({ score: beforeScore }), newValue: JSON.stringify({ ...entry, ack }), ip, userAgent, createdAt })
+  return ack
+}
+
 function samePayload(existing: typeof assessmentEntries.$inferSelect, input: DailyEntryInput): boolean {
   return (
     existing.studentId === input.studentId &&
     existing.scoreType === input.scoreType &&
     existing.semester === input.semester &&
     existing.academicYear === input.academicYear &&
-    Number(existing.score) === Number(input.value) &&
+    Number(existing.rawScore) === Number(input.value) &&
     (existing.entryDate ?? null) === (input.date ?? null)
   )
 }
@@ -201,6 +238,7 @@ export async function upsertDailyEntries(
           userId, expected,
         })
 
+        if (entry.operation === 'bonus') return addDailyScoreBonus(tx, entry, userId, parishId, ip, userAgent, allowedClassIds, expected)
         if (entry.scoreType === 'conduct') return deductConduct(tx, entry, userId, parishId, ip, userAgent, allowedClassIds, expected)
 
         const [existing] = await tx
@@ -226,7 +264,7 @@ export async function upsertDailyEntries(
         if (!ledger) {
           const [grade] = await tx.select().from(grades).where(and(eq(grades.parishId, parishId), eq(grades.studentId, entry.studentId), eq(grades.academicYear, entry.academicYear), eq(grades.semester, entry.semester))).limit(1)
           const field = DAILY_FIELDS[entry.scoreType]
-          const sourceColumn = `${field}Source` as 'scoreOralSource' | 'score15mSource' | 'score1PeriodSource'
+          const sourceColumn = `${field}Source` as 'scoreOralSource' | 'scorePrayerSource' | 'score15mSource' | 'score1PeriodSource'
           if (grade?.[sourceColumn] === 'daily_avg' && typeof grade[field] === 'number') {
             await tx.insert(assessmentEntries).values({ id: generateId('ASM'), parishId, studentId: entry.studentId, academicYear: entry.academicYear, semester: entry.semester, scoreType: entry.scoreType, rawScore: grade[field]!, maxScore: 10, score: grade[field]!, source: 'legacy_baseline', createdBy: 'system', createdAt: now })
           }
@@ -356,7 +394,7 @@ export async function listDailyEntries(
   const conditions = [eq(assessmentEntries.parishId, parishId)]
   if (params.semester !== undefined) conditions.push(eq(assessmentEntries.semester, params.semester))
   if (params.academicYear) conditions.push(eq(assessmentEntries.academicYear, normalizeAcademicYear(params.academicYear)))
-  if (params.scoreType) conditions.push(eq(assessmentEntries.scoreType, params.scoreType as 'oral' | '15m' | '1period'))
+  if (params.scoreType) conditions.push(eq(assessmentEntries.scoreType, params.scoreType as 'oral' | 'prayer' | '15m' | '1period'))
   if (params.studentId) {
     const classId = await getStudentClassId(params.studentId, parishId, db)
     if (!classId || (allowedClassIds && !allowedClassIds.includes(classId))) {

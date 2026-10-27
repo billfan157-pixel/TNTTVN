@@ -107,7 +107,7 @@ test.describe('Critical persisted business outcomes', () => {
     ))
     const initialScore = initialGrade?.scoreOral == null ? '' : String(initialGrade.scoreOral)
     await injectSession(page, session)
-    await page.goto('/grades')
+    await page.goto('/grades?view=matrix')
 
     await page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' }).selectOption('CLS-TN-1')
     const scoreInput = page.getByRole('textbox', { name: 'Nhập điểm miệng cho Maria Thiếu Nhi E2E' })

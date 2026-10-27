@@ -189,6 +189,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
                   <tr style={{ background: '#1E3A8A', color: 'white' }}>
                     <th style={{ ...thBase, ...stickyCol, background: '#1E3A8A' }} scope="col">Học Kỳ</th>
                     <th style={thBase} scope="col">Miệng</th>
+                    <th style={thBase} scope="col">Khảo kinh</th>
                     <th style={thBase} scope="col">15 Phút</th>
                     <th style={thBase} scope="col">1 Tiết</th>
                     <th style={thBase} scope="col">Giữa Kỳ</th>
@@ -201,6 +202,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
                   <tr>
                     <td style={{ ...tdBase, ...stickyCol, background: '#fff', fontWeight: 600 }}>HK I</td>
                     <td style={tdBase}>{gradeHK1?.scoreOral ?? '-'}</td>
+                    <td style={tdBase}>{gradeHK1?.scorePrayer ?? '-'}</td>
                     <td style={tdBase}>{gradeHK1?.score15m ?? '-'}</td>
                     <td style={tdBase}>{gradeHK1?.score1Period ?? '-'}</td>
                     <td style={tdBase}>{gradeHK1?.scoreMidterm ?? '-'}</td>
@@ -216,6 +218,7 @@ export const StudentReportModal: React.FC<StudentReportModalProps> = ({ isOpen, 
                   <tr>
                     <td style={{ ...tdBase, ...stickyCol, background: '#fff', fontWeight: 600 }}>HK II</td>
                     <td style={tdBase}>{gradeHK2?.scoreOral ?? '-'}</td>
+                    <td style={tdBase}>{gradeHK2?.scorePrayer ?? '-'}</td>
                     <td style={tdBase}>{gradeHK2?.score15m ?? '-'}</td>
                     <td style={tdBase}>{gradeHK2?.score1Period ?? '-'}</td>
                     <td style={tdBase}>{gradeHK2?.scoreMidterm ?? '-'}</td>

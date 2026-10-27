@@ -101,10 +101,10 @@ function httpError(message: string, status: number): Error & { status: number; d
   return err
 }
 
-function isEmptyGrade(g: { scoreOral: number | null; score15m: number | null; score1Period: number | null; scoreMidterm: number | null; scoreFinal: number | null } | undefined): boolean {
+function isEmptyGrade(g: { scoreOral: number | null; scorePrayer?: number | null; score15m: number | null; score1Period: number | null; scoreMidterm: number | null; scoreFinal: number | null } | undefined): boolean {
   if (!g) return true
   return (
-    g.scoreOral === null && g.score15m === null && g.score1Period === null &&
+    g.scoreOral === null && g.scorePrayer == null && g.score15m === null && g.score1Period === null &&
     g.scoreMidterm === null && g.scoreFinal === null
   )
 }
@@ -564,6 +564,7 @@ export class AcademicYearLifecycleService {
             const effective = applyOverridesToGrade(g as any, activeOverrides as any[])
             return {
               semester: g.semester, scoreOral: effective.scoreOral ?? null,
+              scorePrayer: effective.scorePrayer ?? null,
               score15m: effective.score15m ?? null, score1Period: effective.score1Period ?? null,
               scoreMidterm: effective.scoreMidterm ?? null, scoreFinal: effective.scoreFinal ?? null,
               scoreDaoDuc: effective.scoreDaoDuc ?? null,

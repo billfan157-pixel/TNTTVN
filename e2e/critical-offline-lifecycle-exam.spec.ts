@@ -168,7 +168,7 @@ test.describe('Critical offline, lifecycle and Smart Exam journeys', () => {
     })
     expect(unlocked.status()).toBe(200)
     await injectSession(page, session)
-    await page.goto('/grades')
+    await page.goto('/grades?view=matrix')
     await expect(page.getByRole('combobox', { name: 'Chọn lớp cho ma trận điểm' })).toBeVisible()
     await page.getByRole('tab', { name: /Chấm Bài:/ }).click()
     await page.getByRole('button', { name: 'Tạo Phiên Chấm', exact: true }).click()
