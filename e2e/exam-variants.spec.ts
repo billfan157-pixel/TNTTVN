@@ -35,8 +35,8 @@ for (const width of [1280, 320]) {
     expect(await modal.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
     const generate = modal.getByRole('button', { name: 'Tạo và khóa' })
     if (width === 320) {
-      const target = await generate.boundingBox()
-      expect(target!.height).toBeGreaterThanOrEqual(44)
+      // Modal entry scales from 0.985 to 1; measure the settled hit area.
+      await expect.poll(async () => (await generate.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
     }
     const generated = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith(`/api/exams/${session.id}/variant-manifests`))
     await generate.click()

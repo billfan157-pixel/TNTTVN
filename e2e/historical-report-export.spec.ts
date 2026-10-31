@@ -104,30 +104,40 @@ test.describe('Official historical report export authority', () => {
         attendanceRate: evalData.attendanceRate,
       }],
     }), 'promote student to destination year class')
-    await expectOk(await authorizedRequest(page.request, session, 'PUT', '/api/settings', {
-      gradeWeights: {
-        weightOral: 9,
-        weightFinal: 1,
-        xuatSacThreshold: 10,
-        gioiThreshold: 9,
-        khaThreshold: 8,
-        trungBinhThreshold: 7,
-        roundingDecimal: 2,
-      },
-      attendancePolicy: { excusedWeight: 0 },
-      promotionPolicy: { minGpa: 10, minAttendance: 100 },
-    }), 'mutate current settings')
+    const settingsResponse = await expectOk(await authorizedRequest(page.request, session, 'GET', '/api/settings'), 'capture current settings')
+    const { gradeWeights, attendancePolicy, promotionPolicy } = (await settingsResponse.json()).data
+    // All browser journeys share this parish. Restore its policies even if the
+    // historical export assertion fails, so later GPA/attendance tests stay isolated.
+    try {
+      await expectOk(await authorizedRequest(page.request, session, 'PUT', '/api/settings', {
+        gradeWeights: {
+          weightOral: 9,
+          weightFinal: 1,
+          xuatSacThreshold: 10,
+          gioiThreshold: 9,
+          khaThreshold: 8,
+          trungBinhThreshold: 7,
+          roundingDecimal: 2,
+        },
+        attendancePolicy: { excusedWeight: 0 },
+        promotionPolicy: { minGpa: 10, minAttendance: 100 },
+      }), 'mutate current settings')
 
-    await page.getByRole('button', { name: 'Tổng Quan', exact: true }).click()
-    await page.getByRole('button', { name: 'Báo Cáo', exact: true }).click()
-    await expect(page.getByText(`Historical Export ${key}`, { exact: false })).toBeVisible()
-    const secondDownloadPromise = page.waitForEvent('download')
-    await page.getByRole('button', { name: 'Xuất CSV' }).nth(1).click()
-    const secondDownload = await secondDownloadPromise
-    const secondPath = await secondDownload.path()
-    expect(secondPath).not.toBeNull()
-    const after = await readFile(secondPath!)
+      await page.getByRole('button', { name: 'Tổng Quan', exact: true }).click()
+      await page.getByRole('button', { name: 'Báo Cáo', exact: true }).click()
+      await expect(page.getByText(`Historical Export ${key}`, { exact: false })).toBeVisible()
+      const secondDownloadPromise = page.waitForEvent('download')
+      await page.getByRole('button', { name: 'Xuất CSV' }).nth(1).click()
+      const secondDownload = await secondDownloadPromise
+      const secondPath = await secondDownload.path()
+      expect(secondPath).not.toBeNull()
+      const after = await readFile(secondPath!)
 
-    expect(after.equals(before)).toBe(true)
+      expect(after.equals(before)).toBe(true)
+    } finally {
+      await expectOk(await authorizedRequest(page.request, session, 'PUT', '/api/settings', {
+        gradeWeights, attendancePolicy, promotionPolicy,
+      }), 'restore current settings')
+    }
   })
 })

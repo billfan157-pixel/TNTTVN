@@ -230,7 +230,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
         <div className="flex items-center gap-1.5 bg-surface-hover p-1 rounded-xl border border-surface-border">
           <span className="text-xs font-bold text-text-muted px-2 hidden sm:inline">Học Kỳ:</span>
           {semesterRestricted ? (
-            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-parish-primary text-white shadow-xs">
+            <span className="px-2.5 py-1 rounded-lg text-xs font-bold bg-parish-primary text-text-inverse shadow-xs">
               Học Kỳ {openSemester === 2 ? 'II' : 'I'}
             </span>
           ) : (
@@ -240,7 +240,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                 onClick={() => { setSelectedSemester(1); hapticFeedback.light(); }}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
                   selectedSemester === 1
-                    ? 'bg-parish-primary text-white shadow-xs'
+                    ? 'bg-parish-primary text-text-inverse shadow-xs'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
                 }`}
               >
@@ -251,7 +251,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                 onClick={() => { setSelectedSemester(2); hapticFeedback.light(); }}
                 className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-colors ${
                   selectedSemester === 2
-                    ? 'bg-parish-primary text-white shadow-xs'
+                    ? 'bg-parish-primary text-text-inverse shadow-xs'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
                 }`}
               >
@@ -270,7 +270,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
             onClick={() => { setActiveScoreType(t.id); hapticFeedback.light(); }}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-colors ${
               activeScoreType === t.id
-                ? `${t.color} text-white shadow-xs`
+                ? `${t.color} text-text-inverse shadow-xs`
                 : 'text-text-secondary hover:bg-surface-hover'
             }`}
           >
@@ -504,7 +504,7 @@ export const DesktopDailyGradeEntry: React.FC = () => {
                                 disabled={!inputValues[student.id]?.trim()}
                                 aria-label={`Thêm điểm ${activeLabel} cho ${student.fullName}`}
                                 title="Thêm điểm"
-                                className="h-8 w-8 flex items-center justify-center bg-parish-primary hover:bg-parish-primary-hover text-white rounded-lg disabled:opacity-40 transition-colors"
+                                className="h-8 w-8 flex items-center justify-center bg-parish-primary hover:bg-parish-primary-hover text-text-inverse rounded-lg disabled:opacity-40 transition-colors"
                               >
                                 <Plus size={16} />
                               </button>
