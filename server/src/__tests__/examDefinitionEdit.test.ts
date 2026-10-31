@@ -56,6 +56,61 @@ beforeAll(async () => {
 })
 
 describe('exam definition editing before grading', () => {
+  it('uses the current manually edited A key instead of restoring stale question answers', async () => {
+    const session = await create(mcInput)
+    const editedKey = { 1: 'D', 2: 'C' }
+    const edited = await request(`/${session.id}/answer-variants`, 'PATCH', { questionCount: 2, answerVariants: JSON.stringify({ A: editedKey }) })
+    expect(edited.status).toBe(200)
+    expect(JSON.parse((await persisted(session.id)).questions!)[0].correctOption).toBe('A')
+    const generated = await request(`/${session.id}/variant-manifests`, 'POST', { variantCount: 2, shuffleMode: 'questions_only' })
+    expect(generated.status).toBe(200)
+    expect(generated.data.manifests.variants.A.answerKey).toEqual(editedKey)
+    expect(generated.data.manifests.variants.B.answerKey).toEqual({ 1: 'C', 2: 'D' })
+    expect(JSON.parse((await persisted(session.id)).questions!).map((q: { correctOption: string }) => q.correctOption)).toEqual(['D', 'C'])
+  })
+
+  it.each(['questions_only', 'options_only'] as const)('persists %s through regeneration and grades with its materialized key', async shuffleMode => {
+    const session = await create(mcInput)
+    const generated = await request(`/${session.id}/variant-manifests`, 'POST', { variantCount: 2, shuffleMode }, teacherToken)
+    expect(generated.status).toBe(200)
+    const current = await context(session.id)
+    const changed = await edit(session.id, current.definitionHash, { ...mcInput, questions: JSON.stringify([{ ...mc(1), question: 'Đã sửa câu một' }, mc(2)]) })
+    expect(changed.status).toBe(200)
+    const manifest = JSON.parse(changed.data.variantManifests)
+    expect(manifest.shuffleMode).toBe(shuffleMode)
+    const variant = manifest.variants.B
+    if (shuffleMode === 'questions_only') {
+      expect(variant.sourceQuestionOrder).toEqual([2, 1])
+      expect(variant.optionOrders).toEqual({ 1: ['A', 'B', 'C', 'D'], 2: ['A', 'B', 'C', 'D'] })
+    } else expect(variant.sourceQuestionOrder).toEqual([1, 2])
+    const saved = await request(`/${session.id}/results`, 'POST', { results: [{ studentId, source: 'omr', score: 0,
+      answers: JSON.stringify(variant.answerKey), examVersion: 'B', definitionHash: changed.data.definitionHash,
+      scanMetadata: JSON.stringify({ detectionStatus: 'accepted', examVersion: 'B', questionCount: 2 }) }] })
+    expect(saved.status).toBe(200)
+    expect(saved.data.items[0].serverScore).toBe(10)
+  })
+
+  it('validates generation capacity atomically and denies other class/parish actors', async () => {
+    const session = await create(mcInput)
+    const input = { variantCount: 2, shuffleMode: 'questions_only' }
+    expect((await request(`/${session.id}/variant-manifests`, 'POST', input, otherTeacherToken)).status).toBe(403)
+    expect((await request(`/${session.id}/variant-manifests`, 'POST', input, otherParishToken)).status).toBe(404)
+    const tooMany = await request(`/${session.id}/variant-manifests`, 'POST', { ...input, variantCount: 3 })
+    expect(tooMany.status).toBe(400)
+    expect(tooMany.error?.message).toContain('2 mã đề khác nhau')
+    expect((await persisted(session.id)).variantManifests).toBeNull()
+    expect((await persisted(session.id)).answerKey).toBe(mcInput.answerKey)
+    expect((await request(`/${session.id}/variant-manifests`, 'POST', input)).status).toBe(200)
+  })
+
+  it('allows only one concurrent generation to claim the immutable manifest', async () => {
+    const session = await create(mcInput)
+    const outcomes = await Promise.all(['questions_only', 'options_only'].map(shuffleMode => request(`/${session.id}/variant-manifests`, 'POST', { variantCount: 2, shuffleMode })))
+    expect(outcomes.map(r => r.status).sort()).toEqual([200, 409])
+    const winner = outcomes.find(r => r.status === 200)!
+    expect((await persisted(session.id)).variantManifests).toBe(winner.data.session.variantManifests)
+  })
+
   it('edits the existing session and uses the new question count and key for server scoring', async () => {
     const session = await create()
     const original = await context(session.id)
@@ -100,7 +155,7 @@ describe('exam definition editing before grading', () => {
   })
 
   it('rejects after grading, even when every result was subsequently deleted', async () => {
-    const session = await create()
+    const session = await create(mcInput)
     const { definitionHash } = await context(session.id)
     expect((await request(`/${session.id}/results`, 'POST', { results: [{ studentId, score: 6, source: 'quick_entry', clientMutationId: `edit-save-${session.id}` }] })).status).toBe(200)
     expect((await edit(session.id, definitionHash)).status).toBe(409)
@@ -109,6 +164,8 @@ describe('exam definition editing before grading', () => {
     expect(deletion.status).toBe(200)
     expect((await contextDenied(session.id)).status).toBe(409)
     expect((await edit(session.id, definitionHash, { ...base, subject: 'After deletion' })).status).toBe(409)
+    expect((await request(`/${session.id}/variant-manifests`, 'POST', { variantCount: 2 })).status).toBe(409)
+    expect((await persisted(session.id)).variantManifests).toBeNull()
     expect((await persisted(session.id)).subject).toBe(base.subject)
   })
 
@@ -144,14 +201,18 @@ describe('exam definition editing before grading', () => {
   })
 
   it('does not bypass completed state, semester locks or fixed academic scope', async () => {
-    const session = await create()
+    const session = await create(mcInput)
     const { definitionHash } = await context(session.id)
     expect((await edit(session.id, definitionHash, { ...base, semester: 2 })).status).toBe(400)
     await db.update(examSessions).set({ status: 'completed' }).where(and(eq(examSessions.parishId, parishId), eq(examSessions.id, session.id)))
     expect((await edit(session.id, definitionHash)).status).toBe(409)
     await db.update(examSessions).set({ status: 'draft' }).where(and(eq(examSessions.parishId, parishId), eq(examSessions.id, session.id)))
     await db.insert(semesterLocks).values({ id: 'edit-semester-lock', parishId, academicYear: base.academicYear, semester: 1, isLocked: 1 })
-    try { expect((await edit(session.id, definitionHash)).status).toBe(403) }
+    try {
+      expect((await edit(session.id, definitionHash)).status).toBe(403)
+      expect((await request(`/${session.id}/variant-manifests`, 'POST', { variantCount: 2 })).status).toBe(403)
+      expect((await persisted(session.id)).variantManifests).toBeNull()
+    }
     finally { await db.delete(semesterLocks).where(eq(semesterLocks.id, 'edit-semester-lock')) }
     expect((await persisted(session.id)).subject).toBe(base.subject)
   })

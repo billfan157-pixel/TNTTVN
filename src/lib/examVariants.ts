@@ -1,6 +1,11 @@
-import type { ExamAnswerVariants, ExamVersionCode, MultipleChoiceOption } from '../types'
+import type { ExamAnswerVariants, ExamShuffleMode, ExamVersionCode, MultipleChoiceOption } from '../types'
 
 export const EXAM_VERSION_CODES: ExamVersionCode[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+export const EXAM_SHUFFLE_CHOICES: { value: ExamShuffleMode; label: string; description: string }[] = [
+  { value: 'questions_and_options', label: 'Trộn câu và đáp án', description: 'Đổi thứ tự câu trắc nghiệm và vị trí lựa chọn A/B/C/D.' },
+  { value: 'questions_only', label: 'Chỉ trộn câu', description: 'Đổi thứ tự câu trắc nghiệm, giữ nguyên lựa chọn A/B/C/D.' },
+  { value: 'options_only', label: 'Chỉ trộn đáp án', description: 'Giữ thứ tự câu, đổi vị trí lựa chọn A/B/C/D.' },
+]
 
 function parseObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null

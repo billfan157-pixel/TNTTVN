@@ -4,6 +4,7 @@ import { zValidator } from '@hono/zod-validator'
 import { authMiddleware, roleMiddleware, type JwtPayload } from '../middleware/auth.js'
 import { errorResponse, successResponse } from '../utils/response.js'
 import { parseAcademicYear } from '../utils/academicYear.js'
+import { ExamVariantValidationError } from '../services/examVariantManifest.js'
 import {
   QUESTION_STATUSES,
   QUESTION_TYPES,
@@ -70,6 +71,7 @@ const blueprintInput = z.object({
 
 function handleError(c: any, error: unknown) {
   if (error instanceof QuestionBankError) return c.json({ success: false, data: null, error: { code: error.code, message: error.message, details: error.details ?? null } }, error.status)
+  if (error instanceof ExamVariantValidationError) return errorResponse(c, 'VALIDATION_ERROR', error.message, 400)
   console.error('[question-bank]', error)
   return errorResponse(c, 'QUESTION_BANK_ERROR', 'Không thể xử lý Ngân hàng câu hỏi.', 500)
 }
@@ -175,6 +177,7 @@ const buildExamInput = z.object({
   academicYear: z.string().trim().refine(value => Boolean(parseAcademicYear(value)), 'Năm học phải có dạng YYYY-YYYY.'),
   maxScore: z.number().int().min(1).max(10),
   variantCount: z.number().int().min(1).max(8).default(1),
+  shuffleMode: z.enum(['questions_and_options', 'questions_only', 'options_only']).optional(),
   seed: z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9._:-]+$/).optional(),
   buildCommandId: z.string().trim().min(8).max(120).regex(/^[A-Za-z0-9._:-]+$/),
 }).superRefine((value, ctx) => {

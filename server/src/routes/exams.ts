@@ -586,13 +586,14 @@ examsRouter.patch('/:id/answer-variants', roleMiddleware('admin', 'chunhiem', 'p
 
 const generateVariantManifestSchema = z.object({
   variantCount: z.coerce.number().int().min(1).max(8),
+  shuffleMode: z.enum(['questions_and_options', 'questions_only', 'options_only']).optional(),
   seed: z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9._:-]+$/).optional(),
 })
 
 examsRouter.post('/:id/variant-manifests', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', generateVariantManifestSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const sessionId = c.req.param('id')
-  const { variantCount, seed } = c.req.valid('json')
+  const { variantCount, seed, shuffleMode } = c.req.valid('json')
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
   try {
@@ -608,6 +609,7 @@ examsRouter.post('/:id/variant-manifests', roleMiddleware('admin', 'chunhiem', '
       expected: { role: user.role, epoch: user.tokenVersion },
       variantCount,
       seed,
+      shuffleMode,
     })
     return successResponse(c, result)
   } catch (err) {

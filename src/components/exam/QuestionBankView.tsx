@@ -20,9 +20,11 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../../lib/api'
+import { EXAM_SHUFFLE_CHOICES } from '../../lib/examVariants'
 import type {
   ExamBlueprint,
   ExamBlueprintRule,
+  ExamShuffleMode,
   QuestionBankItem,
   QuestionBankStatus,
   QuestionBankType,
@@ -152,6 +154,7 @@ export function QuestionBankView() {
     academicYear: resolveActiveYear(),
     maxScore: 10,
     variantCount: 1,
+    shuffleMode: 'questions_and_options' as ExamShuffleMode,
   })
   const [createdExamId, setCreatedExamId] = useState<string | null>(null)
   const pendingBuildCommandRef = useRef<{ fingerprint: string; commandId: string } | null>(null)
@@ -1481,6 +1484,14 @@ export function QuestionBankView() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label text-xs" htmlFor="b-shuffle-mode">Kiểu trộn</label>
+                  <select id="b-shuffle-mode" className="form-select w-full text-sm" value={build.shuffleMode}
+                    onChange={event => setBuild(value => ({ ...value, shuffleMode: event.target.value as ExamShuffleMode }))}>
+                    {EXAM_SHUFFLE_CHOICES.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-text-muted">Mã A giữ đề gốc; lựa chọn áp dụng cho mã B–H của phần trắc nghiệm.</p>
                 </div>
               </div>
             </div>

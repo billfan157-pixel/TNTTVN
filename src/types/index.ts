@@ -277,9 +277,12 @@ export interface ExamVariantManifestEntry {
   contentHash: string;
 }
 
+export type ExamShuffleMode = 'questions_and_options' | 'questions_only' | 'options_only';
+
 export interface ExamVariantManifestSet {
   schemaVersion: 1;
-  algorithmVersion: 'catevia-variant-v1';
+  algorithmVersion: 'catevia-variant-v1' | 'catevia-variant-v2';
+  shuffleMode?: ExamShuffleMode;
   seed: string;
   sourceHash: string;
   generatedAt: string;

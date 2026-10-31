@@ -13,7 +13,7 @@ import {
   questionBankItems,
   questionBankVersions,
 } from '../db/schema.js'
-import { generateExamVariantManifest, type VariantQuestion } from './examVariantManifest.js'
+import { generateExamVariantManifest, type ExamShuffleMode, type VariantQuestion } from './examVariantManifest.js'
 import { generateId } from '../utils/id.js'
 import { deriveQuestionBlockLabel } from '../utils/questionBlock.js'
 import { validateStructuredAnswer } from '../utils/structuredQuestion.js'
@@ -591,6 +591,7 @@ export async function buildExamFromBank(input: {
   mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string;
   scoreType: 'oral'|'15m'|'1period'|'midterm'|'final'; semester: 1|2; academicYear: string; maxScore: number; variantCount: number; seed?: string;
   buildCommandId: string;
+  shuffleMode?: ExamShuffleMode;
 }, actor: { userId: string; parishId: string; role: string }) {
   return runDbTransaction(async tx => {
   const [classRow] = await tx.select({ id: classes.id, academicYearId: classes.academicYearId, deletedAt: classes.deletedAt }).from(classes).where(and(
@@ -618,6 +619,8 @@ export async function buildExamFromBank(input: {
     academicYear: input.academicYear,
     maxScore: input.maxScore,
     variantCount: input.variantCount,
+    // Preserve hashes for old commands that used the default mode.
+    ...(input.shuffleMode && input.shuffleMode !== 'questions_and_options' ? { shuffleMode: input.shuffleMode } : {}),
     seed,
   })
   const [existingBuild] = await tx.select().from(examSessions).where(and(
@@ -706,7 +709,7 @@ export async function buildExamFromBank(input: {
   const questionCount = mcRows.length
   const examType = questionCount === 0 ? 'written' : essayRows.length ? 'mixed' : 'multiple_choice'
   const answerKey = Object.fromEntries(questions.filter(question => question.type !== 'essay').map(question => [question.index, question.correctOption]))
-  const manifest = questionCount > 0 ? generateExamVariantManifest({ questions, questionCount, variantCount: input.variantCount, seed }) : null
+  const manifest = questionCount > 0 ? generateExamVariantManifest({ questions, questionCount, variantCount: input.variantCount, seed, shuffleMode: input.shuffleMode }) : null
   const answerVariants = manifest ? Object.fromEntries(Object.entries(manifest.variants).map(([code, entry]) => [code, entry!.answerKey])) : null
   const sessionId = generateId('EXS')
   const now = new Date().toISOString()

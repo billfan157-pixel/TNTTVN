@@ -1,5 +1,5 @@
 import { request } from './core'
-import type { QuestionBankItem, QuestionBankStatus, QuestionBankType, QuestionDifficulty, ExamBlueprint, ExamBlueprintRule, ExamSession } from '../../types'
+import type { QuestionBankItem, QuestionBankStatus, QuestionBankType, QuestionDifficulty, ExamBlueprint, ExamBlueprintRule, ExamSession, ExamShuffleMode } from '../../types'
 
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export interface QuestionBankMutationInput {
@@ -41,6 +41,6 @@ export const questionBankApi = {
     request<ExamBlueprint>('POST', '/question-bank/blueprints', data),
   setExamBlueprintStatus: (id: string, status: 'active' | 'archived') =>
     request<ExamBlueprint>('POST', `/question-bank/blueprints/${encodeURIComponent(id)}/status`, { status }),
-  buildExamFromQuestionBank: (data: { mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string; scoreType: string; semester: 1 | 2; academicYear: string; maxScore: number; variantCount: number; buildCommandId: string }) =>
+  buildExamFromQuestionBank: (data: { mode: 'manual' | 'blueprint'; questionIds?: string[]; blueprintId?: string; classId: string; subject: string; scoreType: string; semester: 1 | 2; academicYear: string; maxScore: number; variantCount: number; shuffleMode?: ExamShuffleMode; buildCommandId: string }) =>
     request<ExamSession>('POST', '/question-bank/exams/build', data, 0, { 'Idempotency-Key': data.buildCommandId }, true),
 }

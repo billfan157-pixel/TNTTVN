@@ -126,7 +126,7 @@ describe('Smart Exam Grading — exam routes & service', () => {
     expect(Object.keys(generated.data.manifests.variants)).toEqual(['A', 'B', 'C'])
     expect(generated.data.manifests.variants.A.sourceQuestionOrder).toEqual([1, 2, 3, 4])
     expect(generated.data.manifests.variants.B.contentHash).not.toBe(generated.data.manifests.variants.A.contentHash)
-    expect(generated.data.session.variantManifests).toContain('catevia-variant-v1')
+    expect(JSON.parse(generated.data.session.variantManifests)).toMatchObject({ algorithmVersion: 'catevia-variant-v2', shuffleMode: 'questions_and_options' })
 
     const regenerate = await jsonReq(`/${created.data.id}/variant-manifests`, {
       method: 'POST', token: adminToken, body: { variantCount: 4 },

@@ -1,4 +1,5 @@
 import { request, newIdempotencyKey } from './core'
+import type { ExamShuffleMode } from '../../types'
 
 // Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
 export const examsApi = {
@@ -25,8 +26,8 @@ export const examsApi = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
   updateAnswerVariants: (id: string, answerVariants: string, questionCount: number) =>
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
-  generateExamVariantManifests: (id: string, variantCount: number) =>
-    request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount }),
+  generateExamVariantManifests: (id: string, variantCount: number, shuffleMode?: ExamShuffleMode) =>
+    request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount, shuffleMode }),
   saveExamResults: (id: string, results: { definitionHash?: string; studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string; expectedResultVersion?: number; afterMutationId?: string }[]) => {
     const capturedAt = new Date().toISOString()
     const withMutationIds = results.map(result => ({

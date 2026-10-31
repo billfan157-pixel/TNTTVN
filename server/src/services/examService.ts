@@ -18,7 +18,7 @@ async function assertExamWriter(tx: DbExecutor, userId: string, parishId: string
     throw new ExamAccessError('Quyền thao tác phiên chấm đã thay đổi')
   }
 }
-import { generateExamVariantManifest, type ExamVariantManifestSet, type VariantQuestion } from './examVariantManifest.js'
+import { generateExamVariantManifest, type ExamShuffleMode, type ExamVariantManifestSet, type VariantQuestion } from './examVariantManifest.js'
 
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
 export type ExamSessionStatus = 'draft' | 'completed'
@@ -687,7 +687,7 @@ export async function updateExamDefinition(params: {
       let manifest: ExamVariantManifestSet
       try {
         manifest = generateExamVariantManifest({ questions: JSON.parse(questions), questionCount,
-          variantCount: Object.keys(old.variants).length, seed: randomUUID() })
+          variantCount: Object.keys(old.variants).length, seed: randomUUID(), shuffleMode: old.shuffleMode })
       } catch (error) { badRequest((error as Error).message) }
       answerKey = JSON.stringify(manifest!.variants.A!.answerKey)
       answerVariants = JSON.stringify(Object.fromEntries(Object.entries(manifest!.variants).map(([code, entry]) => [code, entry!.answerKey])))
@@ -719,10 +719,14 @@ export async function createImmutableVariantManifests(params: {
   userAgent: string
   allowedClassIds: string[] | null
   variantCount: number
+  shuffleMode?: ExamShuffleMode
   seed?: string
   expected?: AcademicWriteExpectation
 }) {
-  return runDbTransaction(async (tx) => {
+  return withSqliteBusyRetry(() => runDbTransaction(async (tx) => {
+    await tx.update(examSessions).set({ status: 'draft' }).where(and(
+      eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId), eq(examSessions.status, 'draft'),
+    ))
     const session = await assertSessionAccess(params.sessionId, params.parishId, params.allowedClassIds, tx)
     await assertExamWriter(tx, params.userId, params.parishId, session.classId, params.expected)
     if (session.status !== 'draft') throw new ExamStateError('Chỉ phiên nháp mới được tạo bộ mã đề.')
@@ -732,9 +736,7 @@ export async function createImmutableVariantManifests(params: {
       error.status = 400
       throw error
     }
-    const [existingResult] = await tx.select({ id: examResults.id }).from(examResults)
-      .where(and(eq(examResults.parishId, params.parishId), eq(examResults.examSessionId, params.sessionId))).limit(1)
-    if (existingResult) throw new ExamStateError('Phiên đã có kết quả; không được thay đổi cấu trúc mã đề.')
+    await assertExamNotStarted(tx, session)
 
     let questions: VariantQuestion[]
     try {
@@ -747,11 +749,23 @@ export async function createImmutableVariantManifests(params: {
       throw error
     }
 
+    // Manual variant-key edits can leave the working question JSON stale.
+    // Use the same A key as scoring before taking the immutable snapshot.
+    const sourceKeyJson = resolveAnswerKeyForVersion(session.answerKey, session.answerVariants, 'A')
+    if (!sourceKeyJson) badRequest('Phiên thiếu đáp án gốc mã A.')
+    let sourceKey: Record<number, VariantQuestion['correctOption']>
+    try { sourceKey = JSON.parse(sourceKeyJson) }
+    catch { badRequest('Đáp án gốc mã A không phải JSON hợp lệ.') }
+    if (!sourceKey || typeof sourceKey !== 'object' || Array.isArray(sourceKey)) badRequest('Đáp án gốc mã A không hợp lệ.')
+    questions = questions.map(question => question?.type === 'essay' ? question
+      : { ...question, correctOption: sourceKey[question?.index] })
+
     const manifest = generateExamVariantManifest({
       questions,
       questionCount: session.questionCount,
       variantCount: params.variantCount,
       seed: params.seed?.trim() || randomUUID(),
+      shuffleMode: params.shuffleMode,
     })
     const answerVariants = Object.fromEntries(Object.entries(manifest.variants).map(([version, entry]) => [version, entry!.answerKey]))
     const manifestJson = JSON.stringify(manifest)
@@ -759,6 +773,7 @@ export async function createImmutableVariantManifests(params: {
       answerKey: JSON.stringify(manifest.variants.A!.answerKey),
       answerVariants: JSON.stringify(answerVariants),
       variantManifests: manifestJson,
+      questions: JSON.stringify(questions),
     }).where(and(eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId)))
     await audit(tx, {
       userId: params.userId,
@@ -772,6 +787,7 @@ export async function createImmutableVariantManifests(params: {
       newValue: JSON.stringify({
         schemaVersion: manifest.schemaVersion,
         algorithmVersion: manifest.algorithmVersion,
+        shuffleMode: manifest.shuffleMode,
         sourceHash: manifest.sourceHash,
         versions: Object.keys(manifest.variants),
         contentHashes: Object.fromEntries(Object.entries(manifest.variants).map(([code, entry]) => [code, entry!.contentHash])),
@@ -780,7 +796,7 @@ export async function createImmutableVariantManifests(params: {
     const [updated] = await tx.select().from(examSessions)
       .where(and(eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId))).limit(1)
     return { session: { ...updated!, definitionHash: examDefinitionHash(updated!) }, manifests: manifest }
-  })
+  }))
 }
 
 export async function upsertExamResults(

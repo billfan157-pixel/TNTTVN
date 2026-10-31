@@ -16,6 +16,7 @@ import {
 } from '../utils/examExporter'
 import type { ExamQuestion } from '../types'
 import { ExamPrintIntegrityError } from '../lib/examPrintSafety'
+import { EXAM_SHUFFLE_MODES, generateExamVariantManifest } from '../../server/src/services/examVariantManifest'
 
 describe('examExporter', () => {
   const sampleQuestions: ExamQuestion[] = [
@@ -74,6 +75,17 @@ describe('examExporter', () => {
   })
 
   describe('generateExamWordHtml', () => {
+    it.each(EXAM_SHUFFLE_MODES)('prints the materialized v2 question order and answer key with %s', shuffleMode => {
+      const questions = sampleQuestions.map(({ index, question, options, correctOption }) => ({ index, question, options, correctOption }))
+      const manifest = generateExamVariantManifest({ questions, questionCount: 2, variantCount: 2, shuffleMode, seed: 'print-shuffle-mode' })
+      const html = generateExamWordHtml({ subject: 'Đề trộn', questions: sampleQuestions, variantManifests: JSON.stringify(manifest), selectedVersion: 'B', includeAnswerKey: true })
+      const expected = manifest.variants.B!
+      expect(html.indexOf(expected.questions[0].question)).toBeLessThan(html.indexOf(expected.questions[1].question))
+      const document = new DOMParser().parseFromString(html, 'text/html')
+      expect(Array.from(document.querySelectorAll('.key-ans'), node => node.textContent)).toEqual(Object.values(expected.answerKey))
+      expect(html).toContain('Mã đề: <strong>B (102)</strong>')
+    })
+
     it('generates teacher answer-key Word HTML but strips scan-valid OMR markers', () => {
       const html = generateExamWordHtml({
         parishName: 'Giáo Xứ Mẫu Tâm',

@@ -245,6 +245,12 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     expect(first.status).toBe(201)
     expect(retry.status).toBe(201)
     expect(retry.data.id).toBe(first.data.id)
+    const explicitDefault = await req('/exams/build', { method: 'POST', auth: adminToken, body: { ...body, shuffleMode: 'questions_and_options' } })
+    expect(explicitDefault.status).toBe(201)
+    expect(explicitDefault.data.id).toBe(first.data.id)
+    const changedMode = await req('/exams/build', { method: 'POST', auth: adminToken, body: { ...body, shuffleMode: 'options_only' } })
+    expect(changedMode.status).toBe(409)
+    expect(changedMode.error.code).toBe('QUESTION_BANK_BUILD_IDEMPOTENCY_CONFLICT')
     const rows = await db.select().from(examSessions).where(and(
       eq(examSessions.parishId, parishA),
       eq(examSessions.idempotencyKey, `question-bank:${body.buildCommandId}`),
@@ -256,6 +262,23 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     })
     expect(conflict.status).toBe(409)
     expect(conflict.error.code).toBe('QUESTION_BANK_BUILD_IDEMPOTENCY_CONFLICT')
+  })
+
+  it('passes shuffle choices to bank materialization and rolls back insufficient distinct codes', async () => {
+    const body = { mode: 'manual', questionIds: [mcId, essayId], classId: classA, subject: 'Kiểu trộn ngân hàng', scoreType: '15m',
+      semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 2, buildCommandId: 'QB-SHUFFLE-MODE-01' }
+    const before = (await db.select().from(examSessions).where(eq(examSessions.parishId, parishA))).length
+    const rejected = await req('/exams/build', { method: 'POST', auth: adminToken, body: { ...body, shuffleMode: 'questions_only' } })
+    expect(rejected.status).toBe(400)
+    expect(rejected.error.message).toContain('1 mã đề khác nhau')
+    expect((await db.select().from(examSessions).where(eq(examSessions.parishId, parishA))).length).toBe(before)
+    const built = await req('/exams/build', { method: 'POST', auth: adminToken, body: { ...body, shuffleMode: 'options_only' } })
+    expect(built.status).toBe(201)
+    const manifest = JSON.parse(built.data.variantManifests)
+    expect(manifest.shuffleMode).toBe('options_only')
+    expect(manifest.variants.B.sourceQuestionOrder).toEqual([1, 2])
+    expect(manifest.variants.B.questions[1]).toEqual(manifest.variants.A.questions[1])
+    expect(manifest.variants.B.questions[0].options).not.toEqual(manifest.variants.A.questions[0].options)
   })
 
   it('creates a new bank version without mutating the historical exam snapshot', async () => {
