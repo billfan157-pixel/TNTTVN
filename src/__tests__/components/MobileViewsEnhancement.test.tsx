@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -101,37 +101,44 @@ describe('MobileViewsEnhancement Tests', () => {
   })
 
   describe('MobileGradeView', () => {
-    it('switches between Cards, Daily Entry, and Comparison tabs', async () => {
+    it('opens daily entry by default and switches between board, daily entry, and comparison', async () => {
       const handleViewReport = vi.fn()
       render(<MobileGradeView onViewReport={handleViewReport} />)
 
-      // Default: Unified Bảng điểm tab active (C1 gộp Thẻ điểm + Ma trận)
       expect(screen.getByText('Bảng Điểm Giáo Lý')).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: 'Hằng ngày' })).toHaveAttribute('aria-selected', 'true')
+      expect(await screen.findByText('Nhập Điểm Hằng Ngày')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('tab', { name: 'Bảng điểm' }))
       expect(screen.getByRole('tab', { name: /Bảng điểm/ })).toHaveAttribute('aria-selected', 'true')
+      expect(screen.getByRole('tabpanel', { name: 'Bảng điểm' })).toBeVisible()
 
       // Click Daily Entry tab
       const dailyBtn = screen.getByRole('tab', { name: 'Hằng ngày' })
       fireEvent.click(dailyBtn)
+      expect(dailyBtn).toHaveAttribute('aria-selected', 'true')
       expect(await screen.findByText('Nhập Điểm Hằng Ngày')).toBeInTheDocument()
 
       // Click Comparison tab
       const compBtn = screen.getByRole('tab', { name: 'So sánh' })
       fireEvent.click(compBtn)
+      expect(compBtn).toHaveAttribute('aria-selected', 'true')
       expect(await screen.findByText(/So Sánh Học Kỳ I vs/i)).toBeInTheDocument()
     })
 
-    it('renders unified Bảng điểm board with 4 tabs instead of 5 (C1)', async () => {
+    it('renders five grade views with daily entry selected and a unified board', () => {
       const handleViewReport = vi.fn()
       render(<MobileGradeView onViewReport={handleViewReport} />)
 
-      // C1: 4 tabs only - Bảng điểm appears twice (tab + board header) so use getAllByText
-      expect(screen.getAllByText('Bảng điểm').length).toBeGreaterThanOrEqual(1)
-      expect(screen.getByRole('tab', { name: /Bảng điểm/ })).toHaveAttribute('aria-selected', 'true')
+      const viewTabs = within(screen.getByRole('tablist', { name: 'Các chế độ bảng điểm' }))
+      expect(viewTabs.getAllByRole('tab')).toHaveLength(5)
+      for (const name of ['Bảng điểm', 'Hằng ngày', 'So sánh', 'Chấm bài', 'Ngân hàng']) {
+        expect(viewTabs.getByRole('tab', { name })).toHaveAttribute('aria-selected', name === 'Hằng ngày' ? 'true' : 'false')
+      }
+      fireEvent.click(viewTabs.getByRole('tab', { name: 'Bảng điểm' }))
+      expect(screen.getByRole('tabpanel', { name: 'Bảng điểm' })).toBeVisible()
       expect(screen.queryByText('Thẻ điểm')).not.toBeInTheDocument()
       expect(screen.queryByText('Ma trận')).not.toBeInTheDocument()
-      expect(screen.getByText('Hằng ngày')).toBeInTheDocument()
-      expect(screen.getByText('So sánh')).toBeInTheDocument()
-      expect(screen.getByText('Chấm bài')).toBeInTheDocument()
     })
   })
 

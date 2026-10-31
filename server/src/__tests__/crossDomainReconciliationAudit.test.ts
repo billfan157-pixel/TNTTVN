@@ -7,7 +7,7 @@ async function fixture() {
   for (const statement of [
     `CREATE TABLE academic_years (parish_id TEXT, id TEXT, status TEXT, finalization_policy TEXT)`,
     `CREATE TABLE academic_year_snapshots (id TEXT, parish_id TEXT, academic_year_id TEXT, source_class_id TEXT, report_snapshot TEXT)`,
-    `CREATE TABLE grades (id TEXT, parish_id TEXT, student_id TEXT, academic_year TEXT, semester INTEGER, score_oral REAL, score_oral_source TEXT, score_15m REAL, score_15m_source TEXT, score_1_period REAL, score_1_period_source TEXT)`,
+    `CREATE TABLE grades (id TEXT, parish_id TEXT, student_id TEXT, academic_year TEXT, semester INTEGER, score_oral REAL, score_oral_source TEXT, score_prayer REAL, score_prayer_source TEXT, score_15m REAL, score_15m_source TEXT, score_1_period REAL, score_1_period_source TEXT)`,
     `CREATE TABLE assessment_entries (parish_id TEXT, student_id TEXT, academic_year TEXT, semester INTEGER, score_type TEXT, score REAL)`,
     `CREATE TABLE grade_overrides (parish_id TEXT, grade_id TEXT, score_field TEXT, deleted_at TEXT)`,
   ]) await client.execute(statement)
@@ -35,8 +35,8 @@ describe('read-only cross-domain reconciliation inventory', () => {
         args: ['parish-sensitive', '2024-2025', 'FINALIZED', null],
       })
       await client.execute({
-        sql: `INSERT INTO grades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: ['grade-sensitive', 'parish-sensitive', 'student-sensitive', '2024-2025', 1, 9, 'daily_avg', null, null, null, null],
+        sql: `INSERT INTO grades (id, parish_id, student_id, academic_year, semester, score_oral, score_oral_source) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: ['grade-sensitive', 'parish-sensitive', 'student-sensitive', '2024-2025', 1, 9, 'daily_avg'],
       })
       await client.execute({
         sql: `INSERT INTO assessment_entries VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)`,
@@ -61,7 +61,7 @@ describe('read-only cross-domain reconciliation inventory', () => {
     try {
       await client.execute(`INSERT INTO academic_years VALUES ('p', '2025-2026', 'FINALIZED', '{"version":1}')`)
       await client.execute(`INSERT INTO academic_year_snapshots VALUES ('s', 'p', '2025-2026', 'class', '{"version":1}')`)
-      await client.execute(`INSERT INTO grades VALUES ('g', 'p', 'student', '2025-2026', 1, 10, 'manual', NULL, NULL, NULL, NULL)`)
+      await client.execute(`INSERT INTO grades (id, parish_id, student_id, academic_year, semester, score_oral, score_oral_source) VALUES ('g', 'p', 'student', '2025-2026', 1, 10, 'manual')`)
       await client.execute(`INSERT INTO assessment_entries VALUES ('p', 'student', '2025-2026', 1, 'oral', 7)`)
       await client.execute(`INSERT INTO grade_overrides VALUES ('p', 'g', 'scoreOral', NULL)`)
 

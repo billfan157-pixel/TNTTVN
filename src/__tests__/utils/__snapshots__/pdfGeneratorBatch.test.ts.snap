@@ -25,7 +25,7 @@ exports[`Batch Print / PDF Export System Test Suite > 6. Single student report c
         <thead>
           <tr>
             <th>Học Kỳ</th>
-            <th>Điểm Miệng</th>
+            <th>Điểm Miệng</th><th>Khảo kinh</th>
             <th>15 Phút</th>
             <th>1 Tiết</th>
             <th>Giữa Kỳ</th>
@@ -40,6 +40,7 @@ exports[`Batch Print / PDF Export System Test Suite > 6. Single student report c
       <tr>
         <td><strong>Học Kỳ 1</strong></td>
         <td>8</td>
+        <td>-</td>
         <td>9</td>
         <td>8</td>
         <td>9</td>
@@ -52,6 +53,7 @@ exports[`Batch Print / PDF Export System Test Suite > 6. Single student report c
       <tr>
         <td><strong>Học Kỳ 2</strong></td>
         <td>9</td>
+        <td>-</td>
         <td>9</td>
         <td>9</td>
         <td>9.5</td>
