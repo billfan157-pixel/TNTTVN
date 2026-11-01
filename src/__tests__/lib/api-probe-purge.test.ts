@@ -56,6 +56,7 @@ describe('probePurgeVersion — ghost-data guard (A-NEW-02) prod fix', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -105,7 +106,7 @@ describe('probePurgeVersion — ghost-data guard (A-NEW-02) prod fix', () => {
     expect(getAccessToken()).toBeNull()
   })
 
-  it('server 5xx → null (bỏ qua check, pull delta vẫn chạy)', async () => {
+  it('server 5xx → null, không trả phiên bản khi chưa xác minh', async () => {
     setTokens('access-ok')
     routeProbe({ refreshOk: false, purgeStatus: () => 503 })
     const v = await api.probePurgeVersion(500)
@@ -117,5 +118,32 @@ describe('probePurgeVersion — ghost-data guard (A-NEW-02) prod fix', () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
     const v = await api.probePurgeVersion(500)
     expect(v).toBeNull()
+  })
+
+  it.each([
+    { name: 'default deadline accepts a valid response delayed beyond two seconds', timeoutMs: undefined, responseAfter: 3500, expected: 3 },
+    { name: 'default deadline aborts an unresponsive generation probe', timeoutMs: undefined, responseAfter: 30_001, expected: null },
+    { name: 'explicit shorter deadline still aborts the probe', timeoutMs: 500, responseAfter: 501, expected: null },
+  ])('$name', async ({ timeoutMs, responseAfter, expected }) => {
+    vi.useFakeTimers()
+    setTokens('access-ok')
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => (
+      new Promise<ReturnType<typeof fakeResponse>>((resolve, reject) => {
+        const responseTimer = setTimeout(() => {
+          resolve(fakeResponse(200, { success: true, data: { purgeVersion: 3 } }))
+        }, responseAfter)
+        init.signal!.addEventListener('abort', () => {
+          clearTimeout(responseTimer)
+          reject(new DOMException('Request aborted', 'AbortError'))
+        }, { once: true })
+      })
+    ))
+
+    const probe = api.probePurgeVersion(timeoutMs)
+    await vi.advanceTimersByTimeAsync(responseAfter)
+
+    expect(await probe).toBe(expected)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((fetchMock.mock.calls[0][1] as RequestInit).signal!.aborted).toBe(expected === null)
   })
 })

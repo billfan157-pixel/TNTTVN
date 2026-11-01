@@ -4,7 +4,10 @@ import { request, API_BASE, withDeadline, bootstrapAccessToken, refreshAccessTok
 export const systemApi = {
   purgeAllData: (password: string, confirmKey: string) =>
     request<{ success: boolean; message: string; purgeVersion: number; countsBefore: Record<string, number> }>('POST', '/system/purge', { password, confirmKey }),
-  probePurgeVersion: async (timeoutMs = 2000): Promise<number | null> => {
+  // This guard gates every sync pull. Allow the normal API request window so
+  // queued requests on a busy browser do not abort an otherwise valid boot.
+  // Failure still returns null, keeping the generation barrier closed.
+  probePurgeVersion: async (timeoutMs = 30_000): Promise<number | null> => {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {

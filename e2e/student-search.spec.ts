@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { authorizedRequest, getAdminSession, injectSession, testKey } from './helpers'
+import { authorizedRequest, getAdminSession, injectSession, testKey, waitForBootstrapBaseline } from './helpers'
 import { installUiBoot } from './design-system-matrix'
 
 for (const viewport of [
@@ -33,6 +33,7 @@ for (const viewport of [
 
     await injectSession(page, session)
     await page.goto('/students')
+    await waitForBootstrapBaseline(page, 45_000)
     await page.getByRole('button', { name: `Xem danh sách lớp ${className}`, exact: true }).click()
     await expect(page.getByText(targetName, { exact: true })).toBeVisible()
     const search = page.getByRole('textbox', { name: 'Tìm thiếu nhi', exact: true })
