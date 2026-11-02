@@ -81,6 +81,30 @@ const analyzeOnce = async (page: Page, testInfo: TestInfo, artifactName: string)
 test.describe('Accessibility runtime gate — WCAG 2.2 AA automated subset', () => {
   test.describe.configure({ timeout: 240_000 })
 
+  test('purple liturgical badges retain AA contrast across dashboard layouts and themes', async ({ page }, testInfo) => {
+    // Keep the purple date tile and rank badge present throughout the year.
+    // setFixedTime changes Date only; animations and transport deadlines run.
+    await page.clock.setFixedTime(new Date('2026-11-02T12:00:00+07:00'))
+    await installUiBoot(page)
+    await injectSession(page, await getAdminSession(page.request))
+    await page.goto('/dashboard')
+    const failedObservations: string[] = []
+    for (const theme of ['light', 'dark'] as const) {
+      await setThemeThroughHeader(page, theme)
+      for (const viewportName of ['desktop', 'mobile', 'compact'] as const) {
+        const artifactName = `purple-liturgical-${viewportName}-${theme}`
+        const reopen = () => openProtectedObservation(page, '/dashboard', viewportName, artifactName)
+        await reopen()
+        await expect(page.getByText('Cầu Cho Các Tín Hữu Đã Qua Đời (Lễ Các Đẳng)', { exact: true })).toBeVisible()
+        const results = await runAxeStable(page, testInfo, artifactName, reopen)
+        if (results.violations.length > 0) {
+          failedObservations.push(`[${artifactName}]\n${formatViolations(results.violations)}`)
+        }
+      }
+    }
+    expect(failedObservations, failedObservations.join('\n\n')).toEqual([])
+  })
+
   for (const theme of ['light', 'dark'] as const) {
     test(`empty academic year warning retains AA contrast · compact · ${theme}`, async ({ page }, testInfo) => {
       await page.setViewportSize(matrixViewports.compact)

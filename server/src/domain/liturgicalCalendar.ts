@@ -35,7 +35,7 @@ export const LITURGICAL_COLORS: Record<
     name: 'Tím',
     hex: '#8B5CF6',
     bgClass: 'bg-purple-500/15 dark:bg-purple-500/20',
-    textClass: 'text-purple-700 dark:text-purple-400',
+    textClass: 'text-purple-700 dark:text-purple-300',
     borderClass: 'border-purple-500/40',
     badgeBg: '#F3E8FF',
   },

@@ -77,11 +77,15 @@ test.describe('Critical Path — Attendance', () => {
     await expect(page.getByRole('combobox', { name: 'Chọn lớp điểm danh', exact: true })).toHaveValue(classId)
     await expect(page.getByLabel('Ngày điểm danh', { exact: true })).toHaveValue(testDate)
 
-    const studentRow = page.getByRole('row').filter({ hasText: target.fullName })
-    const controlRow = page.getByRole('row').filter({ hasText: control.fullName })
-    await expect(studentRow.getByRole('radio', { name: 'Có mặt', exact: true })).toHaveAttribute('aria-checked', 'true')
-    await studentRow.getByRole('radio', { name: 'Vắng', exact: true }).click()
-    await expect(studentRow.getByRole('radio', { name: 'Vắng', exact: true })).toHaveAttribute('aria-checked', 'true')
+    // Row text also contains the class name and every status label. The exact
+    // labelled group identifies one student even when their name contains one.
+    const studentStatus = page.getByRole('radiogroup', { name: `Điểm danh ${target.fullName}`, exact: true })
+    const controlStatus = page.getByRole('radiogroup', { name: `Điểm danh ${control.fullName}`, exact: true })
+    await expect(studentStatus).toHaveCount(1)
+    await expect(controlStatus).toHaveCount(1)
+    await expect(studentStatus.getByRole('radio', { name: 'Có mặt', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await studentStatus.getByRole('radio', { name: 'Vắng', exact: true }).click()
+    await expect(studentStatus.getByRole('radio', { name: 'Vắng', exact: true })).toHaveAttribute('aria-checked', 'true')
 
     const saveResponse = page.waitForResponse(response =>
       new URL(response.url()).pathname === '/api/attendance/batch'
@@ -117,7 +121,7 @@ test.describe('Critical Path — Attendance', () => {
       ])
     }
     await page.reload()
-    await expect(studentRow.getByRole('radio', { name: 'Vắng', exact: true })).toHaveAttribute('aria-checked', 'true')
-    await expect(controlRow.getByRole('radio', { name: 'Có mặt', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await expect(studentStatus.getByRole('radio', { name: 'Vắng', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await expect(controlStatus.getByRole('radio', { name: 'Có mặt', exact: true })).toHaveAttribute('aria-checked', 'true')
   })
 })
