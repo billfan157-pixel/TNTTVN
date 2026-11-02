@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { referencesAnswerOptions } from '../utils/examOptionReferences.js'
 
 const VERSION_CODES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const
 const OPTION_CODES = ['A', 'B', 'C', 'D'] as const
@@ -75,7 +76,7 @@ function shuffled<T>(items: readonly T[], random: () => number): T[] {
   return copy
 }
 
-function assertSafeOptions(question: VariantQuestion): void {
+function assertSafeOptions(question: VariantQuestion, shuffleMode: ExamShuffleMode): void {
   if ((question.type ?? 'multiple_choice') === 'essay') return
   if (!question.options || !OPTION_CODES.includes(question.correctOption!) ||
     OPTION_CODES.some(code => typeof question.options![code] !== 'string' || !question.options![code].trim())) {
@@ -83,9 +84,9 @@ function assertSafeOptions(question: VariantQuestion): void {
   }
   const values = OPTION_CODES.map(code => normalizeText(question.options![code]).toLocaleLowerCase('vi'))
   if (new Set(values).size !== values.length) throw new ExamVariantValidationError(`Câu ${question.index} có phương án trùng nội dung; không thể đảo an toàn.`)
-  const positional = /(?:tất cả|cả\s+[abcd]|không có đáp án|all of|none of|both\s+[abcd])/iu
-  if (values.some(value => positional.test(value))) {
-    throw new ExamVariantValidationError(`Câu ${question.index} có phương án phụ thuộc vị trí (tất cả/không có đáp án); cần sửa trước khi đảo.`)
+  const referenced = OPTION_CODES.filter(code => referencesAnswerOptions(question.options![code]))
+  if (shuffleMode !== 'questions_only' && referenced.length > 0) {
+    throw new ExamVariantValidationError(`Câu ${question.index}: Phương án ${referenced.join(', ')} phụ thuộc vị trí lựa chọn (ví dụ “cả A và B”, “các đáp án trên”). Hãy viết rõ nội dung hoặc chọn “Chỉ trộn câu”.`)
   }
 }
 
@@ -141,7 +142,7 @@ export function generateExamVariantManifest(params: {
   const mc = sorted.filter(question => (question.type ?? 'multiple_choice') !== 'essay')
   const essay = sorted.filter(question => question.type === 'essay')
   if (mc.length !== questionCount) throw new ExamVariantValidationError(`Số câu trắc nghiệm (${mc.length}) không khớp questionCount (${questionCount}).`)
-  mc.forEach(assertSafeOptions)
+  mc.forEach(question => assertSafeOptions(question, shuffleMode))
 
   const questionOrders: VariantQuestion[][] = []
   if (shuffleMode === 'questions_only') {

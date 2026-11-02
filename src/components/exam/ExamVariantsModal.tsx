@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Layers3, Loader2, LockKeyhole, Plus, Save, Trash2, WandSparkles, WifiOff } from 'lucide-react'
-import { EXAM_SHUFFLE_CHOICES, EXAM_VERSION_CODES, formatExamVersionLabel, normalizeAnswerVariants } from '../../lib/examVariants'
+import { EXAM_SHUFFLE_CHOICES, EXAM_VERSION_CODES, formatExamVersionLabel, normalizeAnswerVariants, referencesAnswerOptions } from '../../lib/examVariants'
 import { useExamStore } from '../../stores/examStore'
 import type { ExamQuestion, ExamSession, ExamShuffleMode, ExamVariantManifestSet, ExamVersionCode, MultipleChoiceOption } from '../../types'
 import { ModalShell } from '../common/ModalShell'
@@ -27,7 +27,7 @@ interface VariantLintResult {
   issues: string[]
 }
 
-function lintQuestionsForVariants(rawQuestions: unknown, questionCount: number): VariantLintResult {
+function lintQuestionsForVariants(rawQuestions: unknown, questionCount: number, shuffleMode: ExamShuffleMode): VariantLintResult {
   let questions: ExamQuestion[] = []
   if (Array.isArray(rawQuestions)) {
     questions = rawQuestions as ExamQuestion[]
@@ -60,7 +60,6 @@ function lintQuestionsForVariants(rawQuestions: unknown, questionCount: number):
   if (questions.some(q => !Number.isInteger(q.index) || q.index < 1) || new Set(questions.map(q => q.index)).size !== questions.length) {
     issues.push('Số thứ tự câu hỏi phải là số nguyên dương và không trùng nhau.')
   }
-  const positional = /(?:tất cả|cả\s+[abcd]|không có đáp án|all of|none of|both\s+[abcd])/iu
 
   for (const q of mc) {
     if (q.isPlaceholder || typeof q.question !== 'string' || !q.question.trim()) {
@@ -74,8 +73,9 @@ function lintQuestionsForVariants(rawQuestions: unknown, questionCount: number):
     if (new Set(values).size !== values.length) {
       issues.push(`Câu ${q.index}: Có phương án trùng lặp nội dung.`)
     }
-    if (values.some(v => positional.test(v))) {
-      issues.push(`Câu ${q.index}: Có phương án phụ thuộc vị trí ("tất cả các đáp án", "không có đáp án nào"...). Cần sửa trước khi đảo.`)
+    const referenced = OPTIONS.filter(code => referencesAnswerOptions(q.options![code]))
+    if (shuffleMode !== 'questions_only' && referenced.length > 0) {
+      issues.push(`Câu ${q.index}: Phương án ${referenced.join(', ')} phụ thuộc vị trí lựa chọn (ví dụ “cả A và B”, “các đáp án trên”). Hãy viết rõ nội dung hoặc chọn “Chỉ trộn câu”.`)
     }
   }
 
@@ -118,8 +118,8 @@ export const ExamVariantsModal: React.FC<ExamVariantsModalProps> = ({ session, o
   }, [])
 
   const lintResult = useMemo(
-    () => lintQuestionsForVariants(session.questions, questionCount),
-    [session.questions, questionCount],
+    () => lintQuestionsForVariants(session.questions, questionCount, shuffleMode),
+    [session.questions, questionCount, shuffleMode],
   )
   const maxVariants = shuffleMode !== 'questions_only' ? 8
     : lintResult.totalMc < 2 ? 1 : lintResult.totalMc === 2 ? 2 : lintResult.totalMc === 3 ? 6 : 8

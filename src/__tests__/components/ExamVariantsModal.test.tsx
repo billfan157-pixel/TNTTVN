@@ -23,6 +23,35 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe('exam variant generation controls', () => {
+  it('allows ordinary quantifiers from the reported questions instead of showing positional warnings', () => {
+    const safeQuestions = [
+      { ...questions[0], options: { ...questions[0].options, D: 'Tất cả mọi người đều có hình dáng giống nhau.' } },
+      { ...questions[1], options: { ...questions[1].options, A: 'Khả năng biết trước tất cả mọi sự.' } },
+    ]
+    render(<ExamVariantsModal session={{ ...session, questions: safeQuestions }} onClose={() => {}} />)
+    expect(screen.getByRole('button', { name: 'Tạo và khóa' })).toBeEnabled()
+    expect(screen.queryByText(/vấn đề cần xử lý trước khi đảo đề/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kiểu trộn' }), { target: { value: 'options_only' } })
+    expect(screen.getByRole('button', { name: 'Tạo và khóa' })).toBeEnabled()
+  })
+
+  it('names the referenced choice and blocks it only for modes that move options', async () => {
+    const generate = vi.spyOn(api, 'generateExamVariantManifests')
+    const referenced = [{ ...questions[0], options: { ...questions[0].options, D: 'Cả A và B đúng.' } }, questions[1]]
+    render(<ExamVariantsModal session={{ ...session, questions: referenced }} onClose={() => {}} />)
+    expect(screen.getByText(/Câu 1: Phương án D phụ thuộc vị trí/)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Tạo và khóa' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo và khóa' }))
+    expect(generate).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kiểu trộn' }), { target: { value: 'questions_only' } })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Tạo và khóa' })).toBeEnabled())
+    expect(screen.queryByText(/Câu 1: Phương án D phụ thuộc vị trí/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Kiểu trộn' }), { target: { value: 'options_only' } })
+    expect(screen.getByRole('button', { name: 'Tạo và khóa' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Tạo và khóa' }))
+    expect(generate).not.toHaveBeenCalled()
+  })
+
   it('sends the chosen mode through the store and shows the saved source/key mapping', async () => {
     const generate = vi.spyOn(api, 'generateExamVariantManifests').mockImplementation(async (_id, variantCount, shuffleMode) => {
       const manifests = generateExamVariantManifest({ questions, questionCount: 2, variantCount, shuffleMode, seed: 'component-variant' })

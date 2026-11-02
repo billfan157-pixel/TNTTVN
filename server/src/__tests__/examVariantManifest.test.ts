@@ -26,6 +26,69 @@ describe('immutable exam variant manifest generator', () => {
       .toThrow('phụ thuộc vị trí')
   })
 
+  it.each(EXAM_SHUFFLE_MODES)('accepts ordinary quantifiers in the reported questions 10 and 12 with %s', shuffleMode => {
+    const source: VariantQuestion[] = [
+      {
+        index: 10, question: 'Theo sách Sáng thế, Thiên Chúa tạo dựng con người như thế nào? (x. St 1,27)',
+        options: { A: 'Chỉ có người nam.', B: 'Chỉ có người nữ.', C: 'Có cả nam và nữ.', D: 'Tất cả mọi người đều có hình dáng giống nhau.' },
+        correctOption: 'C',
+      },
+      {
+        index: 12, question: 'Thiên Chúa ban cho con người khả năng nào để có thể đáp lại tình yêu của Người?',
+        options: { A: 'Khả năng biết trước tất cả mọi sự.', B: 'Khả năng nhận biết và yêu mến Thiên Chúa cách tự do.', C: 'Khả năng không phải đau khổ và không phải chết.', D: 'Khả năng tạo dựng như Thiên Chúa.' },
+        correctOption: 'B',
+      },
+    ]
+    const original = JSON.stringify(source)
+    const expectedAnswer = new Map([[10, 'Có cả nam và nữ.'], [12, 'Khả năng nhận biết và yêu mến Thiên Chúa cách tự do.']])
+    const manifest = generateExamVariantManifest({ questions: source, questionCount: 2, variantCount: 2, seed: 'reported-quantifiers', shuffleMode })
+    expect(manifest.variants.A!.answerKey).toEqual({ 1: 'C', 2: 'B' })
+    for (const entry of Object.values(manifest.variants)) {
+      entry.questions.forEach((question, i) => {
+        const originalQuestion = source.find(q => q.index === entry.sourceQuestionOrder[i])!
+        expect(Object.values(question.options!).sort()).toEqual(Object.values(originalQuestion.options!).sort())
+        expect(question.options![entry.answerKey[question.index]]).toBe(expectedAnswer.get(originalQuestion.index))
+      })
+    }
+    expect(JSON.stringify(source)).toBe(original)
+  })
+
+  it.each([
+    'Có cả nam và nữ.', 'Cả bạn và tôi đều được yêu thương.', 'Cả bố và mẹ.',
+    'All of humanity is loved.', 'None of us knows everything.', 'Both a man and a woman.',
+  ])('does not mistake ordinary content for an option reference: %s', option => {
+    const source = [{ ...questions[0], options: { ...questions[0].options, D: option } }]
+    expect(() => generateExamVariantManifest({ questions: source, questionCount: 1, variantCount: 2, seed: 'ordinary-content' })).not.toThrow()
+  })
+
+  it.each([
+    'Cả A và B đúng.', 'Cả (A) và (B) đúng.', 'A, C đều đúng.', 'Đáp án B.',
+    'Phương án C đúng.', 'Tất cả các đáp án trên.', 'Cả ba phương án đều đúng.',
+    'Không có đáp án nào đúng.', 'Các ý ở trên.', 'Tất cả ở trên đều đúng.', 'Tất cả đều đúng.',
+    'All of the above.', 'None of the above.', 'Both A and B.', 'Neither A nor C.',
+    'Ta\u0302\u0301t ca\u0309 ca\u0301c đa\u0301p a\u0301n tre\u0302n.',
+  ])('rejects real answer references when options move: %s', option => {
+    const source = [{ ...questions[0], options: { ...questions[0].options, D: option } }]
+    for (const shuffleMode of ['questions_and_options', 'options_only'] as const) {
+      expect(() => generateExamVariantManifest({ questions: source, questionCount: 1, variantCount: 2, seed: 'actual-reference', shuffleMode }))
+        .toThrow('Phương án D phụ thuộc vị trí')
+    }
+  })
+
+  it('keeps referenced A/B/C/D labels unchanged when only question order moves', () => {
+    const source = [{ ...questions[0], options: { ...questions[0].options, D: 'Cả A và B đúng.' } }, questions[1]]
+    const manifest = generateExamVariantManifest({ questions: source, questionCount: 2, variantCount: 2, seed: 'preserve-references', shuffleMode: 'questions_only' })
+    expect(manifest.variants.B!.sourceQuestionOrder).toEqual([2, 1])
+    for (const entry of Object.values(manifest.variants)) {
+      entry.questions.forEach((question, i) => {
+        const originalQuestion = source[entry.sourceQuestionOrder[i] - 1]
+        expect(question.options).toEqual(originalQuestion.options)
+        expect(entry.optionOrders[question.index]).toEqual(['A', 'B', 'C', 'D'])
+        expect(entry.answerKey[question.index]).toBe(originalQuestion.correctOption)
+      })
+    }
+  })
+
   it.each(EXAM_SHUFFLE_MODES)('preserves the correct answer content, weight and provenance with %s', shuffleMode => {
     const source: VariantQuestion[] = questions.map((q, index) => ({ ...q, correctOption: (['A', 'B', 'C', 'D'] as const)[index % 4],
       points: index + 1, sourceQuestionId: `bank-${index}`, sourceVersionId: `version-${index}` }))

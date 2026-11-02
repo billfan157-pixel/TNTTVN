@@ -12,11 +12,15 @@ for (const width of [1280, 320]) {
       academicYear: '2026-2027', semester: 1, isLocked: false, unlockReason: 'Exam variant E2E isolation',
     })
     const subject = testKey(testInfo, 'Variants')
-    const questions = [1, 2].map(index => ({ index, type: 'multiple_choice', question: `Nội dung câu ${index}`,
-      options: { A: `Một ${index}`, B: `Hai ${index}`, C: `Ba ${index}`, D: `Bốn ${index}` }, correctOption: index === 1 ? 'B' : 'D' }))
+    const questions = [
+      { index: 1, type: 'multiple_choice', question: 'Theo sách Sáng thế, Thiên Chúa tạo dựng con người như thế nào? (x. St 1,27)',
+        options: { A: 'Chỉ có người nam.', B: 'Chỉ có người nữ.', C: 'Có cả nam và nữ.', D: 'Tất cả mọi người đều có hình dáng giống nhau.' }, correctOption: 'C' },
+      { index: 2, type: 'multiple_choice', question: 'Thiên Chúa ban cho con người khả năng nào để có thể đáp lại tình yêu của Người?',
+        options: { A: 'Khả năng biết trước tất cả mọi sự.', B: 'Khả năng nhận biết và yêu mến Thiên Chúa cách tự do.', C: 'Khả năng không phải đau khổ và không phải chết.', D: 'Khả năng tạo dựng như Thiên Chúa.' }, correctOption: 'B' },
+    ]
     const created = await authorizedRequest(page.request, actor, 'POST', '/api/exams', {
       classId: 'CLS-TN-1', subject, scoreType: '15m', semester: 1, academicYear: '2026-2027', maxScore: 10,
-      examType: 'multiple_choice', questionCount: 2, questions: JSON.stringify(questions), answerKey: JSON.stringify({ 1: 'B', 2: 'D' }),
+      examType: 'multiple_choice', questionCount: 2, questions: JSON.stringify(questions), answerKey: JSON.stringify({ 1: 'C', 2: 'B' }),
     })
     expect(created.status()).toBe(201)
     const session = (await created.json()).data
@@ -30,6 +34,7 @@ for (const width of [1280, 320]) {
     await expect(open).toBeFocused()
     await open.press('Enter')
     const modal = page.getByRole('dialog', { name: 'Đáp án theo mã đề' })
+    await expect(modal.getByRole('button', { name: 'Tạo và khóa' })).toBeEnabled()
     await modal.getByRole('combobox', { name: 'Kiểu trộn' }).selectOption('questions_only')
     await expect(modal.getByRole('combobox', { name: 'Số mã' })).toHaveValue('2')
     expect(await modal.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
@@ -43,8 +48,8 @@ for (const width of [1280, 320]) {
     expect((await generated).status()).toBe(200)
     await modal.getByRole('button', { name: 'Mã B (102)', exact: true }).click()
     const mapping = modal.getByRole('region', { name: 'Đối chiếu mã B' })
-    await expect(mapping.getByRole('row').nth(1)).toContainText('D')
-    expect(await mapping.getByRole('row').nth(1).getByRole('cell').allTextContents()).toEqual(['2', 'A·B·C·D', 'D'])
+    await expect(mapping.getByRole('row').nth(1)).toContainText('B')
+    expect(await mapping.getByRole('row').nth(1).getByRole('cell').allTextContents()).toEqual(['2', 'A·B·C·D', 'B'])
     await expect(mapping.getByRole('row').nth(1).getByRole('cell').last()).toBeInViewport()
     expect(await modal.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
     await page.screenshot({ path: testInfo.outputPath(`exam-variants-${width}.png`) })
@@ -59,7 +64,7 @@ for (const width of [1280, 320]) {
     const manifest = JSON.parse((await persisted.json()).data.variantManifests)
     expect(manifest.shuffleMode).toBe('questions_only')
     expect(manifest.variants.B.sourceQuestionOrder).toEqual([2, 1])
-    expect(manifest.variants.B.answerKey).toEqual({ 1: 'D', 2: 'B' })
+    expect(manifest.variants.B.answerKey).toEqual({ 1: 'B', 2: 'C' })
     expect(manifest.variants.A.contentHash).not.toBe(manifest.variants.B.contentHash)
   })
 }
