@@ -19,6 +19,7 @@ async function assertExamWriter(tx: DbExecutor, userId: string, parishId: string
   }
 }
 import { generateExamVariantManifest, type ExamShuffleMode, type ExamVariantManifestSet, type VariantQuestion } from './examVariantManifest.js'
+import type { ExamShufflePolicy } from '../utils/examShufflePlan.js'
 
 export type ExamScoreType = 'oral' | '15m' | '1period' | 'midterm' | 'final'
 export type ExamSessionStatus = 'draft' | 'completed'
@@ -687,7 +688,12 @@ export async function updateExamDefinition(params: {
       let manifest: ExamVariantManifestSet
       try {
         manifest = generateExamVariantManifest({ questions: JSON.parse(questions), questionCount,
-          variantCount: Object.keys(old.variants).length, seed: randomUUID(), shuffleMode: old.shuffleMode })
+          variantCount: Object.keys(old.variants).length, seed: randomUUID(), shuffleMode: old.shuffleMode,
+          algorithmVersion: old.algorithmVersion,
+          contextId: session.id,
+          // A confirmation of rewritten wording belongs to the old definition.
+          shufflePolicy: 'fixed_aggregates',
+          heldQuestionIndices: old.heldQuestionIndices?.filter(index => (JSON.parse(questions!) as VariantQuestion[]).some(q => q.index === index && q.type !== 'essay')) })
       } catch (error) { badRequest((error as Error).message) }
       answerKey = JSON.stringify(manifest!.variants.A!.answerKey)
       answerVariants = JSON.stringify(Object.fromEntries(Object.entries(manifest!.variants).map(([code, entry]) => [code, entry!.answerKey])))
@@ -711,7 +717,7 @@ export async function updateExamDefinition(params: {
   }))
 }
 
-export async function createImmutableVariantManifests(params: {
+interface VariantManifestCommand {
   sessionId: string
   parishId: string
   userId: string
@@ -720,9 +726,46 @@ export async function createImmutableVariantManifests(params: {
   allowedClassIds: string[] | null
   variantCount: number
   shuffleMode?: ExamShuffleMode
+  shufflePolicy?: ExamShufflePolicy
+  heldQuestionIndices?: number[]
+  expectedDefinitionHash?: string
+  analysisHash?: string
   seed?: string
   expected?: AcademicWriteExpectation
-}) {
+}
+
+function readVariantSourceQuestions(session: { questions: string | null; answerKey: string | null; answerVariants: string | null }): VariantQuestion[] {
+  let questions: VariantQuestion[]
+  try {
+    const parsed: unknown = JSON.parse(session.questions ?? '')
+    if (!Array.isArray(parsed)) throw new Error('not-array')
+    questions = parsed as VariantQuestion[]
+  } catch { badRequest('Ngân hàng câu hỏi của phiên không phải JSON hợp lệ.') }
+  const sourceKeyJson = resolveAnswerKeyForVersion(session.answerKey, session.answerVariants, 'A')
+  if (!sourceKeyJson) badRequest('Phiên thiếu đáp án gốc mã A.')
+  let sourceKey: Record<number, VariantQuestion['correctOption']>
+  try { sourceKey = JSON.parse(sourceKeyJson) }
+  catch { badRequest('Đáp án gốc mã A không phải JSON hợp lệ.') }
+  if (!sourceKey || typeof sourceKey !== 'object' || Array.isArray(sourceKey)) badRequest('Đáp án gốc mã A không hợp lệ.')
+  return questions.map(question => question?.type === 'essay' ? question : { ...question, correctOption: sourceKey[question?.index] })
+}
+
+export async function previewExamVariantManifests(params: VariantManifestCommand) {
+  const session = await assertSessionAccess(params.sessionId, params.parishId, params.allowedClassIds)
+  await assertExamWriter(db, params.userId, params.parishId, session.classId, params.expected)
+  await assertExamNotStarted(db, session)
+  if (session.variantManifests) throw new ExamStateError('Bộ mã đề đã được khóa; không thể xem trước một phép trộn mới.')
+  if (!session.questionCount || !session.questions) badRequest('Phiên chưa có nội dung câu hỏi trắc nghiệm.')
+  const manifests = generateExamVariantManifest({
+    questions: readVariantSourceQuestions(session), questionCount: session.questionCount, variantCount: params.variantCount,
+    seed: params.seed?.trim() || randomUUID(), shuffleMode: params.shuffleMode,
+    shufflePolicy: params.shufflePolicy, heldQuestionIndices: params.heldQuestionIndices,
+    contextId: session.id,
+  })
+  return { manifests, definitionHash: examDefinitionHash(session) }
+}
+
+export async function createImmutableVariantManifests(params: VariantManifestCommand) {
   return withSqliteBusyRetry(() => runDbTransaction(async (tx) => {
     await tx.update(examSessions).set({ status: 'draft' }).where(and(
       eq(examSessions.id, params.sessionId), eq(examSessions.parishId, params.parishId), eq(examSessions.status, 'draft'),
@@ -738,27 +781,13 @@ export async function createImmutableVariantManifests(params: {
     }
     await assertExamNotStarted(tx, session)
 
-    let questions: VariantQuestion[]
-    try {
-      const parsed = JSON.parse(session.questions)
-      if (!Array.isArray(parsed)) throw new Error('not-array')
-      questions = parsed as VariantQuestion[]
-    } catch {
-      const error = new Error('Ngân hàng câu hỏi của phiên không phải JSON hợp lệ.') as Error & { status?: number }
-      error.status = 400
-      throw error
+    if (params.expectedDefinitionHash && params.expectedDefinitionHash !== examDefinitionHash(session)) {
+      throw new ExamStateError('Đề thi đã thay đổi sau khi xem trước. Hãy tải lại đề và xem trước lần nữa.')
     }
-
-    // Manual variant-key edits can leave the working question JSON stale.
-    // Use the same A key as scoring before taking the immutable snapshot.
-    const sourceKeyJson = resolveAnswerKeyForVersion(session.answerKey, session.answerVariants, 'A')
-    if (!sourceKeyJson) badRequest('Phiên thiếu đáp án gốc mã A.')
-    let sourceKey: Record<number, VariantQuestion['correctOption']>
-    try { sourceKey = JSON.parse(sourceKeyJson) }
-    catch { badRequest('Đáp án gốc mã A không phải JSON hợp lệ.') }
-    if (!sourceKey || typeof sourceKey !== 'object' || Array.isArray(sourceKey)) badRequest('Đáp án gốc mã A không hợp lệ.')
-    questions = questions.map(question => question?.type === 'essay' ? question
-      : { ...question, correctOption: sourceKey[question?.index] })
+    if (params.shufflePolicy === 'rewrite_aggregates' && (!params.expectedDefinitionHash || !params.analysisHash || !params.seed)) {
+      badRequest('Cần xem trước và xác nhận cách diễn đạt tổng hợp trước khi tạo mã.')
+    }
+    const questions = readVariantSourceQuestions(session)
 
     const manifest = generateExamVariantManifest({
       questions,
@@ -766,7 +795,13 @@ export async function createImmutableVariantManifests(params: {
       variantCount: params.variantCount,
       seed: params.seed?.trim() || randomUUID(),
       shuffleMode: params.shuffleMode,
+      shufflePolicy: params.shufflePolicy,
+      heldQuestionIndices: params.heldQuestionIndices,
+      contextId: session.id,
     })
+    if (params.analysisHash && params.analysisHash !== manifest.analysisHash) {
+      throw new ExamStateError('Kế hoạch trộn đã thay đổi. Hãy xem trước lại trước khi tạo mã.')
+    }
     const answerVariants = Object.fromEntries(Object.entries(manifest.variants).map(([version, entry]) => [version, entry!.answerKey]))
     const manifestJson = JSON.stringify(manifest)
     await tx.update(examSessions).set({
@@ -788,6 +823,9 @@ export async function createImmutableVariantManifests(params: {
         schemaVersion: manifest.schemaVersion,
         algorithmVersion: manifest.algorithmVersion,
         shuffleMode: manifest.shuffleMode,
+        shufflePolicy: manifest.shufflePolicy,
+        analysisHash: manifest.analysisHash,
+        heldQuestionIndices: manifest.heldQuestionIndices,
         sourceHash: manifest.sourceHash,
         versions: Object.keys(manifest.variants),
         contentHashes: Object.fromEntries(Object.entries(manifest.variants).map(([code, entry]) => [code, entry!.contentHash])),

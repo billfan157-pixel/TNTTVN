@@ -34,11 +34,15 @@ for (const width of [1280, 320]) {
     await expect(open).toBeFocused()
     await open.press('Enter')
     const modal = page.getByRole('dialog', { name: 'Đáp án theo mã đề' })
-    await expect(modal.getByRole('button', { name: 'Tạo và khóa' })).toBeEnabled()
+    await expect(modal.getByRole('button', { name: 'Xem trước', exact: true })).toBeEnabled()
+    await expect(modal.getByRole('button', { name: 'Tạo và khóa' })).toBeDisabled()
     await modal.getByRole('combobox', { name: 'Kiểu trộn' }).selectOption('questions_only')
     await expect(modal.getByRole('combobox', { name: 'Số mã' })).toHaveValue('2')
     expect(await modal.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
     const generate = modal.getByRole('button', { name: 'Tạo và khóa' })
+    await modal.getByRole('button', { name: 'Xem trước', exact: true }).click()
+    await expect(modal.getByRole('region', { name: 'Xem trước nội dung mã đề' })).toBeVisible()
+    await expect(generate).toBeEnabled()
     if (width === 320) {
       // Modal entry scales from 0.985 to 1; measure the settled hit area.
       await expect.poll(async () => (await generate.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)

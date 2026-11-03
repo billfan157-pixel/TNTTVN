@@ -10,7 +10,7 @@ import {
   syncReopenExam,
   syncDeleteExam,
 } from '../lib/syncService'
-import type { ExamSession, ExamResult, ExamFinalizeResult, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet, ExamShuffleMode } from '../types'
+import type { ExamSession, ExamResult, ExamFinalizeResult, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet, ExamShuffleMode, ExamVariantGenerationOptions } from '../types'
 import { normalizeAnswerKey, normalizeAnswerVariants } from '../lib/examVariants'
 import { useGradeStore } from './gradeStore'
 import { useStudentStore } from './studentStore'
@@ -235,7 +235,7 @@ interface ExamState {
   reopenSession: () => Promise<void>
   deleteSession: (id: string) => Promise<boolean>
   updateAnswerVariants: (answerVariants: Partial<Record<ExamVersionCode, Record<number, MultipleChoiceOption>>>, questionCount: number) => Promise<{ rescored: number; skipped: number } | null>
-  generateVariantManifests: (variantCount: number, shuffleMode?: ExamShuffleMode) => Promise<ExamSession | null>
+  generateVariantManifests: (variantCount: number, shuffleMode?: ExamShuffleMode, options?: ExamVariantGenerationOptions, sessionId?: string) => Promise<ExamSession | null>
   replaceSessionId: (oldId: string, serverData: ExamSession) => void
   /**
    * FE-F1 (audit 2026-08-21): hoàn tác optimistic "Hoàn tất phiên" offline —
@@ -808,15 +808,15 @@ export const useExamStore = create<ExamState>()(
     }
   },
 
-  generateVariantManifests: async (variantCount, shuffleMode) => {
-    const id = get().selectedSessionId
+  generateVariantManifests: async (variantCount, shuffleMode, options, sessionId) => {
+    const id = sessionId ?? get().selectedSessionId
     if (!id || isOffline()) {
       set({ error: 'Tạo mã đề tự động cần kết nối máy chủ để khóa manifest an toàn.' })
       return null
     }
     set({ saving: true, error: null })
     try {
-      const response = await api.generateExamVariantManifests(id, variantCount, shuffleMode)
+      const response = await api.generateExamVariantManifests(id, variantCount, shuffleMode, options)
       const session = normalizeExamSessions([response.session])[0]
       set({ sessions: get().sessions.map(item => item.id === id ? session : item) })
       return session

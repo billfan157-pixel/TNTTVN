@@ -1,3 +1,6 @@
+import type { ExamShufflePolicy, ShuffleQuestionSummary } from '../../server/src/utils/examShufflePlan';
+export type { ExamShufflePolicy, ShuffleQuestionSummary } from '../../server/src/utils/examShufflePlan';
+
 export type BranchType = 'ChienCon' | 'AuNhi' | 'ThieuNhi' | 'NghiaSi' | 'HiepSi';
 
 export interface BranchInfo {
@@ -279,10 +282,28 @@ export interface ExamVariantManifestEntry {
 
 export type ExamShuffleMode = 'questions_and_options' | 'questions_only' | 'options_only';
 
+export interface ExamVariantGenerationOptions {
+  shufflePolicy?: ExamShufflePolicy;
+  heldQuestionIndices?: number[];
+  seed?: string;
+  expectedDefinitionHash?: string;
+  analysisHash?: string;
+}
+
+export interface ExamVariantPreview {
+  manifests: ExamVariantManifestSet;
+  definitionHash: string;
+}
+
 export interface ExamVariantManifestSet {
   schemaVersion: 1;
-  algorithmVersion: 'catevia-variant-v1' | 'catevia-variant-v2';
+  algorithmVersion: 'catevia-variant-v1' | 'catevia-variant-v2' | 'catevia-variant-v3';
   shuffleMode?: ExamShuffleMode;
+  shufflePolicy?: ExamShufflePolicy;
+  heldQuestionIndices?: number[];
+  analysisHash?: string;
+  questionPlans?: Array<ShuffleQuestionSummary & { sourceContentHash: string }>;
+  orderReasons?: string[];
   seed: string;
   sourceHash: string;
   generatedAt: string;

@@ -709,9 +709,9 @@ export async function buildExamFromBank(input: {
   const questionCount = mcRows.length
   const examType = questionCount === 0 ? 'written' : essayRows.length ? 'mixed' : 'multiple_choice'
   const answerKey = Object.fromEntries(questions.filter(question => question.type !== 'essay').map(question => [question.index, question.correctOption]))
-  const manifest = questionCount > 0 ? generateExamVariantManifest({ questions, questionCount, variantCount: input.variantCount, seed, shuffleMode: input.shuffleMode }) : null
-  const answerVariants = manifest ? Object.fromEntries(Object.entries(manifest.variants).map(([code, entry]) => [code, entry!.answerKey])) : null
   const sessionId = generateId('EXS')
+  const manifest = questionCount > 0 ? generateExamVariantManifest({ questions, questionCount, variantCount: input.variantCount, seed, shuffleMode: input.shuffleMode, contextId: sessionId }) : null
+  const answerVariants = manifest ? Object.fromEntries(Object.entries(manifest.variants).map(([code, entry]) => [code, entry!.answerKey])) : null
   const now = new Date().toISOString()
   await tx.insert(examSessions).values({
       id: sessionId, parishId: actor.parishId, classId: input.classId, subject: input.subject.trim(), scoreType: input.scoreType,

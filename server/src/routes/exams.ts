@@ -588,12 +588,29 @@ const generateVariantManifestSchema = z.object({
   variantCount: z.coerce.number().int().min(1).max(8),
   shuffleMode: z.enum(['questions_and_options', 'questions_only', 'options_only']).optional(),
   seed: z.string().trim().min(8).max(128).regex(/^[A-Za-z0-9._:-]+$/).optional(),
+  shufflePolicy: z.enum(['fixed_aggregates', 'rewrite_aggregates']).optional(),
+  heldQuestionIndices: z.array(z.number().int().min(1).max(50)).max(50).optional(),
+  expectedDefinitionHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  analysisHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+})
+
+examsRouter.post('/:id/variant-preview', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', generateVariantManifestSchema), async (c) => {
+  const user = c.get('user') as JwtPayload
+  try {
+    const allowedClassIds = isAdmin(user) ? null : await getUserClassIds(user.userId, user.parishId)
+    const { previewExamVariantManifests } = await import('../services/examService.js')
+    return successResponse(c, await previewExamVariantManifests({
+      ...c.req.valid('json'), sessionId: c.req.param('id'), parishId: user.parishId, userId: user.userId,
+      allowedClassIds, ip: getClientIp(c), userAgent: c.req.header('user-agent') || '',
+      expected: { role: user.role, epoch: user.tokenVersion },
+    }))
+  } catch (err) { return handleServiceError(c, err) }
 })
 
 examsRouter.post('/:id/variant-manifests', roleMiddleware('admin', 'chunhiem', 'phuta'), zValidator('json', generateVariantManifestSchema), async (c) => {
   const user = c.get('user') as JwtPayload
   const sessionId = c.req.param('id')
-  const { variantCount, seed, shuffleMode } = c.req.valid('json')
+  const settings = c.req.valid('json')
   const ip = getClientIp(c)
   const userAgent = c.req.header('user-agent') || ''
   try {
@@ -607,9 +624,7 @@ examsRouter.post('/:id/variant-manifests', roleMiddleware('admin', 'chunhiem', '
       userAgent,
       allowedClassIds,
       expected: { role: user.role, epoch: user.tokenVersion },
-      variantCount,
-      seed,
-      shuffleMode,
+      ...settings,
     })
     return successResponse(c, result)
   } catch (err) {

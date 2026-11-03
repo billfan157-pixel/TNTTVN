@@ -281,6 +281,35 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     expect(manifest.variants.B.questions[0].options).not.toEqual(manifest.variants.A.questions[0].options)
   })
 
+  it('materializes aggregate choices from bank versions and preserves their source key', async () => {
+    const input = mc('Các cách thể hiện tình yêu thương')
+    input.answerData.options[3].text = 'Tất cả các đáp án trên đều đúng.'
+    const created = await req('/questions', { method: 'POST', auth: adminToken, body: input })
+    expect(created.status).toBe(201)
+    const id = created.data.id
+    try {
+      expect((await req('/questions/' + id + '/lifecycle', { method: 'POST', auth: adminToken, body: { action: 'activate' } })).status).toBe(200)
+      const body = { mode: 'manual', questionIds: [id], classId: classA, subject: 'Ngân hàng có lựa chọn tổng hợp', scoreType: '15m',
+        semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 8, shuffleMode: 'options_only', buildCommandId: 'QB-SMART-AGGREGATE-01' }
+      const count = (await db.select().from(examSessions).where(eq(examSessions.parishId, parishA))).length
+      const rejected = await req('/exams/build', { method: 'POST', auth: adminToken, body })
+      expect(rejected.status).toBe(400)
+      expect((await db.select().from(examSessions).where(eq(examSessions.parishId, parishA))).length).toBe(count)
+      const built = await req('/exams/build', { method: 'POST', auth: adminToken, body: { ...body, variantCount: 6 } })
+      expect(built.status).toBe(201)
+      const manifest = JSON.parse(built.data.variantManifests)
+      expect(manifest.algorithmVersion).toBe('catevia-variant-v3')
+      expect(manifest.questionPlans[0]).toMatchObject({ validOrderCount: 6, status: 'constrained' })
+      for (const entry of Object.values(manifest.variants) as Array<{ questions: Array<{ sourceQuestionId: string; options: Record<string, string> }>; answerKey: Record<number, string> }>) {
+        expect(entry.questions[0].options.D).toBe(input.answerData.options[3].text)
+        expect(entry.questions[0].options[entry.answerKey[1]]).toBe('Hai')
+        expect(entry.questions[0].sourceQuestionId).toBe(id)
+      }
+    } finally {
+      await req('/questions/' + id + '/lifecycle', { method: 'POST', auth: adminToken, body: { action: 'archive' } })
+    }
+  })
+
   it('creates a new bank version without mutating the historical exam snapshot', async () => {
     const before = await db.select().from(examQuestionSnapshots).where(and(eq(examQuestionSnapshots.parishId, parishA), eq(examQuestionSnapshots.questionId, mcId)))
     const body = mc('Ai thiết lập Bí tích Thánh Thể?')

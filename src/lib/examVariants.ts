@@ -1,5 +1,6 @@
 import type { ExamAnswerVariants, ExamShuffleMode, ExamVersionCode, MultipleChoiceOption } from '../types'
 export { referencesAnswerOptions } from '../../server/src/utils/examOptionReferences'
+export { planExamShuffle } from '../../server/src/utils/examShufflePlan'
 
 export const EXAM_VERSION_CODES: ExamVersionCode[] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 export const EXAM_SHUFFLE_CHOICES: { value: ExamShuffleMode; label: string; description: string }[] = [

@@ -364,7 +364,8 @@ describe('examExporter', () => {
     it('omits answer data when the answer-key toggle is disabled', () => {
       const parsed = JSON.parse(generateExamJsonString({
         subject: 'No key',
-        questions: sampleQuestions,
+        questions: sampleQuestions.map(question => ({ ...question, sourceVersionId: 'private-bank-version',
+          shuffleSemantics: { correctSourceId: 'B' }, confirmedBy: 'private-reviewer' })),
         answerKey: { 1: 'B', 2: 'C' },
         answerVariants: { A: { 1: 'B', 2: 'C' } },
         includeAnswerKey: false,
@@ -374,6 +375,11 @@ describe('examExporter', () => {
       expect(parsed.answerKey).toBeUndefined()
       expect(parsed.answerVariants).toBeUndefined()
       expect(parsed.questions[0].correctOption).toBeUndefined()
+      expect(parsed.questions[0].explanation).toBeUndefined()
+      expect(parsed.questions[0].shuffleSemantics).toBeUndefined()
+      expect(parsed.questions[0].confirmedBy).toBeUndefined()
+      expect(parsed.questions[0].sourceVersionId).toBeUndefined()
+      expect(parsed.variantManifests).toBeNull()
     })
   })
 

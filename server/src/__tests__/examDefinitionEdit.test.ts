@@ -56,6 +56,63 @@ beforeAll(async () => {
 })
 
 describe('exam definition editing before grading', () => {
+  it('previews without writing, binds the plan to the current definition and commits that exact plan', async () => {
+    const session = await create({ ...mcInput, questions: JSON.stringify([
+      { ...mc(1), options: { A: 'Một', B: 'Hai', C: 'Ba', D: 'Tất cả đáp đều đúng.' } }, mc(2),
+    ]) })
+    const input = { variantCount: 4, shuffleMode: 'options_only' }
+    const first = await request('/' + session.id + '/variant-preview', 'POST', input, teacherToken)
+    expect(first.status).toBe(200)
+    expect(first.data.manifests.questionPlans[0]).toMatchObject({ status: 'constrained', validOrderCount: 6 })
+    expect((await persisted(session.id)).variantManifests).toBeNull()
+    const binding = { ...input, seed: first.data.manifests.seed, expectedDefinitionHash: first.data.definitionHash,
+      analysisHash: first.data.manifests.analysisHash }
+    const clone = await create({ ...mcInput, questions: session.questions })
+    expect((await context(clone.id)).definitionHash).toBe(first.data.definitionHash)
+    expect((await request('/' + clone.id + '/variant-manifests', 'POST', binding)).status).toBe(409)
+    expect((await persisted(clone.id)).variantManifests).toBeNull()
+    expect((await request('/' + session.id + '/variant-manifests', 'POST', { ...binding, analysisHash: '0'.repeat(64) })).status).toBe(409)
+    expect((await persisted(session.id)).variantManifests).toBeNull()
+    const edited = await request('/' + session.id + '/answer-variants', 'PATCH',
+      { questionCount: 2, answerVariants: JSON.stringify({ A: { 1: 'B', 2: 'C' } }) })
+    expect(edited.status).toBe(200)
+    expect((await request('/' + session.id + '/variant-manifests', 'POST', binding)).status).toBe(409)
+    expect((await persisted(session.id)).variantManifests).toBeNull()
+    const fresh = await request('/' + session.id + '/variant-preview', 'POST', input, teacherToken)
+    expect(fresh.status).toBe(200)
+    expect(fresh.data.manifests.variants.A.answerKey).toEqual({ 1: 'B', 2: 'C' })
+    const saved = await request('/' + session.id + '/variant-manifests', 'POST', {
+      ...input, seed: fresh.data.manifests.seed, expectedDefinitionHash: fresh.data.definitionHash,
+      analysisHash: fresh.data.manifests.analysisHash,
+    }, teacherToken)
+    expect(saved.status).toBe(200)
+    expect(saved.data.manifests.variants).toEqual(fresh.data.manifests.variants)
+    expect(JSON.parse((await persisted(session.id)).variantManifests!).analysisHash).toBe(fresh.data.manifests.analysisHash)
+  })
+
+  it('requires a preview binding before allowing aggregate wording changes', async () => {
+    const session = await create({ ...mcInput, questions: JSON.stringify([
+      { ...mc(1), options: { A: 'Một', B: 'Hai', C: 'Ba', D: 'Tất cả các đáp án trên đều đúng.' } }, mc(2),
+    ]) })
+    const input = { variantCount: 4, shufflePolicy: 'rewrite_aggregates', shuffleMode: 'options_only' }
+    expect((await request('/' + session.id + '/variant-manifests', 'POST', input)).status).toBe(400)
+    expect((await persisted(session.id)).variantManifests).toBeNull()
+    const preview = await request('/' + session.id + '/variant-preview', 'POST', input)
+    expect(preview.status).toBe(200)
+    const saved = await request('/' + session.id + '/variant-manifests', 'POST', {
+      ...input, seed: preview.data.manifests.seed, analysisHash: preview.data.manifests.analysisHash,
+      expectedDefinitionHash: preview.data.definitionHash,
+    })
+    expect(saved.status).toBe(200)
+    expect(saved.data.manifests.shufflePolicy).toBe('rewrite_aggregates')
+    const current = await context(session.id)
+    const edited = await edit(session.id, current.definitionHash, { ...mcInput, questions: JSON.stringify([
+      { ...mc(1), question: 'Đã chỉnh nội dung', options: { A: 'Một', B: 'Hai', C: 'Ba', D: 'Tất cả các đáp án trên đều đúng.' } }, mc(2),
+    ]) })
+    expect(edited.status).toBe(200)
+    expect(JSON.parse(edited.data.variantManifests)).toMatchObject({ algorithmVersion: 'catevia-variant-v3', shufflePolicy: 'fixed_aggregates' })
+  })
+
   it('uses the current manually edited A key instead of restoring stale question answers', async () => {
     const session = await create(mcInput)
     const editedKey = { 1: 'D', 2: 'C' }
@@ -93,6 +150,8 @@ describe('exam definition editing before grading', () => {
   it('validates generation capacity atomically and denies other class/parish actors', async () => {
     const session = await create(mcInput)
     const input = { variantCount: 2, shuffleMode: 'questions_only' }
+    expect((await request(`/${session.id}/variant-preview`, 'POST', input, otherTeacherToken)).status).toBe(403)
+    expect((await request(`/${session.id}/variant-preview`, 'POST', input, otherParishToken)).status).toBe(404)
     expect((await request(`/${session.id}/variant-manifests`, 'POST', input, otherTeacherToken)).status).toBe(403)
     expect((await request(`/${session.id}/variant-manifests`, 'POST', input, otherParishToken)).status).toBe(404)
     const tooMany = await request(`/${session.id}/variant-manifests`, 'POST', { ...input, variantCount: 3 })

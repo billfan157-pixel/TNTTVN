@@ -583,7 +583,8 @@ export function generateExamJsonString(options: ExamExportOptions): string {
   const includeKey = options.includeAnswerKey !== false
   const exportedQuestions = includeKey
     ? questions
-    : questions.map(({ correctOption: _correctOption, explanation: _explanation, answerData, ...question }) => ({ ...question,
+    : questions.map(({ index, question, type, responseFormat, options: choices, points, answerLineCount, isPlaceholder, answerData }) => ({
+        index, question, type, responseFormat, options: choices, points, answerLineCount, isPlaceholder,
         ...(answerData ? { answerData: {
           ...(answerData.blanks ? { blanks: answerData.blanks.map(blank => ({ id: blank.id, acceptedAnswers: [] })) } : {}),
           ...(answerData.wordBank ? { wordBank: answerData.wordBank } : {}),

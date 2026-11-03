@@ -1,7 +1,7 @@
 import { request, newIdempotencyKey } from './core'
-import type { ExamShuffleMode } from '../../types'
+import type { ExamShuffleMode, ExamVariantGenerationOptions, ExamVariantPreview } from '../../types'
 
-// Phase 3: tách từ lib/api.ts (verbatim, chỉ đổi import core). Contract/API giữ nguyên.
+// Exam definitions, grading commands and server-authoritative variant previews.
 export const examsApi = {
   createExam: (data: { classId: string; subject: string; scoreType: string; maxScore?: number; semester: number; academicYear?: string; examType?: string; questionCount?: number; answerKey?: string; answerVariants?: string; questions?: string; idempotencyKey?: string }) => {
     const payload = data.idempotencyKey ? data : { ...data, idempotencyKey: newIdempotencyKey() }
@@ -26,8 +26,10 @@ export const examsApi = {
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-key`, { answerKey, questionCount }),
   updateAnswerVariants: (id: string, answerVariants: string, questionCount: number) =>
     request<{ session: any; rescored: number; skipped: number }>('PATCH', `/exams/${id}/answer-variants`, { answerVariants, questionCount }),
-  generateExamVariantManifests: (id: string, variantCount: number, shuffleMode?: ExamShuffleMode) =>
-    request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount, shuffleMode }),
+  previewExamVariantManifests: (id: string, variantCount: number, shuffleMode?: ExamShuffleMode, options?: ExamVariantGenerationOptions) =>
+    request<ExamVariantPreview>('POST', `/exams/${id}/variant-preview`, { variantCount, shuffleMode, ...options }),
+  generateExamVariantManifests: (id: string, variantCount: number, shuffleMode?: ExamShuffleMode, options?: ExamVariantGenerationOptions) =>
+    request<{ session: any; manifests: unknown }>('POST', `/exams/${id}/variant-manifests`, { variantCount, shuffleMode, ...options }),
   saveExamResults: (id: string, results: { definitionHash?: string; studentId: string; score: number; essayScore?: number; source?: string; answers?: string; scanMetadata?: string; examVersion?: string; clientMutationId?: string; attemptFingerprint?: string; capturedAt?: string; expectedResultVersion?: number; afterMutationId?: string }[]) => {
     const capturedAt = new Date().toISOString()
     const withMutationIds = results.map(result => ({
