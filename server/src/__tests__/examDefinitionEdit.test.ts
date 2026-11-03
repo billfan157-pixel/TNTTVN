@@ -23,7 +23,7 @@ async function request(path: string, method = 'GET', body?: unknown, token = adm
   const response = await exams.request(path, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) })
   return { status: response.status, ...await response.json() as { data: any; error?: { code: string; message: string } } }
 }
-async function create(input = base) {
+async function create(input: typeof base | typeof mcInput = base) {
   const response = await request('/', 'POST', input)
   expect(response.status).toBe(201)
   return response.data
