@@ -102,7 +102,9 @@ describe('exam variant generation controls', () => {
     const generate = vi.spyOn(api, 'generateExamVariantManifests')
     render(<ExamVariantsModal session={session} onClose={() => {}} />)
     expect(screen.getByRole('button', { name: 'Tạo và khóa' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('tab', { name: 'Nhập đáp án' }))
     expect(screen.getByRole('button', { name: 'Lưu và chấm lại' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('tab', { name: 'Trộn tự động' }))
     fireEvent.click(screen.getByRole('button', { name: 'Tạo và khóa' }))
     expect(generate).not.toHaveBeenCalled()
     online.mockReturnValue(true)
@@ -126,11 +128,17 @@ describe('exam variant generation controls', () => {
 
   it('keeps unsaved manual keys out of the server preview workflow', () => {
     render(<ExamVariantsModal session={session} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole('tab', { name: 'Nhập đáp án' }))
     fireEvent.click(screen.getByRole('button', { name: 'Câu 1, đáp án C' }))
+    expect(screen.getByRole('button', { name: 'Câu 1, đáp án C' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: 'Trộn tự động' }))
     expect(screen.getByRole('button', { name: 'Xem trước' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Tạo và khóa' })).toBeDisabled()
     expect(screen.getByText(/Có đáp án chỉnh sửa chưa lưu/)).toBeVisible()
     expect(api.previewExamVariantManifests).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Đến phần nhập đáp án' }))
+    expect(screen.getByRole('button', { name: 'Câu 1, đáp án C' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Lưu và chấm lại' })).toBeEnabled()
   })
 
   it('reports six available codes for a single pinned aggregate instead of blocking it', () => {
