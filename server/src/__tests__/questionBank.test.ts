@@ -288,7 +288,9 @@ describe('Question Bank + Blueprint + immutable Exam snapshot', () => {
     expect(created.status).toBe(201)
     const id = created.data.id
     try {
-      expect((await req('/questions/' + id + '/lifecycle', { method: 'POST', auth: adminToken, body: { action: 'activate' } })).status).toBe(200)
+      for (const action of ['submit', 'approve', 'activate'] as const) {
+        expect((await req('/questions/' + id + '/lifecycle', { method: 'POST', auth: adminToken, body: { action } })).status).toBe(200)
+      }
       const body = { mode: 'manual', questionIds: [id], classId: classA, subject: 'Ngân hàng có lựa chọn tổng hợp', scoreType: '15m',
         semester: 1, academicYear: '2026-2027', maxScore: 10, variantCount: 8, shuffleMode: 'options_only', buildCommandId: 'QB-SMART-AGGREGATE-01' }
       const count = (await db.select().from(examSessions).where(eq(examSessions.parishId, parishA))).length

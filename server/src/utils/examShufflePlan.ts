@@ -79,7 +79,8 @@ const LABEL = '\\(?[a-d]\\)?'
 const JOIN = '(?:[,;/&+]|va|hoac|hay|and|or|nor)'
 const CHAIN = LABEL + '(?:\\s*' + JOIN + '\\s*' + LABEL + ')*'
 const NOUN = '(?:dap an|dap|phuong an|lua chon|cau tra loi|y|answers?|options?|choices?)'
-const PREFIX = '(?:ca|both|neither|either|' + NOUN + '(?:\\s+(?:dung|chinh xac|bi mat|la|is|are|correct)){0,3})'
+// A prefix must end at a word boundary: folded "Câu"/"Các" are not "cả" + U/C.
+const PREFIX = '(?:ca|both|neither|either|' + NOUN + '(?:\\s+(?:dung|chinh xac|bi mat|la|is|are|correct)){0,3})(?![\\p{L}\\p{N}_])'
 const ANY_LABEL = '\\(?[a-z]\\)?'
 const ANY_CHAIN = ANY_LABEL + '(?:\\s*' + JOIN + '\\s*' + ANY_LABEL + ')*'
 const ANY_CONTEXT = new RegExp('(?:^|[^\\p{L}\\p{N}_])' + PREFIX + '\\s*[:#]?\\s*(' + ANY_CHAIN + ')(?![\\p{L}\\p{N}_])', 'gu')

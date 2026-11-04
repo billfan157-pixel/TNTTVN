@@ -19,7 +19,7 @@ beforeAll(async()=>{
  await db.insert(students).values({id:studentId,code:studentId,holyName:'',fullName:'Synthetic Student',gender:'Nam',dateOfBirth:'2014-01-01',parentName:'',parentPhone:'',address:'',branch:'ThieuNhi',classId,parishId});
 });
 const base={classId,subject:'Audit',scoreType:'midterm',semester:1,academicYear:'2026-2027',maxScore:10};
-const mc=(index:number,points:number)=>({index,type:'multiple_choice',question:`Question ${index}`,options:{A:'one',B:'two',C:'three',D:'four'},correctOption:'A',points});
+const mc=(index:number,points:number)=>({index,type:'multiple_choice',question:`Nội dung ${index}`,options:{A:'one',B:'two',C:'three',D:'four'},correctOption:'A',points});
 const meta=(examVersion:string,questionCount:number)=>JSON.stringify({detectionStatus:'accepted',examVersion,questionCount});
 async function create(extra:any={}){const r=await req(exams,'/','POST',{...base,examType:'written',...extra});expect(r.status).toBe(201);return r.data;}
 async function save(id:string,score:any){return req(exams,`/${id}/results`,'POST',{results:[{studentId,...score}]});}

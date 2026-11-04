@@ -61,6 +61,26 @@ describe('immutable exam variant manifest generator', () => {
     expect(() => generateExamVariantManifest({ questions: source, questionCount: 1, variantCount: 2, seed: 'ordinary-content' })).not.toThrow()
   })
 
+  it.each((['question', 'explanation', 'option'] as const).flatMap(field => [
+    'Câu chuyện về lòng tốt.', 'Các cách thể hiện tình yêu thương.', 'Câu chuyện về lòng tốt.'.normalize('NFD'),
+  ].map(text => ({ field, text }))))('keeps a complete Vietnamese word literal in $field: $text', ({ field, text }) => {
+    const question: VariantQuestion = { ...questions[0], question: 'Ai tạo dựng con người?',
+      explanation: 'Thiên Chúa yêu thương con người.', options: { A: 'Một', B: 'Hai', C: 'Ba', D: 'Bốn' } }
+    if (field === 'option') question.options!.D = text
+    else question[field] = text
+    const manifest = generateExamVariantManifest({ questions: [question], questionCount: 1, variantCount: 8,
+      shuffleMode: 'options_only', seed: 'whole-word-reference' })
+    expect(manifest.questionPlans?.[0]).toMatchObject({ status: 'free', validOrderCount: 24, references: [] })
+    expect(new Set(Object.values(manifest.variants).map(entry => JSON.stringify(entry.questions[0].options))).size).toBe(8)
+    for (const entry of Object.values(manifest.variants)) {
+      const materialized = entry.questions[0]
+      expect(materialized.question).toBe(question.question)
+      expect(materialized.explanation).toBe(question.explanation)
+      expect(Object.values(materialized.options!).sort()).toEqual(Object.values(question.options!).sort())
+      expect(materialized.options![entry.answerKey[1]]).toBe('Hai')
+    }
+  })
+
   it.each([
     'Cả A và B đúng.', 'Cả (A) và (B) đúng.', 'A, C đều đúng.', 'Đáp án B.',
     'Phương án C đúng.', 'Tất cả các đáp án trên.', 'Cả ba phương án đều đúng.',
