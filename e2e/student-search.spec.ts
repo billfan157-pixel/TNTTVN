@@ -45,7 +45,9 @@ for (const viewport of [
     }
     await search.fill('nguyne duc')
     await expect(page.getByText(targetName, { exact: true })).toBeVisible()
-    await expect(page.getByRole('status')).toContainText('Đang gợi ý tên gần đúng')
+    const searchFeedback = page.locator(`#${viewport.name}-student-search-help`)
+    await expect(searchFeedback).toHaveRole('status')
+    await expect(searchFeedback).toContainText('Đang gợi ý tên gần đúng')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
     await page.screenshot({ path: testInfo.outputPath(`student-search-${viewport.name}.png`) })
 
