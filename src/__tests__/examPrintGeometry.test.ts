@@ -206,6 +206,27 @@ describe('OMR print-media geometry — renderer → safety gate → Chromium pri
     await page.close()
   }, 20_000)
 
+  it('prints one A4 page per student for a short exam without blank pages', async () => {
+    const students = [
+      { id: 'ST-1', code: 'TN-001', name: 'Nguyễn Văn A' },
+      { id: 'ST-2', code: 'TN-002', name: 'Trần Văn B' },
+      { id: 'ST-3', code: 'TN-003', name: 'Lê Văn C' },
+    ]
+    const html = prepareExamDocumentForOutput(buildBatchExamPapersHtml(students, {
+      subject: 'Batch pagination', classLabel: 'Thiếu Nhi 2A', academicYear: '2026-2027', questions: questions(1),
+    }))
+    const page = await browser.newPage()
+    try {
+      await page.setContent(html, { waitUntil: 'load' })
+      const pdf = await page.pdf({ preferCSSPageSize: true })
+      // Chromium writes a /Type /Page dictionary for each printed page.
+      const pages = Buffer.from(pdf).toString('latin1').match(/\/Type\s+\/Page\b/g)
+      expect(pages).toHaveLength(students.length)
+    } finally {
+      await page.close()
+    }
+  }, 20_000)
+
   it('multipart essay print keeps subparts on separate lines and expands writing space', async () => {
     const page = await browser.newPage()
     try {

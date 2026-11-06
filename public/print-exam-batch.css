@@ -534,11 +534,12 @@
       /* Batch preview: body padding mô phỏng @page 4mm/6mm */
       body { padding: 4mm 6mm !important; background: #e5e7eb !important; }
       .exam-paper-container { padding: 2mm 5.6mm !important; }
+      /* Lúc in, vùng khả dụng nhỏ hơn 297mm vì đã chừa lề trang. */
+      .batch-exam-page { min-height: 297mm; }
     }
     .batch-exam-page {
       width: 100%;
       max-width: 210mm;
-      min-height: 297mm;
       /* QB-MARGIN 2026-08-27: padding 0 giữ nguyên — geometry OMR đã đồng bộ với single (container 4mm + @page 4mm). */
       /* Fix preview ngang: 210mm cứng + body padding 12mm vượt khung 750px → scroll ngang ở In Cả Lớp, Mẫu Chung không bị. Dùng 100% + max-width để co theo iframe. */
       padding: 0;
