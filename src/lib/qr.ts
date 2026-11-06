@@ -60,13 +60,20 @@ function isReservedLegacyExamIdentity(studentId: string): boolean {
   return normalized === 'GENERIC' || normalized === 'KEY' || normalized.startsWith('KEY:')
 }
 
+const EXAM_SESSION_QR_ID = /^EXS-([a-f0-9]{8})$/i
+const EXAM_STUDENT_QR_ID = /^ST-([a-f0-9]{8})$/i
+
+export function supportsVersionedExamQr(sessionId: string, studentId: string): boolean {
+  return EXAM_SESSION_QR_ID.test(sessionId) && EXAM_STUDENT_QR_ID.test(studentId)
+}
+
 export function buildExamQrPayload(
   sessionId: string,
   studentId: string,
   metadata?: ExamFormProtocolMetadata,
 ): string {
-  const sessionMatch = /^EXS-([a-f0-9]{8})$/i.exec(sessionId)
-  const studentMatch = /^ST-([a-f0-9]{8})$/i.exec(studentId)
+  const sessionMatch = EXAM_SESSION_QR_ID.exec(sessionId)
+  const studentMatch = EXAM_STUDENT_QR_ID.exec(studentId)
   if (metadata && sessionMatch && studentMatch) {
     const questionCount = Math.max(1, Math.min(50, Math.trunc(metadata.questionCount)))
     const mode = metadata.templateMode === 'full_page' ? 'F' : 'I'

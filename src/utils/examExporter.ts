@@ -3,6 +3,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { GIA_TON_PARISH_INFO } from '../constants/parishInfo'
 import { useToastStore } from '../stores/toastStore'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants } from '../lib/examVariants'
+import { getManifestExamVersions, readExamVariantManifest, resolvePrintableExamVersion } from '../lib/examVersionPolicy'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../lib/examPrintSafety'
 import { loadXlsx } from '../lib/xlsxLoader'
 import { questionFormatLabel, structuredQuestionText } from './structuredQuestions'
@@ -21,6 +22,7 @@ export interface ExamExportOptions {
   variantManifests?: ExamVariantManifestSet | string
   /** Presentation overrides; null restores automatic spacing without editing the session. */
   answerLineOverrides?: Record<number, number | null>
+  /** ALL xuất mẫu từng mã, hoặc chia xen kẽ theo danh sách khi xuất cả lớp. */
   selectedVersion?: ExamVersionCode | 'ALL'
   includeAnswerKey?: boolean
   includeExplanations?: boolean
@@ -73,21 +75,10 @@ function resolveParishHeaders(options: ExamExportOptions) {
 import { ReportExportService, sanitizeFilename } from '../services/reportExportService'
 import { buildExamPaperHtml, buildBatchExamPapersHtml, buildAllVariantsExamPapersHtml } from './examSheets'
 
-function parseVariantManifest(value: ExamExportOptions['variantManifests']): ExamVariantManifestSet | undefined {
-  if (!value) return undefined
-  try {
-    const parsed = typeof value === 'string' ? JSON.parse(value) : value
-    if (!parsed || parsed.schemaVersion !== 1 || !parsed.variants || typeof parsed.variants !== 'object') return undefined
-    return parsed as ExamVariantManifestSet
-  } catch {
-    return undefined
-  }
-}
-
 function resolveQuestionsForVersion(options: ExamExportOptions, version: ExamVersionCode): { questions: ExamQuestion[]; answerKey: Record<number, MultipleChoiceOption> } {
-  const manifest = parseVariantManifest(options.variantManifests)
+  const manifest = readExamVariantManifest(options.variantManifests)
   const entry = manifest?.variants[version]
-  const questions = entry?.questions?.length ? entry.questions : resolveExportQuestions(options)
+  const questions = Array.isArray(entry?.questions) && entry.questions.length > 0 ? entry.questions : resolveExportQuestions(options)
   assertContiguousQuestionIndexes(questions)
   const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, questions.length)
   return {
@@ -98,7 +89,7 @@ function resolveQuestionsForVersion(options: ExamExportOptions, version: ExamVer
 }
 
 function configuredExportVersions(options: ExamExportOptions): ExamVersionCode[] {
-  const manifest = parseVariantManifest(options.variantManifests)
+  const manifest = readExamVariantManifest(options.variantManifests)
   const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, resolveExportQuestions(options).length)
   const versions = EXAM_VERSION_CODES.filter(code => Boolean(manifest?.variants[code]) || Boolean(variants[code]))
   return versions.length > 0 ? versions : (['A'] as ExamVersionCode[])
@@ -111,20 +102,20 @@ function resolveExportVersion(options: ExamExportOptions): ExamVersionCode {
 }
 
 function answerKeyForVersion(options: ExamExportOptions, version: ExamVersionCode): Record<number, MultipleChoiceOption> {
-  const manifest = parseVariantManifest(options.variantManifests)
+  const manifest = readExamVariantManifest(options.variantManifests)
   const variants = normalizeAnswerVariants(options.answerVariants, options.answerKey, resolveExportQuestions(options).length)
   return manifest?.variants[version]?.answerKey || variants[version] || options.answerKey || {}
 }
 
 function matrixSourceOrder(options: ExamExportOptions, version: ExamVersionCode, questions: ExamQuestion[]): number[] {
-  const manifest = parseVariantManifest(options.variantManifests)
+  const manifest = readExamVariantManifest(options.variantManifests)
   const order = manifest?.variants[version]?.sourceQuestionOrder
   if (!order || order.length !== questions.length || new Set(order).size !== order.length) return questions.map(question => question.index)
   return order
 }
 
 function answerForSourceQuestion(options: ExamExportOptions, version: ExamVersionCode, sourceIndex: number): MultipleChoiceOption | '-' {
-  const manifest = parseVariantManifest(options.variantManifests)
+  const manifest = readExamVariantManifest(options.variantManifests)
   const entry = manifest?.variants[version]
   if (entry) {
     if (!Array.isArray(entry.sourceQuestionOrder)) return answerKeyForVersion(options, version)[sourceIndex] || '-'
@@ -140,9 +131,8 @@ function answerForSourceQuestion(options: ExamExportOptions, version: ExamVersio
 /**
  * Chuyển đổi ExamExportOptions thành ExamPaperPrintOptions chuẩn cho engine in & xuất đề.
  */
-function convertExportOptionsToPrintOptions(options: ExamExportOptions) {
+function convertExportOptionsToPrintOptions(options: ExamExportOptions, versionCode = resolveExportVersion(options)) {
   const { parishName, dioceseName } = resolveParishHeaders(options)
-  const versionCode = resolveExportVersion(options)
   const resolved = resolveQuestionsForVersion(options, versionCode)
   const mappedQuestions = resolved.questions.map(q => ({
     ...q,
@@ -201,9 +191,19 @@ export function generateBatchExamWordHtml(
   students: { id: string; code: string; name: string }[],
   options: ExamExportOptions
 ): string {
-  if (options.selectedVersion === 'ALL') throw new Error('Word/HTML hàng loạt chưa hỗ trợ ALL; hãy chọn từng mã đề để không gán sai đề cho học sinh.')
-  const printOptions = convertExportOptionsToPrintOptions(options)
-  return prepareExamDocumentForOutput(buildBatchExamPapersHtml(students, printOptions))
+  const manifestVersions = getManifestExamVersions(readExamVariantManifest(options.variantManifests))
+  const requestedVersion = options.selectedVersion
+  const isAlternating = requestedVersion === 'ALL'
+  if (isAlternating && manifestVersions.length < 2) {
+    throw new Error('Hãy tạo ít nhất hai mã đề có nội dung trước khi xuất xen kẽ cả lớp.')
+  }
+  const version = resolvePrintableExamVersion('exam_paper', isAlternating ? 'A' : (requestedVersion ?? 'A'), [], manifestVersions)
+  const printOptions = convertExportOptionsToPrintOptions(options, version)
+  const variants = isAlternating ? manifestVersions.map(examVersion => ({
+    examVersion,
+    questions: resolveQuestionsForVersion(options, examVersion).questions,
+  })) : undefined
+  return prepareExamDocumentForOutput(buildBatchExamPapersHtml(students, { ...printOptions, variants }))
 }
 
 /**
@@ -216,7 +216,9 @@ export function exportExamToHtml(options: ExamExportOptions): void {
     const html = isBatch
       ? generateBatchExamWordHtml(options.students!, options)
       : generateExamWordHtml(options)
-    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion === 'ALL' ? 'ALL' : resolveExportVersion(options)}`}.html`)
+    const isAll = options.selectedVersion === 'ALL'
+    const scope = isBatch ? `CaLop_${options.students!.length}Em${isAll ? '_XenKeMaDe' : ''}` : `Ma${isAll ? 'ALL' : resolveExportVersion(options)}`
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${scope}.html`)
     ReportExportService.downloadHTML(html, filename)
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi: ${filename}`, 'success')
   } catch (err) {
@@ -238,7 +240,9 @@ export function exportExamToWord(options: ExamExportOptions): void {
     const blob = new Blob(['\ufeff', html], { type: 'application/msword;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${isBatch ? `CaLop_${options.students!.length}Em` : `Ma${options.selectedVersion === 'ALL' ? 'ALL' : resolveExportVersion(options)}`}.doc`)
+    const isAll = options.selectedVersion === 'ALL'
+    const scope = isBatch ? `CaLop_${options.students!.length}Em${isAll ? '_XenKeMaDe' : ''}` : `Ma${isAll ? 'ALL' : resolveExportVersion(options)}`
+    const filename = sanitizeFilename(`De_Thi_${(options.subject || 'Mon_Hoc').replace(/\s+/g, '_')}_${(options.classLabel || 'Lop').replace(/\s+/g, '_')}_${scope}.doc`)
     a.href = url
     a.download = filename
     document.body.appendChild(a)
@@ -610,7 +614,7 @@ export function generateExamJsonString(options: ExamExportOptions): string {
     answerKeyIncluded: includeKey,
     answerKey: includeKey ? options.answerKey : undefined,
     answerVariants: includeKey ? options.answerVariants : undefined,
-    variantManifests: includeKey ? (parseVariantManifest(options.variantManifests) || options.variantManifests || null) : null,
+    variantManifests: includeKey ? (readExamVariantManifest(options.variantManifests) || options.variantManifests || null) : null,
     questions: exportedQuestions,
 
   }

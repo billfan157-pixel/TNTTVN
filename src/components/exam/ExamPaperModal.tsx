@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react'
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { questionFormatLabel, questionFormatSummary } from '../../utils/structuredQuestions'
 import { StructuredQuestionPreview } from './StructuredQuestionPreview'
 import { createPortal } from 'react-dom'
@@ -7,7 +7,7 @@ import {
   Columns, FileText, CheckSquare,
   Square, Users, User, FileSpreadsheet, Layers3, Globe,
   QrCode, ClipboardList, SlidersHorizontal, ChevronDown, Download,
-  ZoomIn, ZoomOut, CheckCircle2, BookOpen, ListChecks
+  ZoomIn, ZoomOut, CheckCircle2, BookOpen, ListChecks, Shuffle
 } from 'lucide-react'
 import {
   buildExamPaperHtml,
@@ -27,14 +27,14 @@ import {
   type StudentSheetInfo,
   type BatchAnswerSheetParams
 } from '../../utils/examSheets'
-import { generateExamQrCodes } from '../../lib/qr'
+import { generateExamQrCodes, supportsVersionedExamQr } from '../../lib/qr'
 import { ReportExportService, sanitizeFilename } from '../../services/reportExportService'
 import { DEFAULT_SETTINGS, useSettingsStore } from '../../stores/settingsStore'
 import { useToastStore } from '../../stores/toastStore'
 import { exportExamToWord, exportExamToExcel } from '../../utils/examExporter'
 import { EXAM_VERSION_CODES, normalizeAnswerVariants, getExamVersionNumericAlias, formatExamVersionLabel } from '../../lib/examVariants'
 import { assertContiguousQuestionIndexes, prepareExamDocumentForOutput } from '../../lib/examPrintSafety'
-import { canSelectExternalExamVersion, resolvePrintableExamVersion } from '../../lib/examVersionPolicy'
+import { canSelectExternalExamVersion, getManifestExamVersions, readExamVariantManifest, resolvePrintableExamVersion } from '../../lib/examVersionPolicy'
 import type { ExamQuestion, ExamAnswerVariants, ExamType, ExamVersionCode, MultipleChoiceOption, ExamVariantManifestSet } from '../../types'
 import { useAccessibleDialog } from '../../hooks/useAccessibleDialog'
 import { useEffectiveMode } from '../../hooks/useEffectiveMode'
@@ -99,7 +99,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   const [includeAnswerGrid, setIncludeAnswerGrid] = useState(true)
   const [includeGradingBox, setIncludeGradingBox] = useState(true)
   const [durationMinutes, setDurationMinutes] = useState(45)
-  const [printMode, setPrintMode] = useState<'single' | 'batch' | 'all_variants'>('single')
+  const [printMode, setPrintMode] = useState<'single' | 'batch' | 'batch_alternating' | 'all_variants'>('single')
   const [selectedVersion, setSelectedVersion] = useState<ExamVersionCode>('A')
   const [showMobileOptions, setShowMobileOptions] = useState(false)
   const [mobileZoom, setMobileZoom] = useState<'fit' | '100'>('fit')
@@ -133,41 +133,59 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     return list.length > 0 ? list : (['A'] as ExamVersionCode[])
   }, [variants])
 
-  const manifestSet = useMemo<ExamVariantManifestSet | undefined>(() => {
-    if (!variantManifests) return undefined
-    if (typeof variantManifests !== 'string') return variantManifests
-    try { return JSON.parse(variantManifests) as ExamVariantManifestSet } catch { return undefined }
-  }, [variantManifests])
-  const manifestVersions = useMemo(
-    () => EXAM_VERSION_CODES.filter(code => Boolean(manifestSet?.variants[code])),
-    [manifestSet],
-  )
+  const manifestSet = useMemo(() => readExamVariantManifest(variantManifests), [variantManifests])
+  const manifestVersions = useMemo(() => getManifestExamVersions(manifestSet), [manifestSet])
+  const isPaperDoc = docType === 'exam_paper' || docType === 'question_reader'
 
   const applicableVersions = useMemo(() => {
-    if (docType === 'exam_paper' || docType === 'question_reader') {
+    if (isPaperDoc) {
       return manifestVersions.length > 0 ? manifestVersions : (['A'] as ExamVersionCode[])
     }
     if (docType === 'answer_sheet') {
-      return availableVersions
+      return manifestVersions.length > 0 ? manifestVersions : availableVersions
     }
     return ['A'] as ExamVersionCode[]
-  }, [docType, manifestVersions, availableVersions])
+  }, [docType, isPaperDoc, manifestVersions, availableVersions])
 
   const canSelectAll = useMemo(() => {
     return canSelectExternalExamVersion(docType, manifestVersions.length > 0) && applicableVersions.length > 1
   }, [docType, manifestVersions.length, applicableVersions.length])
 
   const isAllVariants = printMode === 'all_variants' && canSelectAll
-  const isBatch = printMode === 'batch' && !showAnswerKey && students.length > 0
+  const isClassMode = printMode === 'batch' || printMode === 'batch_alternating'
+  const isBatch = isClassMode && docType !== 'qr_sheet' && !showAnswerKey && students.length > 0
+  const legacyQrCount = useMemo(
+    () => students.filter(student => !supportsVersionedExamQr(sessionId, student.id)).length,
+    [sessionId, students],
+  )
+  const hasDefaultVersion = applicableVersions.includes('A')
+  const canAlternate = canSelectAll && !showAnswerKey && legacyQrCount < students.length
+    && (legacyQrCount === 0 || hasDefaultVersion)
+  const isBatchAlternating = printMode === 'batch_alternating' && canAlternate
+  const isLegacyQrBatch = isBatch && printMode === 'batch_alternating' && canSelectAll && legacyQrCount > 0
+  const useLegacyDefault = isLegacyQrBatch && !isBatchAlternating && hasDefaultVersion
+  const showSelectedVersion = !isAllVariants && (!isBatchAlternating || docType === 'question_reader')
+  const canExportExcel = !isAllVariants && !isBatchAlternating
 
-  // Đáp án GLV chỉ dùng mẫu chung. Bộ tất cả mã cũng chỉ áp dụng khi tài liệu có nhiều mã.
+  // Đáp án GLV chỉ dùng mẫu chung.
   useEffect(() => {
-    if ((showAnswerKey && printMode === 'batch') || (!canSelectAll && printMode === 'all_variants')) {
+    if ((showAnswerKey && isClassMode) || (!canSelectAll && printMode === 'all_variants')) {
       setPrintMode('single')
     }
-  }, [canSelectAll, printMode, showAnswerKey])
+  }, [canSelectAll, isClassMode, printMode, showAnswerKey])
 
-  const effectiveSelectedVersion = resolvePrintableExamVersion(docType, selectedVersion, availableVersions, manifestVersions)
+  const requestedVersion = useLegacyDefault ? 'A' : selectedVersion
+  const effectiveSelectedVersion = resolvePrintableExamVersion(docType, requestedVersion, applicableVersions, manifestVersions)
+  const fileScope = isBatch
+    ? `CaLop_${students.length}Em${isBatchAlternating ? '_XenKeMaDe' : ''}`
+    : `Ma${effectiveSelectedVersion}`
+  const batchCopiesLabel = `${students.length} Bản${isBatchAlternating ? ' — Xen kẽ' : ''}`
+  let legacyQrNote = ''
+  if (isLegacyQrBatch) {
+    legacyQrNote = hasDefaultVersion
+      ? `${legacyQrCount} học sinh dùng mã A để tương thích QR cũ. `
+      : 'Cần cấu hình mã A để in xen kẽ khi danh sách có QR cũ. '
+  }
 
   useEffect(() => {
     if (selectedVersion !== effectiveSelectedVersion) {
@@ -185,12 +203,10 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     }
   }, [questions])
 
-  const effectiveQuestions = useMemo(() => {
-    const activeKey = manifestSet?.variants[effectiveSelectedVersion]?.answerKey || variants[effectiveSelectedVersion] || answerKey || {}
-    const manifestedQuestions = manifestSet?.variants[effectiveSelectedVersion]?.questions
-    const sourceQuestions = manifestedQuestions && (docType === 'exam_paper' || docType === 'question_reader')
-      ? manifestedQuestions
-      : questions
+  const resolveVersionQuestions = useCallback((code: ExamVersionCode) => {
+    const entry = manifestVersions.includes(code) ? manifestSet?.variants[code] : undefined
+    const activeKey = entry?.answerKey || variants[code] || answerKey || {}
+    const sourceQuestions = isPaperDoc && entry ? entry.questions : questions
     const sorted = [...sourceQuestions].sort((a, b) => (a.index || 0) - (b.index || 0))
     return sorted.map((q, idx) => {
       const qNum = q.index || idx + 1
@@ -201,7 +217,17 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
         correctOption: activeKey[qNum] || q.correctOption || 'A',
       }
     })
-  }, [questions, variants, effectiveSelectedVersion, answerKey, manifestSet, docType, answerLineOverrides])
+  }, [questions, variants, answerKey, manifestSet, manifestVersions, isPaperDoc, answerLineOverrides])
+
+  const effectiveQuestions = useMemo(
+    () => resolveVersionQuestions(effectiveSelectedVersion),
+    [effectiveSelectedVersion, resolveVersionQuestions],
+  )
+
+  const allVariantsData = useMemo(() => {
+    if (!isPaperDoc || (!isAllVariants && !isBatchAlternating)) return []
+    return applicableVersions.map(examVersion => ({ examVersion, questions: resolveVersionQuestions(examVersion) }))
+  }, [isPaperDoc, isAllVariants, isBatchAlternating, applicableVersions, resolveVersionQuestions])
 
   const printOptions: ExamPaperPrintOptions = useMemo(() => ({
     parishName,
@@ -219,26 +245,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     includeGradingBox,
     sessionId,
     examVersion: effectiveSelectedVersion,
-  }), [parishName, dioceseName, subject, scoreTypeLabel, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, effectiveSelectedVersion])
-
-  const allVariantsData = useMemo(() => {
-    if (!isAllVariants) return []
-    return applicableVersions.map(code => {
-      const activeKey = manifestSet?.variants[code]?.answerKey || variants[code] || answerKey || {}
-      const manifestedQuestions = manifestSet?.variants[code]?.questions
-      const sourceQuestions = manifestedQuestions && (docType === 'exam_paper' || docType === 'question_reader')
-        ? manifestedQuestions
-        : questions
-      const sorted = [...sourceQuestions].sort((a, b) => (a.index || 0) - (b.index || 0))
-      const qs = sorted.map((q, idx) => ({
-        ...q,
-        index: q.index || idx + 1,
-        ...(q.type === 'essay' && !q.responseFormat && answerLineOverrides[q.index || idx + 1] !== undefined ? { answerLineCount: answerLineOverrides[q.index || idx + 1] ?? undefined } : {}),
-        correctOption: activeKey[q.index || idx + 1] || q.correctOption || 'A',
-      }))
-      return { examVersion: code, questions: qs }
-    })
-  }, [isAllVariants, applicableVersions, variants, answerKey, manifestSet, docType, questions, answerLineOverrides])
+    variants: isBatchAlternating ? allVariantsData : undefined,
+  }), [parishName, dioceseName, subject, scoreTypeLabel, classLabel, academicYear, durationMinutes, effectiveQuestions, showAnswerKey, includeExplanations, layoutColumns, includeAnswerGrid, includeGradingBox, sessionId, effectiveSelectedVersion, isBatchAlternating, allVariantsData])
 
   const sampleStudent: StudentSheetInfo = useMemo(() => ({
     id: 'GENERIC',
@@ -259,7 +267,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
     examType: examType || 'multiple_choice',
     questionCount: questionCount || questions.length || 20,
     examVersion: effectiveSelectedVersion,
-  }), [sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, questions.length, effectiveSelectedVersion])
+    variants: isBatchAlternating ? applicableVersions : undefined,
+  }), [sessionId, subject, scoreTypeLabel, classLabel, maxScore, examType, questionCount, questions.length, effectiveSelectedVersion, isBatchAlternating, applicableVersions])
 
   const qrSvgs = useMemo(() => {
     return generateExamQrCodes(sessionId, effectiveStudents).map((q, i) => ({
@@ -306,6 +315,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
 
   const selectVersion = (code: ExamVersionCode) => {
     if (isAllVariants) setPrintMode('single')
+    if (isBatch) setPrintMode('batch')
     setSelectedVersion(code)
   }
 
@@ -352,7 +362,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
         return
       }
       const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
-      const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`)
+      const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${fileScope}`)
       ReportExportService.exportPdf(htmlToExport, filename)
       return
     }
@@ -375,7 +385,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       ? buildBatchExamPapersHtml(students, printOptions)
       : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
-    const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}`)
+    const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${fileScope}`)
     ReportExportService.exportPdf(htmlToExport, filename)
   }
 
@@ -391,7 +401,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
         return
       }
       const htmlToExport = buildBatchAnswerSheetsHtml(isBatch ? students : [sampleStudent], batchAnswerSheetParams)
-      const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`)
+      const filename = sanitizeFilename(`Phieu_Tra_Loi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${fileScope}.html`)
       ReportExportService.downloadHTML(htmlToExport, filename)
       useToastStore.getState().addToast(`Đã xuất file HTML Phiếu Trả Lời: ${filename}`, 'success')
       return
@@ -417,7 +427,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       ? buildBatchExamPapersHtml(students, printOptions)
       : buildExamPaperHtml(printOptions)
     if (!htmlToExport) return
-    const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${isBatch ? `CaLop_${students.length}Em` : `Ma${effectiveSelectedVersion}`}.html`)
+    const filename = sanitizeFilename(`De_Thi_${subject.replace(/\s+/g, '_')}_${classLabel.replace(/\s+/g, '_')}_${fileScope}.html`)
     ReportExportService.downloadHTML(htmlToExport, filename)
     useToastStore.getState().addToast(`Đã xuất file HTML đề thi (${isBatch ? `${students.length} học viên` : 'Mẫu chung'}): ${filename}`, 'success')
   }
@@ -432,7 +442,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
       academicYear,
       durationMinutes,
       questions: effectiveQuestions,
-      selectedVersion: isAllVariants ? 'ALL' : effectiveSelectedVersion,
+      selectedVersion: isBatchAlternating || isAllVariants ? 'ALL' : effectiveSelectedVersion,
       answerVariants,
       answerKey,
       variantManifests,
@@ -449,7 +459,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
   }
 
   const handleDownloadExcel = () => {
-    if (isAllVariants) {
+    if (!canExportExcel) {
       useToastStore.getState().addToast('Excel chỉ hỗ trợ một mã đề; hãy chọn từng mã đề cụ thể.', 'error', 7000)
       return
     }
@@ -647,7 +657,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                   <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
                     <button
                       type="button"
-                      onClick={() => setPrintMode('batch')}
+                      onClick={() => setPrintMode('batch_alternating')}
                       disabled={showAnswerKey}
                       aria-pressed={isBatch}
                       className={`px-2 py-1 rounded text-[11px] font-bold transition-all flex items-center gap-1 ${
@@ -657,7 +667,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                             ? 'bg-parish-primary text-white'
                             : 'text-text-muted hover:text-text-main'
                       }`}
-                      title="Xem theo từng học sinh trong lớp"
+                      title={canAlternate ? 'Xem từng học sinh với mã đề xen kẽ' : 'Xem theo từng học sinh trong lớp'}
                     >
                       <Users size={12} /> Lớp ({students.length})
                     </button>
@@ -692,14 +702,27 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                     >
                       Tất cả
                     </button>
+                    {canAlternate && docType !== 'question_reader' && (
+                      <button
+                        type="button"
+                        onClick={() => setPrintMode('batch_alternating')}
+                        aria-pressed={isBatchAlternating}
+                        className={`mobile-btn rounded font-black transition-all flex items-center gap-1 ${
+                          isBatchAlternating ? 'bg-parish-primary text-white shadow-xs' : 'text-text-muted hover:text-text-main'
+                        }`}
+                        title="Xen kẽ các mã đề cho từng học sinh"
+                      >
+                        <Shuffle size={12} aria-hidden="true" /> Xen kẽ
+                      </button>
+                    )}
                     {applicableVersions.map(code => (
                       <button
                         key={code}
                         type="button"
                         onClick={() => selectVersion(code)}
-                        aria-pressed={!isAllVariants && effectiveSelectedVersion === code}
+                        aria-pressed={showSelectedVersion && effectiveSelectedVersion === code}
                         className={`px-1.5 py-0.5 rounded text-[11px] font-black transition-all ${
-                          !isAllVariants && effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                          showSelectedVersion && effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
                         }`}
                         title={formatExamVersionLabel(code)}
                       >
@@ -816,7 +839,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 <div className="flex items-center bg-surface-card rounded-lg border border-surface-border p-0.5">
                   <button
                     type="button"
-                    onClick={() => setPrintMode('batch')}
+                    onClick={() => setPrintMode('batch_alternating')}
                     disabled={showAnswerKey}
                     aria-pressed={isBatch}
                     className={`px-2.5 py-1 rounded text-xs font-bold transition-all flex items-center gap-1 ${
@@ -829,7 +852,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                     title={
                       showAnswerKey
                         ? 'Không thể in cả lớp ở chế độ Hiện Đáp Án (đáp án chỉ dành cho Giáo Lý Viên)'
-                        : 'In cho từng học sinh, mỗi em có mã QR và họ tên riêng'
+                        : canAlternate ? 'In từng học sinh theo thứ tự danh sách, tự động xen kẽ mã đề' : 'In cho từng học sinh, mỗi em có mã QR và họ tên riêng'
                     }
                   >
                     <Users size={13} /> In Cả Lớp ({students.length} em)
@@ -865,14 +888,27 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                     >
                       Tất cả ({applicableVersions.length})
                     </button>
+                    {canAlternate && (
+                      <button
+                        type="button"
+                        onClick={() => setPrintMode('batch_alternating')}
+                        aria-pressed={isBatchAlternating}
+                        className={`min-h-8 px-2 py-0.5 rounded text-xs font-black transition-all flex items-center gap-1 ${
+                          isBatchAlternating ? 'bg-parish-primary text-white shadow-xs' : 'text-text-muted hover:text-text-main'
+                        }`}
+                        title="Tự động chia xen kẽ các mã đề (A, B...) cho từng học sinh trong lớp"
+                      >
+                        <Shuffle size={12} aria-hidden="true" /> Xen kẽ ({applicableVersions.length})
+                      </button>
+                    )}
                     {applicableVersions.map(code => (
                       <button
                         key={code}
                         type="button"
-                          onClick={() => selectVersion(code)}
-                          aria-pressed={!isAllVariants && effectiveSelectedVersion === code}
+                        onClick={() => selectVersion(code)}
+                        aria-pressed={showSelectedVersion && effectiveSelectedVersion === code}
                         className={`px-2 py-0.5 rounded text-xs font-black transition-all ${
-                          !isAllVariants && effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
+                          showSelectedVersion && effectiveSelectedVersion === code ? 'bg-parish-primary text-white' : 'text-text-muted hover:text-text-main'
                         }`}
                         title={formatExamVersionLabel(code)}
                       >
@@ -1001,14 +1037,14 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                     className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
                     title="Xuất file Word (.doc) để chỉnh sửa câu hỏi"
                   >
-                    <FileText size={14} className="text-blue-600" /> {isBatch ? `Xuất Word (${students.length} Bản)` : 'Xuất Word'}
+                    <FileText size={14} className="text-blue-600" /> {isBatch ? `Xuất Word (${batchCopiesLabel})` : 'Xuất Word'}
                   </button>
                   <button
                     type="button"
                     onClick={handleDownloadExcel}
-                    disabled={isAllVariants}
+                    disabled={!canExportExcel}
                     className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={isAllVariants ? 'Excel chỉ hỗ trợ một mã đề' : 'Xuất bảng câu hỏi & đáp án Excel (.xlsx)'}
+                    title={canExportExcel ? 'Xuất bảng câu hỏi & đáp án Excel (.xlsx)' : 'Excel chỉ hỗ trợ một mã đề'}
                   >
                     <FileSpreadsheet size={14} className="text-emerald-600" /> Xuất Excel
                   </button>
@@ -1020,7 +1056,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
                 title="Xuất trực tiếp file PDF vector chất lượng cao"
               >
-                <Printer size={14} className="text-rose-600" /> {isBatch && docType !== 'qr_sheet' ? `Xuất PDF (${students.length} Bản)` : 'Xuất PDF'}
+                <Printer size={14} className="text-rose-600" /> {isBatch ? `Xuất PDF (${batchCopiesLabel})` : 'Xuất PDF'}
               </button>
               <button
                 type="button"
@@ -1028,7 +1064,7 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                 className="btn btn-secondary btn-sm flex items-center gap-1.5 text-xs font-bold"
                 title="Tải file HTML độc lập để mở trên trình duyệt và in"
               >
-                <Globe size={14} className="text-sky-600" /> {isBatch && docType !== 'qr_sheet' ? `Tải HTML (${students.length} Bản)` : 'Tải HTML'}
+                <Globe size={14} className="text-sky-600" /> {isBatch ? `Tải HTML (${batchCopiesLabel})` : 'Tải HTML'}
               </button>
               <button
                 type="button"
@@ -1039,8 +1075,8 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
                   docType === 'qr_sheet'
                     ? 'In Thẻ Mã QR'
                     : docType === 'answer_sheet'
-                      ? (isBatch ? `In Phiếu Trả Lời (${students.length} Bản)` : 'In Phiếu Trả Lời')
-                      : (isBatch ? `In Cả Lớp (${students.length} Bản)` : 'In Đề Thi & Phiếu Gộp')
+                      ? (isBatch ? `In Phiếu Trả Lời (${batchCopiesLabel})` : 'In Phiếu Trả Lời')
+                      : (isBatch ? `In Cả Lớp (${batchCopiesLabel})` : 'In Đề Thi & Phiếu Gộp')
                 }
               </button>
             </div>
@@ -1154,10 +1190,12 @@ export const ExamPaperModal: React.FC<ExamPaperModalProps> = ({
           ) : (
             /* A4 Print Sheet Iframe View (Mobile Fit/100% Zoom & Desktop View) */
             <div className="flex-1 min-h-0 flex flex-col">
-              {isBatch && students.length > CLASS_PREVIEW_LIMIT &&
+              {isBatch && (isBatchAlternating || legacyQrNote || students.length > CLASS_PREVIEW_LIMIT) &&
                 (docType === 'answer_sheet' || (docType === 'exam_paper' && !questionIntegrityError && effectiveQuestions.length > 0)) && (
                 <p className="mb-1.5 shrink-0 text-xs text-text-muted">
-                  Xem trước {CLASS_PREVIEW_LIMIT}/{students.length} bản. {isMobile ? 'Xuất PDF' : 'In hoặc xuất PDF'} để lấy đủ cả lớp.
+                  {isBatchAlternating && `Xen kẽ mã đề ${applicableVersions.join(' → ')} theo thứ tự danh sách. `}
+                  {legacyQrNote}
+                  {students.length > CLASS_PREVIEW_LIMIT && `Xem trước ${CLASS_PREVIEW_LIMIT}/${students.length} bản. ${isMobile ? 'Xuất PDF' : 'In hoặc xuất PDF'} để lấy đủ cả lớp.`}
                 </p>
               )}
               {isMobile && (

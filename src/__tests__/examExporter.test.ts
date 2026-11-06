@@ -19,7 +19,7 @@ import { ExamPrintIntegrityError } from '../lib/examPrintSafety'
 import { EXAM_SHUFFLE_MODES, generateExamVariantManifest } from '../../server/src/services/examVariantManifest'
 
 describe('examExporter', () => {
-  const sampleQuestions: ExamQuestion[] = [
+  const sampleQuestions = [
     {
       index: 1,
       question: 'Thiên Chúa sáng tạo trời đất trong mấy ngày?',
@@ -43,7 +43,7 @@ describe('examExporter', () => {
       },
       correctOption: 'C',
     },
-  ]
+  ] satisfies ExamQuestion[]
 
   describe('resolveExportQuestions', () => {
     it('returns provided questions if available', () => {
@@ -205,6 +205,53 @@ describe('examExporter', () => {
       expect(html).toContain('TN-002')
       expect(html).toContain('page-break-after: always')
       expect(html.match(/<svg class="omr-corner-marker/g)?.length).toBeGreaterThanOrEqual(8)
+    })
+
+    it('cycles through materialized Word exam versions and excludes answer-key-only codes', () => {
+      const students = [
+        { id: 'ST-00000001', code: 'TN-001', name: 'Nguyễn Văn A' },
+        { id: 'ST-00000002', code: 'TN-002', name: 'Trần Thị B' },
+        { id: 'ST-00000003', code: 'TN-003', name: 'Lê Văn C' },
+      ]
+      const manifest = generateExamVariantManifest({
+        questions: sampleQuestions,
+        questionCount: 2,
+        variantCount: 2,
+        shuffleMode: 'questions_only',
+        seed: 'batch-word-all',
+      })
+      const html = generateBatchExamWordHtml(students, {
+        sessionId: 'EXS-00000001',
+        subject: 'Khảo Sát Giáo Lý',
+        classLabel: 'Khai Tâm 1',
+        academicYear: '2025-2026',
+        questions: sampleQuestions,
+        answerVariants: { C: { 1: 'A', 2: 'D' } },
+        variantManifests: JSON.stringify(manifest),
+        selectedVersion: 'ALL',
+        includeAnswerKey: false,
+      })
+
+      const document = new DOMParser().parseFromString(html, 'text/html')
+      const papers = Array.from(document.querySelectorAll('.exam-paper-container'), paper => ({
+        name: paper.querySelector('.student-info-row:first-child strong')?.textContent,
+        version: paper.querySelector('.header-left strong:last-child')?.textContent,
+        firstQuestion: paper.querySelector('.question-title')?.textContent?.trim(),
+      }))
+      expect(papers).toEqual([
+        { name: 'Nguyễn Văn A', version: 'A (101)', firstQuestion: `Câu 1: ${sampleQuestions[0].question}` },
+        { name: 'Trần Thị B', version: 'B (102)', firstQuestion: `Câu 1: ${sampleQuestions[1].question}` },
+        { name: 'Lê Văn C', version: 'A (101)', firstQuestion: `Câu 1: ${sampleQuestions[0].question}` },
+      ])
+    })
+
+    it('requires materialized questions to export alternating Word papers', () => {
+      expect(() => generateBatchExamWordHtml([{ id: 'ST-00000001', code: 'TN-001', name: 'Nguyễn Văn A' }], {
+        subject: 'Khảo Sát Giáo Lý',
+        questions: sampleQuestions,
+        answerVariants: { A: { 1: 'B', 2: 'C' }, B: { 1: 'A', 2: 'D' } },
+        selectedVersion: 'ALL',
+      })).toThrow('Hãy tạo ít nhất hai mã đề có nội dung')
     })
   })
 

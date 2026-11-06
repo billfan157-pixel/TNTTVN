@@ -1,4 +1,4 @@
-import { generateExamQrSvg, generateExamQrDataUrl, buildExamQrPayload, getExamQrViewBoxSize } from '../lib/qr'
+import { generateExamQrSvg, generateExamQrDataUrl, buildExamQrPayload, getExamQrViewBoxSize, supportsVersionedExamQr } from '../lib/qr'
 import { PARISH_LOGO_DATA_URI } from './parishLogo'
 import { GIA_TON_PARISH_INFO } from '../constants/parishInfo'
 import type { ExamVersionCode } from '../types'
@@ -110,12 +110,21 @@ export interface BatchAnswerSheetParams {
   examType?: ExamType
   questionCount?: number
   examVersion?: ExamVersionCode
+  variants?: readonly ExamVersionCode[]
 }
 
 export interface StudentSheetInfo {
   id: string
   code: string
   name: string
+}
+
+function getBatchExamVersion(versions: readonly ExamVersionCode[] | undefined, index: number, sessionId: string, studentId: string): ExamVersionCode | undefined {
+  if (!versions?.length) return undefined
+  if (supportsVersionedExamQr(sessionId, studentId)) return versions[index % versions.length]
+  // Mã QR đời cũ chỉ mang danh tính, nên luồng chấm theo lô dùng khóa mã A.
+  if (versions.includes('A')) return 'A'
+  throw new Error('Cần có mã đề A để in xen kẽ cho học sinh dùng mã QR cũ.')
 }
 
 /** Tạo chuỗi SVG cho 1 phiếu trả lời học viên. */
@@ -302,8 +311,9 @@ export function buildBatchAnswerSheetsHtml(
   params: BatchAnswerSheetParams
 ): string {
   const title = `Phiếu Trả Lời — ${params.subject} (${params.classLabel})`
-  const pagesHtml = students.map(student => {
-    const svgString = buildSingleAnswerSheetSvgString(student, params)
+  const pagesHtml = students.map((student, index) => {
+    const examVersion = getBatchExamVersion(params.variants, index, params.sessionId, student.id) ?? params.examVersion
+    const svgString = buildSingleAnswerSheetSvgString(student, { ...params, examVersion })
     return `<div class="answer-sheet-page">${svgString}</div>`
   }).join('')
 
@@ -385,6 +395,10 @@ export interface ExamPaperPrintOptions {
     code: string
     name: string
   }
+  variants?: ReadonlyArray<{
+    examVersion: ExamVersionCode
+    questions: ExamQuestion[]
+  }>
 }
 
 /** Lấy toàn bộ CSS style dùng chung cho in Đề Thi đơn lẻ và in Đề Thi hàng loạt.
@@ -1224,7 +1238,7 @@ export function buildBatchExamPapersHtml(
   students: StudentSheetInfo[],
   options: ExamPaperPrintOptions
 ): string {
-  const { subject, classLabel } = options
+  const { subject, classLabel, sessionId = 'SESS-001', variants } = options
   const title = `Đề Thi & Phiếu Trả Lời Hàng Loạt — ${subject} (${classLabel})`
   const baseStyles = getExamPaperStyles()
 
@@ -1233,9 +1247,14 @@ export function buildBatchExamPapersHtml(
     return buildExamPaperHtml(options)
   }
 
-  const pagesHtml = students.map((student) => {
+  const versions = variants?.map(variant => variant.examVersion)
+  const pagesHtml = students.map((student, index) => {
+    const version = getBatchExamVersion(versions, index, sessionId, student.id)
+    const variant = variants?.find(entry => entry.examVersion === version)
     const singleHtml = buildExamPaperHtml({
       ...options,
+      examVersion: variant?.examVersion ?? options.examVersion,
+      questions: variant?.questions ?? options.questions,
       student: { id: student.id, code: student.code, name: student.name },
     })
     // Trích xuất body content để bọc vào .batch-exam-page
@@ -1332,11 +1351,8 @@ export function printBatchExamPapers(
   ReportExportService.print(htmlContent)
 }
 
-export interface AllVariantsExamPapersParams extends Omit<ExamPaperPrintOptions, 'questions' | 'examVersion'> {
-  variants: Array<{
-    examVersion: ExamVersionCode
-    questions: ExamQuestion[]
-  }>
+export interface AllVariantsExamPapersParams extends Omit<ExamPaperPrintOptions, 'questions' | 'examVersion' | 'variants'> {
+  variants: NonNullable<ExamPaperPrintOptions['variants']>
 }
 
 /** Tạo HTML gộp toàn bộ các mã đề thi độc lập, mỗi mã đề tự ngắt trang sạch sẽ */

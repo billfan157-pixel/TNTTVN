@@ -1,6 +1,25 @@
-import type { ExamVersionCode } from '../types'
+import type { ExamVariantManifestSet, ExamVersionCode } from '../types'
+import { EXAM_VERSION_CODES } from './examVariants'
 
 export type VersionedExamDocument = 'exam_paper' | 'question_reader' | 'answer_sheet' | 'qr_sheet'
+
+export function readExamVariantManifest(value: ExamVariantManifestSet | string | undefined): ExamVariantManifestSet | undefined {
+  try {
+    const manifest = typeof value === 'string' ? JSON.parse(value) : value
+    if (manifest?.schemaVersion === 1 && manifest.variants && typeof manifest.variants === 'object' && !Array.isArray(manifest.variants)) {
+      return manifest as ExamVariantManifestSet
+    }
+  } catch {
+    return undefined
+  }
+}
+
+export function getManifestExamVersions(manifest: ExamVariantManifestSet | undefined): ExamVersionCode[] {
+  return EXAM_VERSION_CODES.filter(code => {
+    const questions = manifest?.variants[code]?.questions
+    return Array.isArray(questions) && questions.length > 0
+  })
+}
 
 /**
  * A-H currently describe externally shuffled papers and their detached answer
